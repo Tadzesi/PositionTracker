@@ -22,6 +22,7 @@ public sealed class EventRuntime
     private readonly TimeProvider _clock;
     private readonly SegmentBoard _board = new();
     private readonly Dictionary<string, Entry> _participants = new(StringComparer.Ordinal);
+    private long _participantsVersion;
 
     public EventRuntime(EventSettings settings, Course course, TimeProvider clock)
     {
@@ -47,8 +48,16 @@ public sealed class EventRuntime
                 throw new ArgumentException($"Participant '{info.Id}' already exists.", nameof(info));
             _participants[info.Id] = new Entry(info,
                 new ParticipantTracker(Course, Settings.Sport, Settings.StartTime, Settings.Tracker));
+            Interlocked.Increment(ref _participantsVersion);
         }
     }
+
+    /// <summary>
+    /// Increases whenever the participant infos change (any <see cref="AddParticipant"/>); read without the lock,
+    /// so callers can cache data derived from <see cref="Participants"/>. Read it before <see cref="Participants"/>
+    /// so a concurrent change is seen as stale, never missed.
+    /// </summary>
+    public long ParticipantsVersion => Interlocked.Read(ref _participantsVersion);
 
     /// <summary>A snapshot of the registered participants' info, keyed by participant id.</summary>
     public IReadOnlyDictionary<string, ParticipantInfo> Participants

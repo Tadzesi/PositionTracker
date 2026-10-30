@@ -24,7 +24,7 @@ public sealed class LiveHub(EventRegistry registry, IOptions<OrganizerOptions> o
     /// <summary>Joins the organizer group; a wrong key or an unknown event is a <see cref="HubException"/>.</summary>
     public Task JoinOrganizer(string eventId, string apiKey)
     {
-        if (!organizer.Value.IsValidKey(apiKey)) throw new HubException("Invalid organizer key.");
+        if (!organizer.Value.IsValidKey(apiKey)) throw new HubException("Invalid key");
         EnsureEvent(eventId);
         return Groups.AddToGroupAsync(Context.ConnectionId, OrganizerGroup(eventId), Context.ConnectionAborted);
     }
@@ -39,6 +39,6 @@ public sealed class LiveHub(EventRegistry registry, IOptions<OrganizerOptions> o
     private void EnsureEvent(string eventId)
     {
         if (string.IsNullOrEmpty(eventId) || registry.Get(eventId) is null)
-            throw new HubException($"Unknown event '{eventId}'.");
+            throw new HubException("Unknown event");
     }
 }

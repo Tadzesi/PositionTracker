@@ -142,33 +142,74 @@ public class LiveEndpointTests(ApiFactory shared) : IClassFixture<ApiFactory>
     {
         using var factory = new ApiFactory();
         var minor = new ParticipantInfo("kid", "21", "Young Rider", "Kiddo", "Junior", true, true);
-        factory.Event.AddParticipant(minor);
+        var adult = new ParticipantInfo("adult", "22", "Grown Rider", null, "Open", true, false);
         var p = factory.Event.Course.PointAt(10);
-        factory.Event.Ingest(minor.Id, new PositionBatch([new PositionFix(ApiFactory.T0, p.Lat, p.Lon, 5)],
-            new DeviceStatus(17, false, 34, true)));
-        factory.Event.Act(minor.Id, ParticipantAction.Sos);
+        foreach (var info in new[] { minor, adult })
+        {
+            factory.Event.AddParticipant(info);
+            factory.Event.Ingest(info.Id, new PositionBatch([new PositionFix(ApiFactory.T0, p.Lat, p.Lon, 5)],
+                new DeviceStatus(17, false, 34, true)));
+            factory.Event.Act(info.Id, ParticipantAction.Sos);
+        }
         await factory.Services.GetRequiredService<LiveBroadcaster>().BroadcastAsync();
         factory.Clock.Advance(TimeSpan.FromSeconds(31));
 
         using var organizer = OrganizerClient(factory);
         var live = await ReadJson(await organizer.GetAsync(LiveUrl));
-        var liveRow = live.GetProperty("participants").EnumerateArray().Single(r => r.GetProperty("participantId").GetString() == "kid");
-        Assert.Equal(17, liveRow.GetProperty("batteryPct").GetDouble());
-        Assert.Equal(34, liveRow.GetProperty("queueLength").GetInt32());
-        Assert.NotEqual(0, liveRow.GetProperty("alarms").GetArrayLength());
+        foreach (var id in new[] { minor.Id, adult.Id })
+        {
+            var liveRow = live.GetProperty("participants").EnumerateArray().Single(r => r.GetProperty("participantId").GetString() == id);
+            Assert.Equal("sos", liveRow.GetProperty("state").GetString());
+            Assert.Equal(17, liveRow.GetProperty("batteryPct").GetDouble());
+            Assert.Equal(34, liveRow.GetProperty("queueLength").GetInt32());
+            Assert.Contains(liveRow.GetProperty("alarms").EnumerateArray(), a => a.GetProperty("kind").GetString() == "sos");
+        }
 
         using var anonymous = factory.CreateClient();
         var response = await anonymous.GetAsync(PublicUrl);
         var json = await response.Content.ReadAsStringAsync();
         var view = await ReadJson(response);
-        var row = view.GetProperty("participants").EnumerateArray().Single(r => r.GetProperty("participantId").GetString() == "kid");
-        Assert.Equal("#21", row.GetProperty("displayName").GetString());
-        Assert.Equal("sos", row.GetProperty("state").GetString());
+        JsonElement Row(string id) =>
+            view.GetProperty("participants").EnumerateArray().Single(r => r.GetProperty("participantId").GetString() == id);
+        Assert.Equal("#21", Row(minor.Id).GetProperty("displayName").GetString());
+        Assert.Equal("Grown Rider", Row(adult.Id).GetProperty("displayName").GetString());
+        Assert.Equal("live", Row(minor.Id).GetProperty("state").GetString());
+        Assert.Equal("live", Row(adult.Id).GetProperty("state").GetString());
+        Assert.DoesNotContain("sos", json, StringComparison.OrdinalIgnoreCase);
         var names = PropertyNames(view).ToList();
         foreach (var forbidden in OrganizerOnly)
             Assert.DoesNotContain(names, n => n.Contains(forbidden, StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain("Young Rider", json);
         Assert.DoesNotContain("Kiddo", json);
+    }
+
+    [Fact]
+    public async Task Public_view_is_projected_once_and_refreshed_when_view_or_participants_change()
+    {
+        using var factory = new ApiFactory();
+        factory.Settings["Live:IntervalMs"] = "3600000"; // keep the background loop out of the count
+        var feed = factory.Services.GetRequiredService<SpectatorFeed>();
+        var broadcaster = factory.Services.GetRequiredService<LiveBroadcaster>();
+        using var client = factory.CreateClient();
+        await broadcaster.BroadcastAsync();
+        factory.Clock.Advance(TimeSpan.FromSeconds(31));
+
+        var first = await (await client.GetAsync(PublicUrl)).Content.ReadAsStringAsync();
+        var second = await (await client.GetAsync(PublicUrl)).Content.ReadAsStringAsync();
+        Assert.Equal(first, second);
+        Assert.Equal(1, feed.Projections);
+        Assert.Same(feed.GetCurrent(factory.Event), feed.GetCurrent(factory.Event));
+        Assert.Equal(1, feed.Projections);
+
+        var (added, _) = factory.AddParticipant();
+        await client.GetAsync(PublicUrl);
+        Assert.Equal(2, feed.Projections);
+
+        await broadcaster.BroadcastAsync();
+        factory.Clock.Advance(TimeSpan.FromSeconds(31));
+        var view = await ReadJson(await client.GetAsync(PublicUrl));
+        Assert.Equal(3, feed.Projections);
+        Assert.Contains(view.GetProperty("participants").EnumerateArray(), r => r.GetProperty("participantId").GetString() == added);
     }
 
     [Fact]
@@ -249,7 +290,10 @@ public class LiveEndpointTests(ApiFactory shared) : IClassFixture<ApiFactory>
         await using var connection = Connect(shared);
         await connection.StartAsync();
 
-        await Assert.ThrowsAsync<HubException>(() => connection.InvokeAsync("JoinOrganizer", ApiFactory.EventId, "wrong-key"));
+        var ex = await Assert.ThrowsAsync<HubException>(() => connection.InvokeAsync("JoinOrganizer", ApiFactory.EventId, "wrong-key"));
+        Assert.EndsWith("Invalid key", ex.Message);
+        Assert.DoesNotContain(ApiFactory.EventId, ex.Message);
+        Assert.DoesNotContain("wrong-key", ex.Message);
     }
 
     [Fact]
@@ -258,6 +302,20 @@ public class LiveEndpointTests(ApiFactory shared) : IClassFixture<ApiFactory>
         await using var connection = Connect(shared);
         await connection.StartAsync();
 
-        await Assert.ThrowsAsync<HubException>(() => connection.InvokeAsync("JoinSpectator", "evt-missing"));
+        var ex = await Assert.ThrowsAsync<HubException>(() => connection.InvokeAsync("JoinSpectator", "evt-<b>missing</b>"));
+        Assert.EndsWith("Unknown event", ex.Message);
+        Assert.DoesNotContain("missing", ex.Message);
+    }
+
+    [Fact]
+    public async Task JoinOrganizer_with_key_for_unknown_event_throws_HubException_without_echoing_the_id()
+    {
+        await using var connection = Connect(shared);
+        await connection.StartAsync();
+
+        var ex = await Assert.ThrowsAsync<HubException>(() =>
+            connection.InvokeAsync("JoinOrganizer", "evt-<b>missing</b>", shared.OrganizerKey));
+        Assert.EndsWith("Unknown event", ex.Message);
+        Assert.DoesNotContain("missing", ex.Message);
     }
 }

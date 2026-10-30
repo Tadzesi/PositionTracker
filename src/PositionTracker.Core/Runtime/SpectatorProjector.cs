@@ -17,7 +17,8 @@ public static class SpectatorProjector
 {
     /// <summary>
     /// Projects every row of <paramref name="view"/>, keeping its order. The display name comes from
-    /// <paramref name="participants"/>, never from the organizer row: see <see cref="DisplayName"/>.
+    /// <paramref name="participants"/>, never from the organizer row: see <see cref="DisplayName"/>. The state is
+    /// reduced by <see cref="SpectatorState"/> so alarms (SOS, stopped, off course) are never visible.
     /// </summary>
     public static SpectatorView Project(LiveView view, IReadOnlyDictionary<string, ParticipantInfo> participants)
     {
@@ -26,10 +27,24 @@ public static class SpectatorProjector
         return new SpectatorView(view.At, view.EventId, view.Participants
             .Select(p => new SpectatorParticipantView(
                 p.ParticipantId, p.Bib, DisplayName(participants.GetValueOrDefault(p.ParticipantId), p.Bib),
-                p.Category, p.Rank, p.Lap, p.TotalDistanceM, p.Lat, p.Lon, p.SpeedMps, p.PaceSecPerKm, p.State,
+                p.Category, p.Rank, p.Lap, p.TotalDistanceM, p.Lat, p.Lon, p.SpeedMps, p.PaceSecPerKm,
+                SpectatorState(p.State),
                 p.GapToLeader, p.GapToAhead, p.Eta, p.Segments))
             .ToList());
     }
+
+    /// <summary>
+    /// The state spectators see: the alarm states <see cref="ParticipantState.Sos"/>,
+    /// <see cref="ParticipantState.Stopped"/> and <see cref="ParticipantState.OffCourse"/> are shown as
+    /// <see cref="ParticipantState.Live"/>; <see cref="ParticipantState.NotStarted"/>, <see cref="ParticipantState.Live"/>,
+    /// <see cref="ParticipantState.Delayed"/>, <see cref="ParticipantState.Offline"/> ("no signal"),
+    /// <see cref="ParticipantState.Finished"/> and <see cref="ParticipantState.Dnf"/> are kept.
+    /// </summary>
+    private static ParticipantState SpectatorState(ParticipantState state) => state switch
+    {
+        ParticipantState.Sos or ParticipantState.Stopped or ParticipantState.OffCourse => ParticipantState.Live,
+        _ => state,
+    };
 
     /// <summary>
     /// The nickname if the participant consented, is not a minor and has one; else the full name if consented and

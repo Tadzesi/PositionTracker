@@ -84,6 +84,25 @@ public class SpectatorProjectorTests
             ParticipantState.Live, TimeSpan.FromSeconds(42), null, second.Eta, second.Segments), p);
     }
 
+    [Theory]
+    [InlineData(ParticipantState.Sos, ParticipantState.Live)]
+    [InlineData(ParticipantState.Stopped, ParticipantState.Live)]
+    [InlineData(ParticipantState.OffCourse, ParticipantState.Live)]
+    [InlineData(ParticipantState.NotStarted, ParticipantState.NotStarted)]
+    [InlineData(ParticipantState.Live, ParticipantState.Live)]
+    [InlineData(ParticipantState.Delayed, ParticipantState.Delayed)]
+    [InlineData(ParticipantState.Offline, ParticipantState.Offline)]
+    [InlineData(ParticipantState.Finished, ParticipantState.Finished)]
+    [InlineData(ParticipantState.Dnf, ParticipantState.Dnf)]
+    public void Alarm_states_are_shown_to_spectators_as_live(ParticipantState organizer, ParticipantState spectator)
+    {
+        var view = View(Row("a", "1", "A") with { State = organizer });
+        var projected = SpectatorProjector.Project(view, new Dictionary<string, ParticipantInfo> { ["a"] = Info("a", "1", "A") });
+
+        Assert.Equal(spectator, Assert.Single(projected.Participants).State);
+        Assert.Equal(organizer, view.Participants[0].State);
+    }
+
     [Fact]
     public void Serialized_projection_contains_no_organizer_only_fields()
     {
