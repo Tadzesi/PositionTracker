@@ -142,9 +142,9 @@ public sealed class LinkTokenService {
 }
 // HTTP (JSON, camelCase; every error body {"code": "...", "message": {"sk": "...", "en": "..."}})
 // POST /api/account/signup        {name,email,language}        -> 202 (always)
-// GET  /api/account/confirm?token=…                              -> 200 {confirmed:true} or 400 code
+// POST /api/account/confirm  {token}                              -> 200 {confirmed:true} or 400 code   (POST per ruling P9)
 // POST /api/account/signin        {email}                         -> 202 (always)
-// GET  /api/account/signin/redeem?token=…                        -> sets the session cookie, 200
+// POST /api/account/signin/redeem {token}                        -> sets the session cookie, 200       (POST per ruling P9; all unsafe /api/account/* need Content-Type application/json and X-Requested-With: PositionTracker, ruling P10)
 // POST /api/account/signout                                       -> 204
 // GET  /api/account/me                                            -> 200 {name,email,language,emailConfirmed}
 ```
