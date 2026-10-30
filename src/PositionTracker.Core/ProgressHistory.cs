@@ -74,6 +74,41 @@ public sealed class ProgressHistory
         return dt > 0 ? (_distances[last] - _distances[first]) / dt : 0;
     }
 
+    /// <summary>
+    /// Average speed over the moving intervals of the window <c>(until - window, until]</c>: intervals between
+    /// consecutive points whose speed is at least <paramref name="movingFromMps"/> (the same classification as the
+    /// tracker's moving time). An interval straddling the window start counts with its share inside the window.
+    /// Paused time (<paramref name="pausedWithin"/>) is excluded from the time, not from the distance. Returns 0
+    /// when the window holds no moving time. <c>FromM</c> is the distance at the window start (interpolated), or
+    /// at the first point when the history starts inside the window.
+    /// </summary>
+    internal (double SpeedMps, double FromM) MovingSpeed(DateTimeOffset until, TimeSpan window, double movingFromMps,
+        Func<DateTimeOffset, DateTimeOffset, TimeSpan> pausedWithin)
+    {
+        var last = FirstTimeIndexAtOrAfter(until);
+        if (last < _times.Count && _times[last] == until) last++;
+        last--; // last index with time <= until
+        if (last < 0) return (0, 0);
+
+        var start = until - window;
+        double distance = 0, seconds = 0, fromM = _distances[last];
+        for (var i = last; i >= 1 && _times[i] > start; i--)
+        {
+            DateTimeOffset t0 = _times[i - 1], t1 = _times[i];
+            var dd = _distances[i] - _distances[i - 1];
+            var dt = (t1 - t0).TotalSeconds;
+            var from = t0 < start ? start : t0;
+            var share = dt > 0 ? (t1 - from).TotalSeconds / dt : 1;
+            fromM = _distances[i] - dd * share;
+            if (dt <= 0 || dd / dt < movingFromMps) continue;
+            var counted = (t1 - from) - pausedWithin(from, t1);
+            if (counted <= TimeSpan.Zero) continue;
+            distance += dd * share;
+            seconds += counted.TotalSeconds;
+        }
+        return (seconds > 0 ? distance / seconds : 0, fromM);
+    }
+
     /// <summary>Distance of the last point at or before <paramref name="time"/>; <c>null</c> if there is none.</summary>
     internal double? DistanceAtOrBefore(DateTimeOffset time)
     {

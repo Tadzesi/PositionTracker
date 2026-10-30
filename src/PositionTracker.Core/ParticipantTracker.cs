@@ -48,7 +48,8 @@ public sealed record ApplyManyResult(ParticipantSnapshot Snapshot, IReadOnlyList
 /// Turns one participant's fixes into course progress and motion statistics.
 /// </summary>
 /// <remarks>
-/// <para>Every fix that passes input validation and the accuracy check is stored in device-time order.
+/// <para>Every fix that passes input validation and the accuracy check is stored in device-time order, at most
+/// one per second of device time and at most <see cref="MaxStoredFixes"/> in all.
 /// The state is a fold over the stored fixes in that order: speed filter, course matching, lap counting,
 /// total distance, history and motion accounting. A fix that sorts before the newest stored one triggers
 /// a replay of all stored fixes into fresh state, so the result depends only on the set of fixes received,
@@ -56,7 +57,8 @@ public sealed record ApplyManyResult(ParticipantSnapshot Snapshot, IReadOnlyList
 /// decision depends on the fixes before them. Fixes before the start time only update the last-fix fields.</para>
 /// <para>Matching keeps a lap counter and the matched lap progress (the position on the course). The
 /// lap counter steps up or down whenever the position crosses the start/finish seam in either direction,
-/// so jitter across the line cancels out. Total distance is the high-water mark of that position,
+/// so jitter across the line cancels out. After a signal gap long enough to hide whole laps the number of
+/// laps is chosen from the expected advance (see <c>WholeLaps</c>). Total distance is the high-water mark of that position,
 /// clamped to the course length, and never decreases. Only matched fixes enter the history and the
 /// moving/stopped accounting, so an off-course stretch neither counts as stopped nor causes a speed spike.</para>
 /// <para>SOS, pause and DNF are state inputs, not fixes. They are kept outside the fold state and survive every
@@ -82,9 +84,20 @@ public sealed class ParticipantTracker
     private const double StoppedToleranceM = 15;
     /// <summary>Absorbs floating-point error at the edges of the matcher window.</summary>
     private const double WindowToleranceM = 1;
+    /// <summary>
+    /// Window of the moving speed that predicts the advance during a signal gap (see <see cref="WholeLaps"/>) and
+    /// that the ETA uses: spec 5.2 asks for a rolling average over the last 5 to 10 minutes of moving speed.
+    /// </summary>
+    public static readonly TimeSpan EtaSpeedWindow = TimeSpan.FromMinutes(7);
+    /// <summary>
+    /// Stored fixes per participant at most; further new fixes are rejected. At one fix per second that is over
+    /// five hours, at the 5 s send interval more than a day, and a full replay stays in the tens of milliseconds.
+    /// </summary>
+    public const int MaxStoredFixes = 20_000;
     private static readonly MatcherOptions DefaultMatcher = new();
 
     private readonly Course _course;
+    private readonly Sport _sport;
     private readonly DateTimeOffset _startTime;
     private readonly TrackerOptions _options;
     private readonly List<PositionFix> _fixes = new(); // sorted by FixOrder
@@ -107,6 +120,8 @@ public sealed class ParticipantTracker
     private double _totalM;
     private double _offCourseM;
     private DateTimeOffset _lastMatchedTime;
+    private DateTimeOffset _observedTime;     // newest accepted race fix that went through matching
+    private double _observedPositionM;        // race position believed at _observedTime (see WholeLaps)
     private TimeSpan _movingTime;
     private TimeSpan _stoppedTime;
     private double _maxSpeedMps;
@@ -117,6 +132,7 @@ public sealed class ParticipantTracker
     {
         ArgumentNullException.ThrowIfNull(course);
         _course = course;
+        _sport = sport;
         _startTime = startTime;
         _options = options ?? TrackerOptions.Defaults(sport);
         Reset();
@@ -126,6 +142,9 @@ public sealed class ParticipantTracker
 
     /// <summary>Number of full replays so far; lets tests check that a batch costs at most one.</summary>
     internal int ReplayCount { get; private set; }
+
+    /// <summary>Number of stored fixes (see <see cref="MaxStoredFixes"/>).</summary>
+    internal int StoredFixCount => _fixes.Count;
 
     /// <summary>Adds one fix; see <see cref="ApplyMany"/>.</summary>
     public ApplyResult Apply(PositionFix fix)
@@ -137,13 +156,17 @@ public sealed class ParticipantTracker
 
     /// <summary>
     /// Adds fixes in any order and returns the snapshot at the newest accepted fix. Invalid fixes and exact
-    /// resends of a stored fix leave the state unchanged. Fixes that extend the stored sequence are folded in
+    /// resends of a stored fix leave the state unchanged. At most one fix per second of device time is stored:
+    /// within a second the first in fix order (time, then coordinates) wins, also when it arrives later and
+    /// replaces the stored one, so the stored set does not depend on arrival order. Beyond
+    /// <see cref="MaxStoredFixes"/> new fixes are rejected. Fixes that extend the stored sequence are folded in
     /// directly; once one sorts before a stored fix, the rest are only inserted and all stored fixes are
     /// replayed once at the end. <c>Completed</c> holds the segment completions that are new or whose time
     /// changed with this batch (a late fix can move an interpolated crossing), each <c>(Lap, SegmentIndex)</c> at
     /// most once, in course order; consumers record them idempotently. <c>Accepted</c> counts the fixes that were
     /// newly stored and passed the filter in the fold after the batch; malformed fixes, accuracy failures, exact
-    /// resends and speed or duplicate rejections are <c>Rejected</c>. A later batch can change the filter verdict
+    /// resends, fixes losing their second to another one, fixes over the cap and speed or duplicate rejections
+    /// are <c>Rejected</c>. A later batch can change the filter verdict
     /// of an earlier fix on replay; that is not reported again.
     /// </summary>
     public ApplyManyResult ApplyMany(IReadOnlyList<PositionFix> fixes)
@@ -163,6 +186,28 @@ public sealed class ParticipantTracker
                 continue;
             }
             index = ~index;
+
+            // At most one stored fix per second of device time: the first in fix order.
+            var second = SecondOf(fix);
+            if (index > 0 && SecondOf(_fixes[index - 1]) == second)
+            {
+                rejected++; // the stored one sorts first and stays
+                continue;
+            }
+            if (index < _fixes.Count && SecondOf(_fixes[index]) == second)
+            {
+                if (verdicts.Remove(_fixes[index])) rejected++; // evicts a fix of this batch
+                _fixes[index] = fix;
+                replay = true;
+                verdicts[fix] = false;
+                continue;
+            }
+            if (_fixes.Count >= MaxStoredFixes)
+            {
+                rejected++;
+                continue;
+            }
+
             _fixes.Insert(index, fix);
             replay |= index != _fixes.Count - 1;
             verdicts[fix] = !replay && Step(fix);
@@ -215,25 +260,31 @@ public sealed class ParticipantTracker
     /// Records a pause switch at <paramref name="at"/>. Switches may arrive in any order; they are kept sorted by
     /// time, and switches with equal times by call order, so the later call wins (pause and unpause in the same
     /// second cancel out). A pause runs from the first pause switch to the next unpause switch. Changing the pauses
-    /// replays the fixes, because paused time is neither moving nor stopped time.
+    /// replays the fixes, because paused time is neither moving nor stopped time; a switch that leaves the pause
+    /// intervals unchanged (pausing while paused, resuming while running) is recorded but replays nothing.
     /// </summary>
     public void SetPaused(DateTimeOffset at, bool paused)
     {
         var index = _pauseSwitches.BinarySearch((at, _pauseSwitches.Count, paused));
         _pauseSwitches.Insert(~index, (at, _pauseSwitches.Count, paused));
 
-        _pauses.Clear();
+        var pauses = new List<(DateTimeOffset Start, DateTimeOffset End)>();
         DateTimeOffset? start = null;
         foreach (var (time, _, on) in _pauseSwitches)
         {
             if (on) start ??= time;
             else if (start is { } s)
             {
-                if (time > s) _pauses.Add((s, time));
+                if (time > s) pauses.Add((s, time));
                 start = null;
             }
         }
-        if (start is { } open) _pauses.Add((open, DateTimeOffset.MaxValue));
+        if (start is { } open) pauses.Add((open, DateTimeOffset.MaxValue));
+
+        // A switch to the state already in force (a repeated pause or resume) changes no interval: no replay.
+        if (pauses.SequenceEqual(_pauses)) return;
+        _pauses.Clear();
+        _pauses.AddRange(pauses);
         Replay();
     }
 
@@ -270,7 +321,7 @@ public sealed class ParticipantTracker
     /// The state by display priority Dnf > Finished > Sos > Offline > Delayed > OffCourse > Stopped > Live.
     /// Without an accepted race fix the participant is NotStarted, unless DNF or SOS apply. Silence is measured
     /// from the newest accepted fix to <paramref name="now"/> and is Delayed/Offline only when it is strictly
-    /// longer than the threshold ("within 15 s" is Live, "over 2 min" is Offline). Off course and stopped are
+    /// longer than the threshold ("within 15 s" is Live, "over 2 min" is Offline), never negative. Off course and stopped are
     /// judged at the newest accepted fix, since either silence state outranks them.
     /// </summary>
     private ParticipantState StateAt(DateTimeOffset now)
@@ -280,7 +331,7 @@ public sealed class ParticipantTracker
         if (_sos) return ParticipantState.Sos;
         if (_lastAccepted is not { } last) return ParticipantState.NotStarted;
 
-        var silence = now - last.Time;
+        var silence = now > last.Time ? now - last.Time : TimeSpan.Zero; // a fix ahead of now is not negative silence
         if (silence > _options.OfflineAfter) return ParticipantState.Offline;
         if (silence > _options.DelayedAfter) return ParticipantState.Delayed;
         if (IsOffCourse(last)) return ParticipantState.OffCourse;
@@ -353,6 +404,8 @@ public sealed class ParticipantTracker
 
     private bool IsPausedAt(DateTimeOffset time) => _pauses.Exists(p => p.Start <= time && time < p.End);
 
+    private static long SecondOf(PositionFix fix) => Math.DivRem(fix.Time.UtcTicks, TimeSpan.TicksPerSecond, out _);
+
     /// <summary>Rejects malformed input before the filter (which accepts any first fix) and fixes failing the accuracy limit.</summary>
     private bool IsStorable(PositionFix fix) =>
         double.IsFinite(fix.Lat) && double.IsFinite(fix.Lon) && Math.Abs(fix.Lat) <= 90 && Math.Abs(fix.Lon) <= 180
@@ -381,6 +434,8 @@ public sealed class ParticipantTracker
         _totalM = 0;
         _offCourseM = 0;
         _lastMatchedTime = _startTime;
+        _observedTime = _startTime;
+        _observedPositionM = 0;
         _movingTime = TimeSpan.Zero;
         _stoppedTime = TimeSpan.Zero;
         _maxSpeedMps = 0;
@@ -435,45 +490,103 @@ public sealed class ParticipantTracker
     /// Matches the fix near the last position and advances laps and total; returns whether the match was
     /// accepted. Re-acquisition: the forward window grows with the time since the last accepted match x the
     /// sport's max speed (at least the matcher default, at most one lap), so a rider is found again after a
-    /// dropout. There is no separate full-lap retry: with the backtracking rule it could only find moves the
-    /// widened window already covers. A match is accepted only if it is reachable in the elapsed time and
-    /// not more than <see cref="MaxRegressionM"/> behind the total. <paramref name="offCourse"/> is the matcher's
-    /// verdict alone: no pass of the course within <c>OffCourseM</c> inside the window.
+    /// dropout. There is no separate full-lap retry: the matcher's window already covers the whole lap once the
+    /// reach exceeds it, and the number of whole laps is decided by <see cref="TryAdvance"/>. A match is
+    /// accepted only if it is reachable in the elapsed time and not more than <see cref="MaxRegressionM"/> behind
+    /// the total. <paramref name="offCourse"/> is the matcher's verdict alone: no pass of the course within
+    /// <c>OffCourseM</c> inside the window. Every fix that gets here is an observation for <see cref="WholeLaps"/>.
     /// </summary>
     private bool Locate(PositionFix fix, out bool offCourse)
     {
         var elapsedS = Math.Max(0, (fix.Time - _lastMatchedTime).TotalSeconds);
-        var reachM = Math.Min(_course.LapLengthM, Math.Max(DefaultMatcher.ForwardWindowM, elapsedS * _options.Filter.MaxSpeedMps));
-        var window = DefaultMatcher with { ForwardWindowM = reachM, OffCourseThresholdM = _options.OffCourseM };
+        var reachM = Math.Max(DefaultMatcher.ForwardWindowM, elapsedS * _options.Filter.MaxSpeedMps);
+        var window = DefaultMatcher with
+        {
+            ForwardWindowM = Math.Min(_course.LapLengthM, reachM),
+            OffCourseThresholdM = _options.OffCourseM,
+        };
 
         var result = CourseMatcher.Match(_course, fix.Lat, fix.Lon, _lapProgressM, window);
         if (double.IsFinite(result.OffCourseM)) _offCourseM = result.OffCourseM;
         offCourse = !result.Matched;
-        if (!TryAdvance(result, reachM)) return false;
-        _lastMatchedTime = fix.Time;
-        return true;
+        var advanced = TryAdvance(fix.Time, result, elapsedS, reachM);
+        _observedTime = fix.Time;
+        if (advanced) _lastMatchedTime = fix.Time;
+        return advanced;
     }
 
-    /// <summary>Applies a match if plausible; returns false (state unchanged) otherwise.</summary>
-    private bool TryAdvance(MatchResult match, double reachM)
+    /// <summary>
+    /// Applies a match if plausible; returns false (state unchanged apart from the observed position) otherwise.
+    /// On a closed course the move is first normalised into <c>[-backtrack, L - backtrack)</c>: a move close to a
+    /// full lap forward is backtracking. Once the time since the last accepted match at the sport's max speed
+    /// could cover more than that range, whole laps may have been ridden unseen and <see cref="WholeLaps"/>
+    /// decides how many.
+    /// </summary>
+    private bool TryAdvance(DateTimeOffset time, MatchResult match, double elapsedS, double reachM)
     {
         if (!match.Matched) return false;
 
         var move = match.LapProgressM - _lapProgressM;
         if (_course.IsClosed)
         {
-            // Normalise into [-backtrack, L - backtrack): a move close to a full lap forward is backtracking.
             var backtrack = Math.Min(MaxBacktrackM, _course.LapLengthM / 2);
             move = Mod(move + backtrack, _course.LapLengthM) - backtrack;
+            if (elapsedS * _options.Filter.MaxSpeedMps > _course.LapLengthM - backtrack && History.Last is not null)
+                move = WholeLaps(move, time, reachM, backtrack);
         }
         var position = Position + move;
-        if (move > reachM + WindowToleranceM || position < _totalM - MaxRegressionM) return false;
+        if (move > reachM + WindowToleranceM) return false;
+        if (position < _totalM - MaxRegressionM)
+        {
+            _observedPositionM = position; // seen behind: drift or a real step back, not a lap ahead
+            return false;
+        }
 
         if (_course.IsClosed)
             _lapCounter += (int)Math.Round((_lapProgressM + move - match.LapProgressM) / _course.LapLengthM);
         _lapProgressM = match.LapProgressM;
         _totalM = Math.Clamp(Math.Max(_totalM, Position), 0, _course.TotalLengthM);
+        _observedPositionM = Position;
         return true;
+    }
+
+    /// <summary>
+    /// Lap-count recovery after a signal gap on a loop shorter than the reach: chooses the move
+    /// <c>move + k·L</c> (k ≥ 0, so never further back than the normalised move) that is closest to the expected
+    /// move, within the reach and not past the finish by more than <paramref name="backtrackM"/>. The expected
+    /// position is the position believed at the newest observation (any accepted race fix: a match, a match
+    /// refused as too far behind, or an off-course fix, which keeps the position) plus the predicted speed times
+    /// the unpaused time since that observation. Fixes that keep arriving therefore pin the expectation: drift
+    /// behind a standing rider or a long off-course stretch never gains a lap, only an unobserved gap can.
+    /// Requires an earlier matched fix (without one the normalised move is kept). Predicted speed:
+    /// <see cref="ExpectedSpeedMps"/>. A pure function of the fold state, so replays give the same choice.
+    /// </summary>
+    private double WholeLaps(double move, DateTimeOffset time, double reachM, double backtrackM)
+    {
+        var unobserved = time - _observedTime - PausedWithin(_observedTime, time);
+        var expectedMove = _observedPositionM + ExpectedSpeedMps() * Math.Max(0, unobserved.TotalSeconds) - Position;
+        var best = move;
+        for (var candidate = move + _course.LapLengthM;
+             candidate <= reachM + WindowToleranceM && Position + candidate <= _course.TotalLengthM + backtrackM;
+             candidate += _course.LapLengthM)
+        {
+            if (Math.Abs(candidate - expectedMove) < Math.Abs(best - expectedMove)) best = candidate;
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// The speed expected during a gap: the moving speed over <see cref="EtaSpeedWindow"/> up to the last accepted
+    /// match; without moving time there, the average moving speed of the whole ride; without either, the sport's
+    /// typical speed (running 3 m/s, cycling 7 m/s). Capped at the sport's max speed.
+    /// </summary>
+    private double ExpectedSpeedMps()
+    {
+        var recent = History.MovingSpeed(_lastMatchedTime, EtaSpeedWindow, _options.StoppedSpeedMps, PausedWithin).SpeedMps;
+        if (recent > 0) return Math.Min(recent, _options.Filter.MaxSpeedMps);
+        var average = _movingTime > TimeSpan.Zero ? _totalM / _movingTime.TotalSeconds : 0;
+        if (average >= _options.StoppedSpeedMps) return Math.Min(average, _options.Filter.MaxSpeedMps);
+        return _sport == Sport.Running ? 3.0 : 7.0;
     }
 
     /// <summary>Signed distance along the race: negative just behind the start line.</summary>

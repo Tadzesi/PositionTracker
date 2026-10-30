@@ -31,9 +31,13 @@ public static class CourseMatcher
     /// <c>ForwardWindowM</c> beyond the last progress (for example during a dropout), the true position is
     /// outside the window. The result is then <c>Matched=false</c> with progress unchanged, unless another
     /// pass of the course lies within <c>OffCourseThresholdM</c> inside the window (shared road, crossing),
-    /// in which case <c>Matched=true</c> lands on that wrong pass. Callers own re-acquisition. They must widen
-    /// <c>ForwardWindowM</c> by elapsed time × max speed since the last matched fix. After repeated unmatched
-    /// fixes they must retry with <c>ForwardWindowM = LapLengthM</c> (full-lap search).</para>
+    /// in which case <c>Matched=true</c> lands on that wrong pass. Callers own re-acquisition: they widen
+    /// <c>ForwardWindowM</c> by elapsed time × max speed since the last matched fix, up to one lap (the
+    /// participant tracker does this; a separate full-lap retry would only find what the widened window already
+    /// covers). The result is a position within one lap; on a closed course the caller decides how many whole
+    /// laps lie between the last progress and the match (the tracker reads a move just short of a full lap as
+    /// backtracking and, after a signal gap longer than that, picks the lap count closest to the expected
+    /// advance).</para>
     /// <para>Passes of the course within 5 m of the closest one are tied. A forward move of at most
     /// <c>PlausibleForwardM</c> (150 m) always wins a tie, and the smallest such move is chosen. Otherwise
     /// small backward jitter and far-forward images compete by distance moved, so the smaller wins.</para>

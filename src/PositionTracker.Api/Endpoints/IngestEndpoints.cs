@@ -19,6 +19,8 @@ namespace PositionTracker.Api.Endpoints;
 /// <see cref="MaxFixesPerBatch"/> fixes or a body over <see cref="MaxBodyBytes"/> 413. Fixes with invalid coordinates or poor accuracy are not errors;
 /// they are counted as rejected. Each token may make <see cref="RequestsPerMinute"/> requests per fixed
 /// one-minute window (429 with <c>Retry-After</c> beyond); unauthenticated requests share a window per remote IP.
+/// On top of that each token may submit <see cref="FixRateLimiter.FixesPerMinute"/> fixes per minute; the excess
+/// of a batch (its last fixes) is counted as rejected and the answer is still 202.
 /// </summary>
 public static class IngestEndpoints
 {
@@ -69,7 +71,7 @@ public static class IngestEndpoints
     }
 
     private static async Task<IResult> PostPositions(
-        string eventId, HttpContext context, EventRegistry registry, IOptions<JsonOptions> json)
+        string eventId, HttpContext context, EventRegistry registry, FixRateLimiter fixLimiter, IOptions<JsonOptions> json)
     {
         if (Authorize(context, eventId, registry, out var caller, out var runtime) is { } denied) return denied;
 
@@ -83,8 +85,10 @@ public static class IngestEndpoints
                 statusCode: StatusCodes.Status413PayloadTooLarge);
 
         var status = request.Status is { } s ? new DeviceStatus(s.Battery, s.Charging, s.Queue, s.Foreground) : null;
-        var batch = new PositionBatch(fixes.Select(f => new PositionFix(f.T, f.Lat, f.Lon, f.Acc)).ToList(), status);
-        return Results.Accepted(value: runtime.Ingest(caller.ParticipantId, batch));
+        var granted = fixLimiter.Take(caller.TokenHash, fixes.Count);
+        var batch = new PositionBatch(fixes.Take(granted).Select(f => new PositionFix(f.T, f.Lat, f.Lon, f.Acc)).ToList(), status);
+        var result = runtime.Ingest(caller.ParticipantId, batch);
+        return Results.Accepted(value: result with { Rejected = result.Rejected + fixes.Count - granted });
     }
 
     private static async Task<IResult> PostAction(

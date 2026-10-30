@@ -177,7 +177,7 @@ public class IngestEndpointTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var (_, token) = factory.AddParticipant();
         using var client = factory.CreateClient(token);
         var response = await client.PostAsync(PositionsUrl,
-            Json("""{"fixes":[{"t":"2026-11-07T10:05:00.250Z","lat":49.0,"lon":18.7}]}"""));
+            Json("""{"fixes":[{"t":"2026-11-07T10:00:30.250Z","lat":49.0,"lon":18.7}]}"""));
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         Assert.Equal((1, 0), await ReadResult(response));
@@ -325,6 +325,30 @@ public class IngestEndpointTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.InRange(retryAfter.Value.TotalSeconds, 1, 60);
         Assert.Equal(HttpStatusCode.TooManyRequests, (await client1.PostAsync(ActionsUrl, Json("""{"action":"sos"}"""))).StatusCode);
         Assert.Equal(HttpStatusCode.Accepted, (await client2.PostAsJsonAsync(PositionsUrl, body)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Fixes_over_600_per_minute_and_token_are_counted_as_rejected_with_202()
+    {
+        using var f = new ApiFactory();
+        f.Clock.SetUtcNow(ApiFactory.T0.AddMinutes(20)); // every fix below lies in the past
+        using var client1 = f.CreateClient(f.Token1);
+        using var client2 = f.CreateClient(f.Token2);
+        object Batch(int from) => new { fixes = Enumerable.Range(from, 500).Select(i => Fix(f, i * 5.0, i)).ToArray() };
+
+        var first = await client1.PostAsJsonAsync(PositionsUrl, Batch(0));
+        var second = await client1.PostAsJsonAsync(PositionsUrl, Batch(500));
+        var other = await client2.PostAsJsonAsync(PositionsUrl, Batch(0));
+
+        Assert.Equal(HttpStatusCode.Accepted, first.StatusCode);
+        Assert.Equal((500, 0), await ReadResult(first));
+        Assert.Equal(HttpStatusCode.Accepted, second.StatusCode);
+        Assert.Equal((100, 400), await ReadResult(second));
+        Assert.Equal((500, 0), await ReadResult(other));
+
+        f.Clock.Advance(TimeSpan.FromMinutes(1)); // a new window
+        var third = await client1.PostAsJsonAsync(PositionsUrl, new { fixes = new[] { Fix(f, 5_000, 1_000) } });
+        Assert.Equal((1, 0), await ReadResult(third));
     }
 
     [Fact]

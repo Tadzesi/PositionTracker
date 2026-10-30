@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Microsoft.Extensions.Time.Testing;
+
 using PositionTracker.Core.Runtime;
 using PositionTracker.Core.Tests.TestData;
 
@@ -16,9 +16,9 @@ public class EventRuntimeTests
     private static readonly EventSettings Settings = new(
         "evt-1", "Test Ride", Sport.Cycling, T0, TimeSpan.FromSeconds(30), false, TrackerOptions.Defaults(Sport.Cycling));
 
-    private static (EventRuntime Runtime, FakeTimeProvider Clock) Create(params string[] ids)
+    private static (EventRuntime Runtime, TestClock Clock) Create(params string[] ids)
     {
-        var clock = new FakeTimeProvider(T0);
+        var clock = new TestClock(T0);
         var runtime = new EventRuntime(Settings, Loop, clock);
         foreach (var id in ids)
             runtime.AddParticipant(new ParticipantInfo(id, "B-" + id, "Name " + id, null, "Open", true, false));
@@ -39,6 +39,25 @@ public class EventRuntimeTests
         return fixes;
     }
 
+    /// <summary>
+    /// Ingests as a phone sending at the time of its newest fix: the clock is moved there for the call (fixes
+    /// over a minute ahead of the clock are rejected) and set back afterwards, so tests keep choosing the view time.
+    /// </summary>
+    private static IngestResult Send(EventRuntime runtime, string participantId, PositionBatch batch)
+    {
+        var clock = (TestClock)runtime.Clock;
+        var saved = clock.Now;
+        if (batch.Fixes.Count > 0 && batch.Fixes.Max(f => f.Time) > saved) clock.Now = batch.Fixes.Max(f => f.Time);
+        try
+        {
+            return runtime.Ingest(participantId, batch);
+        }
+        finally
+        {
+            clock.Now = saved;
+        }
+    }
+
     private static PositionBatch Batch(IEnumerable<PositionFix> fixes, DeviceStatus? status = null) => new(fixes.ToList(), status);
 
     private static ParticipantView View(EventRuntime runtime, string id) =>
@@ -51,12 +70,12 @@ public class EventRuntimeTests
     {
         var (runtime, _) = Create("a", "b");
 
-        var good = runtime.Ingest("a", Batch(Ride(8, 10)));
+        var good = Send(runtime, "a", Batch(Ride(8, 10)));
         Assert.Equal(new IngestResult(3, 0), good);
 
         var fixes = Ride(8, 10);
         fixes[1] = fixes[1] with { AccuracyM = 80 };
-        Assert.Equal(new IngestResult(2, 1), runtime.Ingest("b", Batch(fixes)));
+        Assert.Equal(new IngestResult(2, 1), Send(runtime, "b", Batch(fixes)));
     }
 
     [Fact]
@@ -64,7 +83,7 @@ public class EventRuntimeTests
     {
         var (runtime, _) = Create("a");
 
-        Assert.Throws<KeyNotFoundException>(() => runtime.Ingest("nobody", Batch(Ride(8, 10))));
+        Assert.Throws<KeyNotFoundException>(() => Send(runtime, "nobody", Batch(Ride(8, 10))));
         Assert.Throws<KeyNotFoundException>(() => runtime.Act("nobody", ParticipantAction.Sos));
     }
 
@@ -81,8 +100,8 @@ public class EventRuntimeTests
     public void Two_participants_get_ranks_1_and_2_and_the_gap_is_set()
     {
         var (runtime, clock) = Create("fast", "slow");
-        runtime.Ingest("fast", Batch(Ride(8, 100)));   // 800 m at T0 + 100 s
-        runtime.Ingest("slow", Batch(Ride(6.4, 100))); // 640 m at T0 + 100 s; fast was there at T0 + 80 s
+        Send(runtime, "fast", Batch(Ride(8, 100)));   // 800 m at T0 + 100 s
+        Send(runtime, "slow", Batch(Ride(6.4, 100))); // 640 m at T0 + 100 s; fast was there at T0 + 80 s
         clock.SetUtcNow(T0.AddSeconds(100));
 
         var view = runtime.BuildLiveView();
@@ -109,14 +128,14 @@ public class EventRuntimeTests
     public void LowBattery_alarm_when_battery_19_percent_and_none_at_20()
     {
         var (runtime, clock) = Create("low", "ok");
-        runtime.Ingest("low", Batch(Ride(8, 20), new DeviceStatus(19, false, 4, true)));
-        runtime.Ingest("ok", Batch(Ride(8, 20), new DeviceStatus(20, false, 0, true)));
+        Send(runtime, "low", Batch(Ride(8, 20), new DeviceStatus(19, false, 4, true)));
+        Send(runtime, "ok", Batch(Ride(8, 20), new DeviceStatus(20, false, 0, true)));
         clock.SetUtcNow(T0.AddSeconds(20));
 
         var low = View(runtime, "low");
         var ok = View(runtime, "ok");
 
-        Assert.Equal(new[] { new Alarm(AlarmKind.LowBattery, T0) }, low.Alarms);
+        Assert.Equal(new[] { new Alarm(AlarmKind.LowBattery, T0.AddSeconds(20)) }, low.Alarms); // the time of that ingest
         Assert.Equal(19, low.BatteryPct);
         Assert.Equal(4, low.QueueLength);
         Assert.Empty(ok.Alarms);
@@ -127,7 +146,7 @@ public class EventRuntimeTests
     public void Sos_action_adds_Sos_alarm_and_state_and_SosCleared_removes_both()
     {
         var (runtime, clock) = Create("a");
-        runtime.Ingest("a", Batch(Ride(8, 20)));
+        Send(runtime, "a", Batch(Ride(8, 20)));
         clock.SetUtcNow(T0.AddSeconds(20));
 
         runtime.Act("a", ParticipantAction.Sos);
@@ -147,13 +166,13 @@ public class EventRuntimeTests
     public void Offline_alarm_after_121_seconds_and_counts_updated()
     {
         var (runtime, clock) = Create("a", "b");
-        runtime.Ingest("a", Batch(Ride(8, 60)));
-        runtime.Ingest("b", Batch(Ride(8, 60)));
+        Send(runtime, "a", Batch(Ride(8, 60)));
+        Send(runtime, "b", Batch(Ride(8, 60)));
         clock.SetUtcNow(T0.AddSeconds(60));
         var before = runtime.BuildLiveView();
         Assert.Equal((2, 0, 0, 0), (before.CountLive, before.CountDelayed, before.CountOffline, before.CountDnf));
 
-        runtime.Ingest("b", Batch(new[] { FixAt(8 * 170, T0.AddSeconds(170)) }));
+        Send(runtime, "b", Batch(new[] { FixAt(8 * 170, T0.AddSeconds(170)) }));
         clock.SetUtcNow(T0.AddSeconds(181)); // a silent for 121 s, b for 11 s
         var after = runtime.BuildLiveView();
 
@@ -172,8 +191,8 @@ public class EventRuntimeTests
     public void Segment_results_appear_with_colours_after_checkpoint_crossing()
     {
         var (runtime, clock) = Create("fast", "slow");
-        runtime.Ingest("fast", Batch(Ride(8, 400)));  // CP1 at 375 s
-        runtime.Ingest("slow", Batch(Ride(7.5, 420))); // CP1 at 400 s
+        Send(runtime, "fast", Batch(Ride(8, 400)));  // CP1 at 375 s
+        Send(runtime, "slow", Batch(Ride(7.5, 420))); // CP1 at 400 s
         clock.SetUtcNow(T0.AddSeconds(420));
 
         var fast = View(runtime, "fast");
@@ -191,7 +210,7 @@ public class EventRuntimeTests
     public void Participant_without_fixes_has_null_rank_and_NotStarted_or_state_from_start_time()
     {
         var (runtime, clock) = Create("rider", "idle");
-        runtime.Ingest("rider", Batch(Ride(8, 30)));
+        Send(runtime, "rider", Batch(Ride(8, 30)));
         clock.SetUtcNow(T0.AddSeconds(30));
 
         var view = runtime.BuildLiveView();
@@ -217,13 +236,13 @@ public class EventRuntimeTests
         var status = new DeviceStatus(55, true, 0, true);
 
         var (ordered, orderedClock) = Create("a");
-        ordered.Ingest("a", Batch(fixes.Take(60), status));
-        ordered.Ingest("a", Batch(fixes.Skip(60), status));
+        Send(ordered, "a", Batch(fixes.Take(60), status));
+        Send(ordered, "a", Batch(fixes.Skip(60), status));
         orderedClock.SetUtcNow(T0.AddSeconds(800));
 
         var (late, lateClock) = Create("a");
-        late.Ingest("a", Batch(fixes.Skip(60).Reverse(), status));
-        late.Ingest("a", Batch(fixes.Take(60).Reverse(), status));
+        Send(late, "a", Batch(fixes.Skip(60).Reverse(), status));
+        Send(late, "a", Batch(fixes.Take(60).Reverse(), status));
         lateClock.SetUtcNow(T0.AddSeconds(800));
 
         var expected = ordered.BuildLiveView();
@@ -268,11 +287,11 @@ public class EventRuntimeTests
     public void Stopped_alarm_since_is_stable_across_views_and_clears_when_moving_again()
     {
         var (runtime, clock) = Create("a");
-        runtime.Ingest("a", Batch(Ride(8, 100).Concat(Stand(800, 105, 400)))); // stops at T0 + 100 s
+        Send(runtime, "a", Batch(Ride(8, 100).Concat(Stand(800, 105, 400)))); // stops at T0 + 100 s
         clock.SetUtcNow(T0.AddSeconds(400));
         var first = SingleAlarm(runtime, "a", AlarmKind.Stopped);
 
-        runtime.Ingest("a", Batch(Stand(800, 405, 760)));
+        Send(runtime, "a", Batch(Stand(800, 405, 760)));
         clock.SetUtcNow(T0.AddSeconds(760)); // 6 minutes later
         var view = View(runtime, "a");
         var second = Assert.Single(view.Alarms);
@@ -282,7 +301,7 @@ public class EventRuntimeTests
         Assert.Equal(first, second);
         Assert.Equal(TimeSpan.FromSeconds(660), clock.GetUtcNow() - second.Since);
 
-        runtime.Ingest("a", Batch(RideOn(800, 765, 820)));
+        Send(runtime, "a", Batch(RideOn(800, 765, 820)));
         clock.SetUtcNow(T0.AddSeconds(820));
         var moving = View(runtime, "a");
         Assert.Equal(ParticipantState.Live, moving.State);
@@ -293,11 +312,11 @@ public class EventRuntimeTests
     public void OffCourse_alarm_since_is_the_start_of_the_off_course_run_and_clears_on_return()
     {
         var (runtime, clock) = Create("a");
-        runtime.Ingest("a", Batch(RideOffCourse(160)));
+        Send(runtime, "a", Batch(RideOffCourse(160)));
         clock.SetUtcNow(T0.AddSeconds(160));
         var first = SingleAlarm(runtime, "a", AlarmKind.OffCourse);
 
-        runtime.Ingest("a", Batch(Enumerable.Range(0, 72).Select(i => North(800, 200, 165 + 5 * i)))); // to T0 + 520 s
+        Send(runtime, "a", Batch(Enumerable.Range(0, 72).Select(i => North(800, 200, 165 + 5 * i)))); // to T0 + 520 s
         clock.SetUtcNow(T0.AddSeconds(520));
         var view = View(runtime, "a");
         var second = Assert.Single(view.Alarms);
@@ -309,7 +328,7 @@ public class EventRuntimeTests
 
         var back = Enumerable.Range(1, 5).Select(k => North(800, 200 - 40 * k, 520 + 5 * k)) // on course at T0 + 545 s
             .Concat(RideOn(800, 550, 610));
-        runtime.Ingest("a", Batch(back));
+        Send(runtime, "a", Batch(back));
         clock.SetUtcNow(T0.AddSeconds(610));
         var returned = View(runtime, "a");
         Assert.Equal(ParticipantState.Live, returned.State);
@@ -323,17 +342,17 @@ public class EventRuntimeTests
         var wanderer = RideOffCourse(400);
 
         var (ordered, orderedClock) = Create("stop", "off");
-        ordered.Ingest("stop", Batch(stopper.Take(40)));
-        ordered.Ingest("stop", Batch(stopper.Skip(40)));
-        ordered.Ingest("off", Batch(wanderer.Take(25)));
-        ordered.Ingest("off", Batch(wanderer.Skip(25)));
+        Send(ordered, "stop", Batch(stopper.Take(40)));
+        Send(ordered, "stop", Batch(stopper.Skip(40)));
+        Send(ordered, "off", Batch(wanderer.Take(25)));
+        Send(ordered, "off", Batch(wanderer.Skip(25)));
         orderedClock.SetUtcNow(T0.AddSeconds(400));
 
         var (late, lateClock) = Create("stop", "off");
-        late.Ingest("stop", Batch(stopper.Skip(40)));
-        late.Ingest("stop", Batch(stopper.Take(40)));
-        late.Ingest("off", Batch(wanderer.Skip(25)));
-        late.Ingest("off", Batch(wanderer.Take(25)));
+        Send(late, "stop", Batch(stopper.Skip(40)));
+        Send(late, "stop", Batch(stopper.Take(40)));
+        Send(late, "off", Batch(wanderer.Skip(25)));
+        Send(late, "off", Batch(wanderer.Take(25)));
         lateClock.SetUtcNow(T0.AddSeconds(400));
 
         Assert.Equal(new Alarm(AlarmKind.Stopped, T0.AddSeconds(100)), SingleAlarm(late, "stop", AlarmKind.Stopped));
@@ -348,12 +367,12 @@ public class EventRuntimeTests
         var backlog = fixes.Skip(400).Take(120).ToList();
 
         var (ordered, orderedClock) = Create("a");
-        ordered.Ingest("a", Batch(fixes));
+        Send(ordered, "a", Batch(fixes));
         orderedClock.SetUtcNow(T0.AddSeconds(4_000));
 
         var (late, lateClock) = Create("a");
-        Assert.Equal(new IngestResult(681, 0), late.Ingest("a", Batch(fixes.Except(backlog))));
-        Assert.Equal(new IngestResult(120, 0), late.Ingest("a", Batch(backlog)));
+        Assert.Equal(new IngestResult(681, 0), Send(late, "a", Batch(fixes.Except(backlog))));
+        Assert.Equal(new IngestResult(120, 0), Send(late, "a", Batch(backlog)));
         lateClock.SetUtcNow(T0.AddSeconds(4_000));
 
         Assert.Equal(Json(ordered.BuildLiveView()), Json(late.BuildLiveView()));
@@ -363,7 +382,7 @@ public class EventRuntimeTests
     public void Sos_after_finish_raises_Sos_alarm_while_state_stays_Finished()
     {
         var (runtime, clock) = Create("a");
-        runtime.Ingest("a", Batch(Ride(8, 4_700))); // 37 600 m, past the 37 500 m finish
+        Send(runtime, "a", Batch(Ride(8, 4_700))); // 37 600 m, past the 37 500 m finish
         clock.SetUtcNow(T0.AddSeconds(4_700));
         Assert.Equal(ParticipantState.Finished, View(runtime, "a").State);
 
@@ -378,22 +397,22 @@ public class EventRuntimeTests
     public void Pause_suppresses_Stopped_and_Resume_lets_it_return_counting_unpaused_time_only()
     {
         var (runtime, clock) = Create("a");
-        runtime.Ingest("a", Batch(Ride(8, 100)));
+        Send(runtime, "a", Batch(Ride(8, 100)));
         clock.SetUtcNow(T0.AddSeconds(100));
         runtime.Act("a", ParticipantAction.Pause);
 
-        runtime.Ingest("a", Batch(Stand(800, 105, 400)));
+        Send(runtime, "a", Batch(Stand(800, 105, 400)));
         clock.SetUtcNow(T0.AddSeconds(400));
         var paused = View(runtime, "a");
         Assert.Equal(ParticipantState.Live, paused.State);
         Assert.Empty(paused.Alarms);
 
         runtime.Act("a", ParticipantAction.Resume);
-        runtime.Ingest("a", Batch(Stand(800, 405, 500)));
+        Send(runtime, "a", Batch(Stand(800, 405, 500)));
         clock.SetUtcNow(T0.AddSeconds(500));
         Assert.Equal(ParticipantState.Live, View(runtime, "a").State); // 100 s unpaused standing so far
 
-        runtime.Ingest("a", Batch(Stand(800, 505, 590)));
+        Send(runtime, "a", Batch(Stand(800, 505, 590)));
         clock.SetUtcNow(T0.AddSeconds(590));
         var stopped = View(runtime, "a");
         Assert.Equal(ParticipantState.Stopped, stopped.State);
@@ -408,7 +427,7 @@ public class EventRuntimeTests
         for (var s = fromS; s <= toS; s += 5) yield return FixAt(totalM + JitterM[s / 5 % JitterM.Length], T0.AddSeconds(s));
     }
 
-    private static Alarm StoppedAlarmAt(EventRuntime runtime, FakeTimeProvider clock, int atS)
+    private static Alarm StoppedAlarmAt(EventRuntime runtime, TestClock clock, int atS)
     {
         clock.SetUtcNow(T0.AddSeconds(atS));
         var view = View(runtime, "a");
@@ -424,10 +443,10 @@ public class EventRuntimeTests
             .Select(f => f.Time == T0.AddSeconds(300) ? FixAt(802, f.Time)
                 : f.Time == T0.AddSeconds(500) ? FixAt(803.5, f.Time) : f)
             .ToList();
-        runtime.Ingest("a", Batch(fixes.Where(f => f.Time <= T0.AddSeconds(400))));
+        Send(runtime, "a", Batch(fixes.Where(f => f.Time <= T0.AddSeconds(400))));
         var first = StoppedAlarmAt(runtime, clock, 400);
 
-        runtime.Ingest("a", Batch(fixes.Where(f => f.Time > T0.AddSeconds(400))));
+        Send(runtime, "a", Batch(fixes.Where(f => f.Time > T0.AddSeconds(400))));
         var second = StoppedAlarmAt(runtime, clock, 520);
 
         Assert.Equal(first, second);
@@ -440,7 +459,7 @@ public class EventRuntimeTests
     public void Stopped_since_is_stable_over_ten_minutes_of_jitter()
     {
         var (runtime, clock) = Create("a");
-        runtime.Ingest("a", Batch(Ride(8, 100).Concat(JitterStand(800, 105, 700))));
+        Send(runtime, "a", Batch(Ride(8, 100).Concat(JitterStand(800, 105, 700))));
 
         var alarms = new[] { 300, 360, 420, 480, 540, 600, 660, 700 }.Select(t => StoppedAlarmAt(runtime, clock, t)).Distinct().ToList();
 
@@ -451,10 +470,10 @@ public class EventRuntimeTests
     public void Riding_on_and_stopping_again_gives_a_new_later_Stopped_since()
     {
         var (runtime, clock) = Create("a");
-        runtime.Ingest("a", Batch(Ride(8, 100).Concat(JitterStand(800, 105, 395))));
+        Send(runtime, "a", Batch(Ride(8, 100).Concat(JitterStand(800, 105, 395))));
         var first = StoppedAlarmAt(runtime, clock, 395);
 
-        runtime.Ingest("a", Batch(RideOn(800, 400, 460).Concat(JitterStand(1_280, 465, 800)))); // 1 280 m at T0 + 460 s
+        Send(runtime, "a", Batch(RideOn(800, 400, 460).Concat(JitterStand(1_280, 465, 800)))); // 1 280 m at T0 + 460 s
         var second = StoppedAlarmAt(runtime, clock, 800);
 
         Assert.Equal(T0.AddSeconds(100), first.Since);
@@ -467,11 +486,11 @@ public class EventRuntimeTests
         var fixes = Ride(8, 100).Concat(JitterStand(800, 105, 700)).ToList();
 
         var (ordered, orderedClock) = Create("a");
-        ordered.Ingest("a", Batch(fixes.Take(70)));
-        ordered.Ingest("a", Batch(fixes.Skip(70)));
+        Send(ordered, "a", Batch(fixes.Take(70)));
+        Send(ordered, "a", Batch(fixes.Skip(70)));
         var (late, lateClock) = Create("a");
-        late.Ingest("a", Batch(fixes.Skip(70)));
-        late.Ingest("a", Batch(fixes.Take(70)));
+        Send(late, "a", Batch(fixes.Skip(70)));
+        Send(late, "a", Batch(fixes.Take(70)));
 
         var expected = StoppedAlarmAt(ordered, orderedClock, 700);
         Assert.Equal(expected, StoppedAlarmAt(late, lateClock, 700));
@@ -483,17 +502,17 @@ public class EventRuntimeTests
     public void Pause_inside_a_stop_restarts_Stopped_since_at_the_resume_and_keeps_it_stable()
     {
         var (runtime, clock) = Create("a");
-        runtime.Ingest("a", Batch(Ride(8, 100).Concat(JitterStand(800, 105, 400))));
+        Send(runtime, "a", Batch(Ride(8, 100).Concat(JitterStand(800, 105, 400))));
         Assert.Equal(T0.AddSeconds(100), StoppedAlarmAt(runtime, clock, 400).Since);
         runtime.Act("a", ParticipantAction.Pause);
 
-        runtime.Ingest("a", Batch(JitterStand(800, 405, 500)));
+        Send(runtime, "a", Batch(JitterStand(800, 405, 500)));
         clock.SetUtcNow(T0.AddSeconds(450));
         Assert.Empty(View(runtime, "a").Alarms); // no Stopped alarm while paused
         clock.SetUtcNow(T0.AddSeconds(500));
         runtime.Act("a", ParticipantAction.Resume);
 
-        runtime.Ingest("a", Batch(JitterStand(800, 505, 800)));
+        Send(runtime, "a", Batch(JitterStand(800, 505, 800)));
         var alarms = new[] { 520, 640, 800 }.Select(t => StoppedAlarmAt(runtime, clock, t)).Distinct().ToList();
 
         Assert.Equal(new[] { new Alarm(AlarmKind.Stopped, T0.AddSeconds(500)) }, alarms);
@@ -507,14 +526,14 @@ public class EventRuntimeTests
 
         var (parallel, parallelClock) = Create(ids);
         var (sequential, sequentialClock) = Create(ids);
+        parallelClock.SetUtcNow(T0.AddSeconds(600));
+        sequentialClock.SetUtcNow(T0.AddSeconds(600));
         Parallel.For(0, ids.Length, i =>
         {
             foreach (var chunk in fixes[ids[i]].Chunk(10)) parallel.Ingest(ids[i], Batch(chunk));
         });
         foreach (var id in ids)
             foreach (var chunk in fixes[id].Chunk(10)) sequential.Ingest(id, Batch(chunk));
-        parallelClock.SetUtcNow(T0.AddSeconds(600));
-        sequentialClock.SetUtcNow(T0.AddSeconds(600));
 
         var expected = sequential.BuildLiveView();
         Assert.Equal(ids.Length, expected.CountLive);

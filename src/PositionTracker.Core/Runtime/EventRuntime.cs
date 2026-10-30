@@ -17,6 +17,10 @@ namespace PositionTracker.Core.Runtime;
 public sealed class EventRuntime
 {
     private const double LowBatteryBelowPct = 20;
+    /// <summary>A fix more than this ahead of the event clock is rejected: a wrong device clock, not a position.</summary>
+    public static readonly TimeSpan MaxFixAhead = TimeSpan.FromSeconds(60);
+    /// <summary>A fix more than this before the start time is rejected (warm-up is only shown, never older data).</summary>
+    public static readonly TimeSpan MaxFixBeforeStart = TimeSpan.FromHours(1);
 
     private readonly object _lock = new();
     private readonly TimeProvider _clock;
@@ -82,10 +86,11 @@ public sealed class EventRuntime
     }
 
     /// <summary>
-    /// Applies the batch's fixes in time order with at most one replay and stores its device status. The status
-    /// is the device's state as of sending; it carries no timestamp, so the last batch to arrive wins, even if
-    /// it holds older fixes. A batch without status keeps the previous one. Throws
-    /// <see cref="KeyNotFoundException"/> for an unknown participant.
+    /// Applies the batch's fixes in time order with at most one replay and stores its device status. Fixes more
+    /// than <see cref="MaxFixAhead"/> ahead of the clock or more than <see cref="MaxFixBeforeStart"/> before the
+    /// start are rejected without being stored. The status is the device's state as of sending; it carries no
+    /// timestamp, so the last batch to arrive wins, even if it holds older fixes. A batch without status keeps the
+    /// previous one. Throws <see cref="KeyNotFoundException"/> for an unknown participant.
     /// </summary>
     public IngestResult Ingest(string participantId, PositionBatch batch)
     {
@@ -93,7 +98,11 @@ public sealed class EventRuntime
         lock (_lock)
         {
             var entry = Find(participantId);
-            var result = entry.Tracker.ApplyMany(batch.Fixes.OrderBy(f => f.Time).ToList());
+            var latest = _clock.GetUtcNow() + MaxFixAhead;
+            var earliest = Settings.StartTime - MaxFixBeforeStart;
+            foreach (var fix in batch.Fixes) ArgumentNullException.ThrowIfNull(fix, nameof(batch));
+            var timely = batch.Fixes.Where(f => f.Time <= latest && f.Time >= earliest).OrderBy(f => f.Time).ToList();
+            var result = entry.Tracker.ApplyMany(timely);
             foreach (var c in result.Completed)
             {
                 _board.Record(participantId, c.Lap, c.SegmentIndex, c.Time);
@@ -106,7 +115,7 @@ public sealed class EventRuntime
                 if (status.BatteryPct < LowBatteryBelowPct) entry.LowBatterySince ??= _clock.GetUtcNow();
                 else entry.LowBatterySince = null;
             }
-            return new IngestResult(result.Accepted, result.Rejected);
+            return new IngestResult(result.Accepted, result.Rejected + batch.Fixes.Count - timely.Count);
         }
     }
 
@@ -189,7 +198,7 @@ public sealed class EventRuntime
             hasFix ? ranked.GapToLeader : null, hasFix ? ranked.GapToAhead : null, eta,
             segments,
             entry.Status?.BatteryPct, s.LastAccuracyM, entry.Status?.QueueLength ?? 0,
-            now - s.LastFixTime,
+            s.LastFixTime is { } last ? (now > last ? now - last : TimeSpan.Zero) : null,
             Alarms(entry, s, now));
     }
 
