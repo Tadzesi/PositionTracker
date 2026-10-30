@@ -33,3 +33,8 @@ public sealed record ParticipantInfo(
 public enum ParticipantAction { Sos, SosCleared, Pause, Resume, Dnf }
 
 public sealed record IngestResult(int Accepted, int Rejected);
+
+/// <summary>The outcome of <see cref="EventRuntime.IngestDetailed"/>.</summary>
+/// <param name="Stored">The fixes the tracker newly stored (accepted, or skipped by the filter for now).</param>
+/// <param name="At">The clock time the batch was ingested at.</param>
+public sealed record IngestDetails(IngestResult Result, IReadOnlyList<PositionFix> Stored, DateTimeOffset At);

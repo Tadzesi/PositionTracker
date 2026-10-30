@@ -112,13 +112,22 @@ public sealed class EventRuntime
     /// timestamp, so the last batch to arrive wins, even if it holds older fixes. A batch without status keeps the
     /// previous one. Throws <see cref="KeyNotFoundException"/> for an unknown participant.
     /// </summary>
-    public IngestResult Ingest(string participantId, PositionBatch batch)
+    public IngestResult Ingest(string participantId, PositionBatch batch) => IngestDetailed(participantId, batch).Result;
+
+    /// <summary>
+    /// <see cref="Ingest"/>, also reporting what a persistence layer needs to rebuild the same state:
+    /// <see cref="IngestDetails.Stored"/> (the fixes the tracker newly stored, see <see cref="ApplyManyResult.Stored"/>)
+    /// and <see cref="IngestDetails.At"/> (the single clock reading this call used, for the time-out checks and the
+    /// low-battery start). Replaying the stored fixes and the batch's status at that time gives the same state.
+    /// </summary>
+    public IngestDetails IngestDetailed(string participantId, PositionBatch batch)
     {
         ArgumentNullException.ThrowIfNull(batch);
         lock (_lock)
         {
             var entry = Find(participantId);
-            var latest = _clock.GetUtcNow() + MaxFixAhead;
+            var now = _clock.GetUtcNow();
+            var latest = now + MaxFixAhead;
             var earliest = Settings.StartTime - MaxFixBeforeStart;
             foreach (var fix in batch.Fixes) ArgumentNullException.ThrowIfNull(fix, nameof(batch));
             var timely = batch.Fixes.Where(f => f.Time <= latest && f.Time >= earliest).OrderBy(f => f.Time).ToList();
@@ -132,15 +141,19 @@ public sealed class EventRuntime
             if (batch.Status is { } status)
             {
                 entry.Status = status;
-                if (status.BatteryPct < LowBatteryBelowPct) entry.LowBatterySince ??= _clock.GetUtcNow();
+                if (status.BatteryPct < LowBatteryBelowPct) entry.LowBatterySince ??= now;
                 else entry.LowBatterySince = null;
             }
-            return new IngestResult(result.Accepted, result.Rejected + batch.Fixes.Count - timely.Count);
+            return new IngestDetails(
+                new IngestResult(result.Accepted, result.Rejected + batch.Fixes.Count - timely.Count), result.Stored, now);
         }
     }
 
-    /// <summary>Applies an organizer or device action at the current time; unknown ids throw <see cref="KeyNotFoundException"/>.</summary>
-    public void Act(string participantId, ParticipantAction action)
+    /// <summary>
+    /// Applies an organizer or device action at the current time and returns that time; unknown ids throw
+    /// <see cref="KeyNotFoundException"/>.
+    /// </summary>
+    public DateTimeOffset Act(string participantId, ParticipantAction action)
     {
         lock (_lock)
         {
@@ -168,6 +181,7 @@ public sealed class EventRuntime
                 default:
                     throw new ArgumentOutOfRangeException(nameof(action), action, null);
             }
+            return now;
         }
     }
 

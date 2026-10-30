@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Options;
 using PositionTracker.Api.Auth;
 using PositionTracker.Api.Events;
+using PositionTracker.Api.Persistence;
 using PositionTracker.Core;
 using PositionTracker.Core.Runtime;
 
@@ -23,6 +24,11 @@ namespace PositionTracker.Api.Endpoints;
 /// decided per batch, all or nothing: a batch that does not fit into the rest of the current window is refused with
 /// 429 and <c>Retry-After</c> (seconds until the window ends, when the whole batch fits) and nothing of it, neither
 /// fixes nor status, is applied; the client resends the same batch after that time.
+/// <para>Persistence (real events with a database, see <see cref="PersistenceQueue"/>): the request first takes a slot
+/// in the write queue, waiting at most <see cref="PersistenceOptions.EnqueueTimeoutMs"/>; without one it is refused
+/// with 503 and <c>Retry-After: 1</c> before anything is applied, and the client resends the batch. With a slot it is
+/// applied and its stored fixes, status or action are queued for the background writer: the response never waits for
+/// the database.</para>
 /// </summary>
 public static class IngestEndpoints
 {
@@ -70,7 +76,8 @@ public static class IngestEndpoints
     }
 
     private static async Task<IResult> PostPositions(
-        string eventId, HttpContext context, EventRegistry registry, FixRateLimiter fixLimiter, IOptions<JsonOptions> json)
+        string eventId, HttpContext context, EventRegistry registry, FixRateLimiter fixLimiter, PersistenceQueue history,
+        IOptions<JsonOptions> json)
     {
         if (Authorize(context, eventId, registry, out var caller, out var runtime) is { } denied) return denied;
 
@@ -87,16 +94,41 @@ public static class IngestEndpoints
         var status = request.Status is { } s
             ? new DeviceStatus(s.Battery is >= 0 and <= 100 ? s.Battery : null, s.Charging, s.Queue, s.Foreground)
             : null;
-        // All or nothing: a batch over the fix budget is refused before anything (fixes or status) is applied.
-        if (!fixLimiter.TryTake(caller.TokenHash, fixes.Count, out var retryAfter))
+        var persist = history.ShouldPersist(runtime.Settings);
+        if (persist && !await history.TryReserveAsync(context.RequestAborted)) return QueueFull(context);
+        var reserved = persist;
+        try
         {
-            SetRetryAfter(context, retryAfter);
-            return Results.Problem(
-                $"At most {FixRateLimiter.FixesPerMinute} fixes per minute; resend this batch after Retry-After.",
-                statusCode: StatusCodes.Status429TooManyRequests);
+            // All or nothing: a batch over the fix budget is refused before anything (fixes or status) is applied.
+            if (!fixLimiter.TryTake(caller.TokenHash, fixes.Count, out var retryAfter))
+            {
+                SetRetryAfter(context, retryAfter);
+                return Results.Problem(
+                    $"At most {FixRateLimiter.FixesPerMinute} fixes per minute; resend this batch after Retry-After.",
+                    statusCode: StatusCodes.Status429TooManyRequests);
+            }
+            var batch = new PositionBatch(fixes.Select(f => new PositionFix(f.T, f.Lat, f.Lon, f.Acc)).ToList(), status);
+            var ingested = runtime.IngestDetailed(caller.ParticipantId, batch);
+            if (persist && (ingested.Stored.Count > 0 || status is not null))
+            {
+                reserved = false;
+                if (!history.Enqueue(new FixBatchWrite(eventId, caller.ParticipantId, ingested.Stored, status, ingested.At)))
+                    return QueueFull(context);
+            }
+            return Results.Accepted(value: ingested.Result);
         }
-        var batch = new PositionBatch(fixes.Select(f => new PositionFix(f.T, f.Lat, f.Lon, f.Acc)).ToList(), status);
-        return Results.Accepted(value: runtime.Ingest(caller.ParticipantId, batch));
+        finally
+        {
+            if (reserved) history.Release();
+        }
+    }
+
+    /// <summary>503 with <c>Retry-After: 1</c>: the position history cannot take the write now.</summary>
+    private static IResult QueueFull(HttpContext context)
+    {
+        SetRetryAfter(context, TimeSpan.FromSeconds(1));
+        return Results.Problem("The position store is busy; resend this request after Retry-After.",
+            statusCode: StatusCodes.Status503ServiceUnavailable);
     }
 
     /// <summary>Sets <c>Retry-After</c> in whole seconds, rounded up and at least 1.</summary>
@@ -105,7 +137,7 @@ public static class IngestEndpoints
             Math.Max(1, (int)Math.Ceiling(wait.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
 
     private static async Task<IResult> PostAction(
-        string eventId, HttpContext context, EventRegistry registry, IOptions<JsonOptions> json)
+        string eventId, HttpContext context, EventRegistry registry, PersistenceQueue history, IOptions<JsonOptions> json)
     {
         if (Authorize(context, eventId, registry, out var caller, out var runtime) is { } denied) return denied;
 
@@ -113,8 +145,23 @@ public static class IngestEndpoints
         if (tooLarge is not null) return tooLarge;
         if (request is null || !Enum.IsDefined(request.Action))
             return BadRequest("Expected {\"action\":\"sos|sosCleared|pause|resume|dnf\"}.");
-        runtime.Act(caller.ParticipantId, request.Action);
-        return Results.NoContent();
+        var persist = history.ShouldPersist(runtime.Settings);
+        if (persist && !await history.TryReserveAsync(context.RequestAborted)) return QueueFull(context);
+        var reserved = persist;
+        try
+        {
+            var at = runtime.Act(caller.ParticipantId, request.Action);
+            if (persist)
+            {
+                reserved = false;
+                if (!history.Enqueue(new ActionWrite(eventId, caller.ParticipantId, request.Action, at))) return QueueFull(context);
+            }
+            return Results.NoContent();
+        }
+        finally
+        {
+            if (reserved) history.Release();
+        }
     }
 
     /// <summary>

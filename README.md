@@ -5,12 +5,14 @@ matches them onto the course (laps, checkpoints, shared roads), computes distanc
 segment colours, ETA and organizer alarms (SOS, stopped, off course, offline, low battery, laps inferred), and broadcasts an
 organizer view and a delayed, privacy-reduced spectator view.
 
-This repository currently holds the core tracking engine and its HTTP/SignalR back end (Plan 1):
+This repository holds the core tracking engine and its HTTP/SignalR back end (Plan 1) and, from Plan 2 on, the
+PostgreSQL persistence:
 
 | Project | Purpose |
 |---|---|
 | `src/PositionTracker.Core` | Course model, GPX parser, course matching, participant tracker, ranking, ETA, event runtime, spectator projection, virtual riders. No package references. |
-| `src/PositionTracker.Api` | ASP.NET Core host: device ingest, organizer/spectator views, SignalR hub, demo simulator. |
+| `src/PositionTracker.Api` | ASP.NET Core host: device ingest, organizer/spectator views, SignalR hub, demo simulator, persistence of the position history and rebuild of live events at startup. |
+| `src/PositionTracker.Data` | EF Core model (`AppDbContext`, entities) and migrations for PostgreSQL. |
 | `tests/*` | xunit tests for both. |
 
 Design: `docs/superpowers/specs/2026-10-30-possition-tracker-design.md`; mockups: `docs/design/mockups/design-hub.html`
@@ -18,7 +20,8 @@ Design: `docs/superpowers/specs/2026-10-30-possition-tracker-design.md`; mockups
 
 ## Build and test
 
-Requires the .NET 10 SDK.
+Requires the .NET 10 SDK and, for the persistence tests, a running Docker (the tests start PostgreSQL containers
+with Testcontainers).
 
 ```powershell
 dotnet build
@@ -27,12 +30,30 @@ dotnet test
 
 ## Run in Development
 
+Start the development database first (PostgreSQL 17 in Docker, data in the volume `positiontracker-db`):
+
 ```powershell
+docker compose up -d
 dotnet run --project src/PositionTracker.Api
 ```
 
 The app listens on `http://localhost:5298` (profile `http`). The organizer key in Development is `dev-key`
-(`appsettings.Development.json`, `Organizer:ApiKey`). There is no persistence: events live in memory.
+(`appsettings.Development.json`, `Organizer:ApiKey`). In Development the app applies pending migrations at startup
+(`Persistence:MigrateOnStartup`). The development database password `dev-only-not-a-secret` (in
+`docker-compose.yml` and `appsettings.Development.json`) is a deliberately fake, documented value for a database that
+listens on `127.0.0.1` only; a deployed database gets its own secret through configuration (for example the
+environment variable `ConnectionStrings__Default`), never through a committed file. Without
+`ConnectionStrings:Default` the app runs as in Plan 1, in memory only (a warning is logged at startup).
+
+Migrations live in `src/PositionTracker.Data/Migrations` and are made with the EF tools pinned in
+`.config/dotnet-tools.json`:
+
+```powershell
+dotnet tool restore
+dotnet ef migrations add <Name> --project src/PositionTracker.Data --startup-project src/PositionTracker.Data
+$env:ConnectionStrings__Default = "Host=localhost;Port=5432;Database=positiontracker;Username=positiontracker;Password=dev-only-not-a-secret"
+dotnet ef database update --project src/PositionTracker.Data --startup-project src/PositionTracker.Data
+```
 
 ## Demo walkthrough
 
@@ -101,7 +122,8 @@ event and participant (in Plan 1 only the demo simulator issues them).
 - `400` malformed body (the client must drop that batch, it will never succeed), `401` missing/unknown/revoked
   token (with `WWW-Authenticate: Bearer`), `403` token of another event, `404` unknown event or participant,
   `413` body over 256 KB or more than 500 fixes, `429` over 60 requests per minute and token (with
-  `Retry-After`).
+  `Retry-After`), `503` the position store cannot take the batch now (with `Retry-After: 1`; nothing of the batch
+  was applied, the client resends it; also for actions).
 - Fix budget: at most 600 fixes per minute (fixed one-minute window) and token. A batch is decided all or
   nothing: one that does not fit into the rest of the window is refused with `429` and `Retry-After` (seconds
   until the window ends) and nothing of it, neither fixes nor `status`, is applied. The client keeps the batch
@@ -120,6 +142,34 @@ event and participant (in Plan 1 only the demo simulator issues them).
 |---|---|
 | `Organizer:ApiKey` | Organizer key for `/live`, the demo endpoints and `JoinOrganizer`. Required; startup fails without it. |
 | `Live:IntervalMs` | Broadcast interval in milliseconds (default 1 500, must be positive). |
+| `ConnectionStrings:Default` | PostgreSQL connection string. Without it nothing is persisted or rebuilt. |
+| `Persistence:QueueCapacity` | Position history writes (one per ingested batch or action) not yet in the database; default 1 000. |
+| `Persistence:EnqueueTimeoutMs` | How long a device request waits for a free write slot before `503`; default 2 000. |
+| `Persistence:BatchFixes` / `Persistence:BatchIntervalMs` | The writer writes at 200 fixes or 500 ms after the oldest held write, whichever comes first. |
+| `Persistence:MigrateOnStartup` | Apply pending migrations at startup (default false; true in Development). |
+
+## Persistence and restart
+
+- **What is stored.** For real (non-simulated) events: every fix the tracker stored from a batch
+  (`EventRuntime.IngestDetailed(...).Stored`), the batch's device status with the event-clock time it was ingested,
+  and every action (SOS, pause, resume, DNF) with the time `EventRuntime.Act` applied it. Fixes the tracker throws
+  away (invalid, inaccurate, duplicate, too early or too far ahead, over the cap, losing their second) are not
+  stored. Fixes the speed filter skips *for now* are stored, because the tracker keeps them and a late fix can turn
+  them into accepted ones on replay. Times of the position history are stored tick-exact (bigint UTC ticks).
+  Simulated (demo) events are never persisted.
+- **Off the request path.** Ingest takes a slot in a bounded queue, applies the batch, queues the write and answers;
+  a background writer writes in batches (200 fixes or 500 ms). If all slots are taken (database slow or down) the
+  request waits up to `Persistence:EnqueueTimeoutMs` and is then refused with `503` and `Retry-After: 1` *before*
+  anything is applied, so the client resends it and nothing is dropped. Transient database errors are retried with
+  backoff while the slots stay taken; a row the database refuses for good (constraint violation) is logged with its
+  ids and dropped. On shutdown the queue is closed and drained; only if the host's shutdown timeout runs out are the
+  remaining writes lost (logged with their count).
+- **Restart.** At startup every event in state `Live` is rebuilt: course from the stored GPX, laps and checkpoints,
+  confirmed participants, then the stored actions, fixes and statuses are replayed on a `ReplayTimeProvider` whose
+  time is set to each stored time (no wall-clock reads during the replay); the runtime's clock then switches to the
+  real clock. The organizer and spectator views after a restart equal those before it. The spectator view starts
+  empty and fills once a view is a spectator delay old, as at any start.
+- Device tokens are still in memory until Plan 2 Task 7 persists them: after a restart, devices need new tokens.
 
 ## Demo mode
 

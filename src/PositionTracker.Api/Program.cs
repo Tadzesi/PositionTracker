@@ -4,6 +4,7 @@ using PositionTracker.Api.Auth;
 using PositionTracker.Api.Endpoints;
 using PositionTracker.Api.Events;
 using PositionTracker.Api.Live;
+using PositionTracker.Api.Persistence;
 using PositionTracker.Api.Simulation;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -11,6 +12,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<TokenService>();
 builder.Services.AddSingleton<EventRegistry>();
+builder.Services.AddPersistence();
 builder.Services.AddOptions<OrganizerOptions>()
     .BindConfiguration(OrganizerOptions.Section)
     .Validate(o => !string.IsNullOrWhiteSpace(o.ApiKey), "Configuration value 'Organizer:ApiKey' is required.")

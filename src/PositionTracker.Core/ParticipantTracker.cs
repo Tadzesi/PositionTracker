@@ -72,7 +72,14 @@ public sealed record ApplyResult(ParticipantSnapshot Snapshot, IReadOnlyList<Seg
 
 /// <param name="Accepted">Fixes of the batch that were new and passed the filter (see <see cref="ParticipantTracker.ApplyMany"/>).</param>
 /// <param name="Rejected">All other fixes of the batch.</param>
-public sealed record ApplyManyResult(ParticipantSnapshot Snapshot, IReadOnlyList<SegmentCompletion> Completed, int Accepted, int Rejected);
+/// <param name="Stored">
+/// The fixes of the batch the tracker newly stored and still holds after it (in no particular order): the accepted
+/// ones and those the filter skips for now (a later replay may accept them). Refolding exactly the stored fixes in
+/// time order rebuilds the same state, so these are the fixes to persist.
+/// </param>
+public sealed record ApplyManyResult(
+    ParticipantSnapshot Snapshot, IReadOnlyList<SegmentCompletion> Completed, int Accepted, int Rejected,
+    IReadOnlyList<PositionFix> Stored);
 
 /// <summary>
 /// Turns one participant's fixes into course progress and motion statistics.
@@ -256,7 +263,7 @@ public sealed class ParticipantTracker
 
         var accepted = verdicts.Values.Count(v => v);
         return new ApplyManyResult(GetSnapshot(_lastAccepted?.Time ?? _startTime), ChangedCompletions(),
-            accepted, rejected + verdicts.Count - accepted);
+            accepted, rejected + verdicts.Count - accepted, verdicts.Keys.ToList());
     }
 
     /// <summary>

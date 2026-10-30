@@ -1,0 +1,21 @@
+# Development database only. The password is a deliberately fake, documented development value (see README);
+# never reuse it for a deployed database.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: positiontracker
+      POSTGRES_USER: positiontracker
+      POSTGRES_PASSWORD: dev-only-not-a-secret
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - positiontracker-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U positiontracker -d positiontracker"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  positiontracker-db:
