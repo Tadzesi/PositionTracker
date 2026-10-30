@@ -60,6 +60,28 @@ public class ProgressHistoryTests
         Assert.Equal(10, h.SpeedMps(T0.AddSeconds(60), TimeSpan.FromSeconds(10)), 9);
     }
 
+    [Theory]
+    [InlineData(10.0)]
+    [InlineData(10.4)]
+    [InlineData(15.0)]
+    public void SpeedMps_with_points_about_one_window_apart_uses_the_point_before_the_window(double intervalS)
+    {
+        var h = new ProgressHistory();
+        for (var k = 0; k <= 6; k++) h.Add(T0.AddSeconds(k * intervalS), 8 * k * intervalS);
+
+        Assert.Equal(8, h.SpeedMps(T0.AddSeconds(6 * intervalS), TimeSpan.FromSeconds(10)), 9);
+    }
+
+    [Fact]
+    public void SpeedMps_across_a_gap_longer_than_twice_the_window_is_zero()
+    {
+        var h = new ProgressHistory();
+        h.Add(T0, 0);
+        h.Add(T0.AddSeconds(21), 168);
+
+        Assert.Equal(0, h.SpeedMps(T0.AddSeconds(21), TimeSpan.FromSeconds(10)));
+    }
+
     [Fact]
     public void SpeedMps_with_single_point_is_zero()
     {

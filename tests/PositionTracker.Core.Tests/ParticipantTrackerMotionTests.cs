@@ -241,10 +241,10 @@ public class ParticipantTrackerMotionTests
     }
 
     [Fact]
-    public void Backtracking_beyond_the_window_does_not_add_a_lap_via_full_lap_search()
+    public void Backtracking_beyond_the_window_does_not_add_a_lap()
     {
-        // Ride to 3 000 m, turn and ride back to 2 400 m: the fixes fall behind the backward window, become
-        // unmatched and trigger the full-lap search, whose only image lies almost a whole lap ahead.
+        // Ride to 3 000 m, turn and ride back to 2 400 m: the fixes fall behind the backward window while the
+        // forward window keeps growing; the only image of them lies almost a whole lap ahead.
         var fixes = Ride(Loop, 6, 3_000);
         var t = fixes[^1].Time;
         for (var d = 2_970.0; d >= 2_400; d -= 30) fixes.Add(FixAt(Loop, d, t = t.AddSeconds(5)));
@@ -275,4 +275,140 @@ public class ParticipantTrackerMotionTests
         Assert.InRange(s.TotalDistanceM, 5_950, 6_000);
         Assert.InRange(s.LapProgressM, 5_950, 6_000);
     }
+
+    private static readonly double[] BackwardDrift = { 60, 70, 80, 75, 65 };
+
+    [Fact]
+    public void Drift_60_to_80m_behind_the_start_line_on_a_short_loop_does_not_add_a_lap()
+    {
+        // On a 1 000 m loop the forward window spans the whole lap from the first fix, so drift behind the
+        // anchor (outside the 50 m backward window) is matched almost a whole lap ahead.
+        var shortLoop = Course.Create(TestCourses.Loop(1_000, 10), 3);
+        var fixes = new List<PositionFix> { FixAt(shortLoop, 0, T0) };
+        for (var k = 1; k <= 60; k++)
+            fixes.Add(FixAt(shortLoop, shortLoop.LapLengthM - BackwardDrift[k % BackwardDrift.Length], T0.AddSeconds(5 * k)));
+
+        var s = Snapshot(Track(shortLoop, Sport.Cycling, fixes));
+
+        Assert.Equal(1, s.Lap);
+        Assert.Equal(0, s.TotalDistanceM);
+    }
+
+    [Fact]
+    public void Drift_60_to_80m_behind_a_standing_rider_on_a_short_loop_does_not_add_a_lap()
+    {
+        var shortLoop = Course.Create(TestCourses.Loop(1_000, 10), 3);
+        var fixes = Ride(shortLoop, 5, 500);
+        var t = fixes[^1].Time;
+        for (var k = 1; k <= 60; k++)
+            fixes.Add(FixAt(shortLoop, 500 - BackwardDrift[k % BackwardDrift.Length], t = t.AddSeconds(5)));
+
+        var s = Snapshot(Track(shortLoop, Sport.Cycling, fixes));
+
+        Assert.Equal(1, s.Lap);
+        Assert.InRange(s.TotalDistanceM, 495, 505);
+    }
+
+    [Fact]
+    public void Return_slightly_behind_after_8_minutes_off_course_does_not_add_a_lap()
+    {
+        // After 8 min off course (cycling) elapsed × max speed exceeds the 12 500 m lap, so the window spans the
+        // whole lap and a return 80 m behind the anchor is matched almost a whole lap ahead.
+        var fixes = Ride(Loop, 8, 3_000);
+        var t = fixes[^1].Time;
+        var anchor = Loop.PointAt(3_000);
+        for (var south = 20; south <= 300; south += 20) fixes.Add(At(Offset(anchor, -south), t = t.AddSeconds(5)));
+        for (var k = 0; k < 96; k++) fixes.Add(At(Offset(anchor, -300), t = t.AddSeconds(5)));
+        var back = Loop.PointAt(2_920);
+        for (var south = 280; south >= 0; south -= 20) fixes.Add(At(Offset(back, -south), t = t.AddSeconds(5)));
+        for (var k = 0; k < 6; k++) fixes.Add(At(back, t = t.AddSeconds(5)));
+
+        var tracker = Track(Loop, Sport.Cycling, fixes);
+        var s = Snapshot(tracker);
+        Assert.Equal(1, s.Lap);
+        Assert.InRange(s.TotalDistanceM, 2_995, 3_005);
+
+        // Riding on from there is picked up again once the rider passes the anchor.
+        for (var d = 2_960.0; d <= 3_400; d += 40) tracker.Apply(FixAt(Loop, d, t = t.AddSeconds(5)));
+        s = Snapshot(tracker);
+        Assert.Equal(1, s.Lap);
+        Assert.InRange(s.TotalDistanceM, 3_395, 3_405);
+    }
+
+    [Fact]
+    public void Off_course_stretch_causes_no_speed_spike_and_no_stopped_time()
+    {
+        // 8 m/s along the first edge; between 2 040 and 2 480 m the fixes are 120 m south of the course.
+        var fixes = new List<PositionFix>();
+        for (var k = 0; k <= 75; k++)
+        {
+            var d = 40.0 * k;
+            var t = T0.AddSeconds(5 * k);
+            fixes.Add(d is > 2_000 and < 2_520 ? At(Offset(Loop.PointAt(d), -120), t) : FixAt(Loop, d, t));
+        }
+
+        var s = Snapshot(Track(Loop, Sport.Cycling, fixes));
+
+        Assert.InRange(s.TotalDistanceM, 2_995, 3_005);
+        Assert.InRange(s.MaxSpeedMps, 7.5, 8.5);
+        Assert.True(s.MaxSpeedMps <= FilterOptions.For(Sport.Cycling).MaxSpeedMps);
+        Assert.Equal(TimeSpan.Zero, s.StoppedTime);
+        // 0-2 000 m and 2 520-3 000 m; the off-course interval and the step back onto the course are excluded.
+        Assert.Equal(TimeSpan.FromSeconds(250 + 60), s.MovingTime);
+    }
+
+    [Theory]
+    [InlineData(10.0)]
+    [InlineData(10.4)]
+    public void Fixes_about_10s_apart_give_a_speed(double intervalS)
+    {
+        var s = Snapshot(Track(Loop, Sport.Cycling, Ride(Loop, 8, 3_000, intervalS)));
+
+        Assert.InRange(s.SpeedMps, 7.5, 8.5);
+        Assert.InRange(s.MaxSpeedMps, 7.5, 8.5);
+    }
+
+    [Fact]
+    public void Fixes_60s_apart_give_no_10s_speed_and_no_spike()
+    {
+        var s = Snapshot(Track(Loop, Sport.Cycling, Ride(Loop, 8, 4_800, 60)));
+
+        Assert.InRange(s.TotalDistanceM, 4_795, 4_805);
+        Assert.Equal(0, s.SpeedMps);
+        Assert.Equal(0, s.MaxSpeedMps);
+        Assert.InRange(s.MovingSpeedMps, 7.5, 8.5);
+    }
+
+    [Fact]
+    public void Warm_up_fixes_before_the_start_only_update_the_last_fix()
+    {
+        // Warm-up 3 km into the course during the 5 minutes before the start.
+        var warmUp = new List<PositionFix>();
+        for (var k = 0; k < 60; k++) warmUp.Add(FixAt(Loop, 3_000 + 5 * k, T0.AddSeconds(-300 + 5 * k)));
+
+        var tracker = Track(Loop, Sport.Cycling, warmUp);
+        var s = tracker.GetSnapshot(T0);
+        Assert.Equal(0, s.TotalDistanceM);
+        Assert.Equal(1, s.Lap);
+        Assert.Equal(TimeSpan.Zero, s.MovingTime);
+        Assert.Equal(TimeSpan.Zero, s.StoppedTime);
+        Assert.Null(tracker.History.Last);
+        Assert.Equal(ParticipantState.NotStarted, s.State);
+        Assert.Equal(warmUp[^1].Time, s.LastFixTime);
+        Assert.Equal(warmUp[^1].Lat, s.LastLat);
+        Assert.Equal(warmUp[^1].Lon, s.LastLon);
+
+        // From the start the race counts from 0, unaffected by the warm-up position.
+        var race = Ride(Loop, 8, 800);
+        foreach (var f in race) tracker.Apply(f);
+        s = Snapshot(tracker);
+        Assert.InRange(s.TotalDistanceM, 795, 805);
+        Assert.Equal(TimeSpan.FromSeconds(100), s.MovingTime);
+        Assert.Equal(race[^1].Time, s.LastFixTime);
+
+        // Warm-up delivered late gives the same result.
+        Assert.Equal(s, Snapshot(Track(Loop, Sport.Cycling, race.Concat(warmUp))));
+    }
+
+    private static PositionFix At(GeoPoint p, DateTimeOffset time) => new(time, p.Lat, p.Lon, 5);
 }

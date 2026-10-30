@@ -52,15 +52,22 @@ public sealed class ProgressHistory
     }
 
     /// <summary>
-    /// Average speed between the first and last point inside <c>[until - window, until]</c>;
-    /// 0 when fewer than two points fall inside.
+    /// Average speed over roughly the last <paramref name="window"/> up to <paramref name="until"/>. The span
+    /// ends at the last point at or before <c>until</c> and starts at the latest point at or before
+    /// <c>until - window</c>, so points spaced about one window apart (e.g. 10.4 s for a 10 s window) still
+    /// give a speed. Only points within the lookback <c>[until - 2·window, until]</c> are used; without such a
+    /// start point the span starts at the earliest point in the lookback. Returns 0 when the span has fewer
+    /// than two points (a gap longer than the lookback, or a single point).
     /// </summary>
     public double SpeedMps(DateTimeOffset until, TimeSpan window)
     {
-        var first = FirstTimeIndexAtOrAfter(until - window);
+        var lookback = FirstTimeIndexAtOrAfter(until - 2 * window);
         var last = FirstTimeIndexAtOrAfter(until);
         if (last < _times.Count && _times[last] == until) last++;
         last--; // last index with time <= until
+        var first = FirstTimeIndexAtOrAfter(until - window);
+        if (first == _times.Count || _times[first] > until - window) first--; // latest point at or before until - window
+        first = Math.Max(first, lookback);
         if (last - first < 1) return 0;
 
         var dt = (_times[last] - _times[first]).TotalSeconds;
