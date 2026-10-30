@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PositionTracker: divák a pripojenie</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,500;0,700;0,800;1,600;1,800;1,900&family=Titillium+Web:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--carbon:#0C0D11;--deep:#0A0B0E;--panel:#15171E;--panel2:#1C1F29;--line:#2A2E3A;--line2:#14161C;--text:#F4F5F8;--mute:#8D93A6;--dim:#5C6275;--red:#FF1E3C;--purple:#B455F5;--green:#25E07B;--yellow:#FFD60A;--blue:#3DA5FF;--green-t:#25E07B;--yellow-t:#FFD60A;--contour:#1F2431;--roadbase:#2D3242;--elev1:#3A4056;--elev2:#0E1016;--badge:#3A3F4C;--phoneborder:#2C3040;--slidebg:#2A0A10;--slidetx:#FF8A9B;--map1:#171B26;--map2:#0C0D11;--glass:rgba(10,11,14,.92);--glass2:rgba(10,11,14,.85);--stripe:rgba(255,255,255,.018);--shadow:rgba(0,0,0,.5);--ink:#FFFFFF;--onink:#000000;--onsignal:#03170B;--noticebg:rgba(255,214,10,.10);--noticeb:#4A410D;--noticetx:#E8D56A;--display:'Barlow Condensed','Arial Narrow',sans-serif;--ui:'Titillium Web',system-ui,sans-serif;}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]){color-scheme:light;--carbon:#EAEDF2;--deep:#FFFFFF;--panel:#F4F6F9;--panel2:#E7EAF0;--line:#D3D8E1;--line2:#E3E7EE;--text:#12141A;--mute:#5B6275;--dim:#9AA1B2;--red:#E10B2D;--purple:#9333EA;--green:#16B364;--yellow:#F2B705;--blue:#1E88E5;--green-t:#0E9A52;--yellow-t:#B07A00;--contour:#CDD4E0;--roadbase:#C4CCD9;--elev1:#C5CDDA;--elev2:#F4F6F9;--badge:#6B7388;--phoneborder:#C2C9D6;--slidebg:#FFE4E9;--slidetx:#C4122F;--map1:#FAFBFD;--map2:#E1E6EE;--glass:rgba(255,255,255,.95);--glass2:rgba(255,255,255,.9);--stripe:rgba(10,20,50,.03);--shadow:rgba(20,30,60,.2);--ink:#12141A;--onink:#FFFFFF;--onsignal:#FFFFFF;--noticebg:rgba(176,122,0,.12);--noticeb:#E6D9A0;--noticetx:#7A5600;}}
+:root[data-theme="light"]{color-scheme:light;--carbon:#EAEDF2;--deep:#FFFFFF;--panel:#F4F6F9;--panel2:#E7EAF0;--line:#D3D8E1;--line2:#E3E7EE;--text:#12141A;--mute:#5B6275;--dim:#9AA1B2;--red:#E10B2D;--purple:#9333EA;--green:#16B364;--yellow:#F2B705;--blue:#1E88E5;--green-t:#0E9A52;--yellow-t:#B07A00;--contour:#CDD4E0;--roadbase:#C4CCD9;--elev1:#C5CDDA;--elev2:#F4F6F9;--badge:#6B7388;--phoneborder:#C2C9D6;--slidebg:#FFE4E9;--slidetx:#C4122F;--map1:#FAFBFD;--map2:#E1E6EE;--glass:rgba(255,255,255,.95);--glass2:rgba(255,255,255,.9);--stripe:rgba(10,20,50,.03);--shadow:rgba(20,30,60,.2);--ink:#12141A;--onink:#FFFFFF;--onsignal:#FFFFFF;--noticebg:rgba(176,122,0,.12);--noticeb:#E6D9A0;--noticetx:#7A5600;}
+:root[data-theme="dark"]{color-scheme:dark;--carbon:#0C0D11;--deep:#0A0B0E;--panel:#15171E;--panel2:#1C1F29;--line:#2A2E3A;--line2:#14161C;--text:#F4F5F8;--mute:#8D93A6;--dim:#5C6275;--red:#FF1E3C;--purple:#B455F5;--green:#25E07B;--yellow:#FFD60A;--blue:#3DA5FF;--green-t:#25E07B;--yellow-t:#FFD60A;--contour:#1F2431;--roadbase:#2D3242;--elev1:#3A4056;--elev2:#0E1016;--badge:#3A3F4C;--phoneborder:#2C3040;--slidebg:#2A0A10;--slidetx:#FF8A9B;--map1:#171B26;--map2:#0C0D11;--glass:rgba(10,11,14,.92);--glass2:rgba(10,11,14,.85);--stripe:rgba(255,255,255,.018);--shadow:rgba(0,0,0,.5);--ink:#FFFFFF;--onink:#000000;--onsignal:#03170B;--noticebg:rgba(255,214,10,.10);--noticeb:#4A410D;--noticetx:#E8D56A;}
+.theme-toggle{position:fixed;right:14px;bottom:14px;z-index:99;display:flex;border:1px solid var(--line);background:var(--deep);box-shadow:0 6px 20px var(--shadow)}.theme-toggle button{all:unset;cursor:pointer;padding:7px 16px;font-family:var(--display);font-style:italic;font-weight:800;font-size:15px;color:var(--mute)}.theme-toggle button:focus-visible{outline:2px solid var(--red);outline-offset:-2px}.theme-toggle button[aria-pressed="true"]{background:var(--text);color:var(--carbon)}
+
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--carbon);color:var(--text);font-family:var(--ui);font-size:14px;line-height:1.35;
+  background-image:repeating-linear-gradient(135deg,var(--stripe) 0 2px,transparent 2px 7px)}
+.num{font-family:var(--display);font-style:italic;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:.01em}
+.page{max-width:1500px;margin:0 auto;padding:24px 20px 60px}
+h1.sec{font-family:var(--display);font-style:italic;font-weight:800;font-size:28px;margin:6px 0 12px;display:flex;align-items:center;gap:12px}
+h1.sec i{display:block;width:34px;height:6px;background:var(--red);transform:skewX(-30deg)}
+.sub{color:var(--mute);margin:-6px 0 16px;max-width:75ch}
+.g{color:var(--green-t)}.y{color:var(--yellow-t)}.r{color:var(--red)}.p{color:var(--purple)}
+
+/* shared pieces */
+.bar{display:flex;align-items:stretch;height:64px;background:var(--deep);border-bottom:1px solid var(--line)}
+.logo{color:#fff;display:flex;align-items:center;padding:0 38px 0 18px;background:var(--red);clip-path:polygon(0 0,100% 0,calc(100% - 22px) 100%,0 100%);margin-right:-6px}
+.logo b{font-family:var(--display);font-style:italic;font-weight:900;font-size:24px}
+.evt{display:flex;flex-direction:column;justify-content:center;padding:0 22px}
+.evt .t{font-family:var(--display);font-weight:800;font-size:24px;font-style:italic;line-height:1}
+.evt .s{color:var(--mute);font-size:12px;margin-top:3px}
+.livepill{display:flex;align-items:center;align-self:center;padding:5px 14px 5px 10px;background:rgba(255,30,60,.14);border:1px solid var(--red);transform:skewX(-14deg)}
+.livepill span{transform:skewX(14deg);display:flex;align-items:center;gap:8px;font-family:var(--display);font-style:italic;font-weight:800;font-size:16px;letter-spacing:.06em}
+.pulse{width:9px;height:9px;border-radius:50%;background:var(--red);animation:pulse 1.4s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,30,60,.7)}70%{box-shadow:0 0 0 9px rgba(255,30,60,0)}100%{box-shadow:0 0 0 0 rgba(255,30,60,0)}}
+.search{margin:auto 0 auto 24px;width:300px;height:38px;display:flex;align-items:center;padding:0 14px;background:var(--panel2);border:1px solid var(--line);transform:skewX(-10deg);color:var(--mute)}
+.search span{transform:skewX(10deg)}
+.barR{margin-left:auto;display:flex;align-items:center;gap:12px;padding-right:20px}
+.btn{font-family:var(--display);font-style:italic;font-weight:800;font-size:15px;padding:4px 16px;border:1px solid var(--text);transform:skewX(-12deg);white-space:nowrap}
+.btn span{display:block;transform:skewX(12deg)}
+.btn.fill{background:var(--text);color:var(--onink)}
+.btn.red{background:var(--red);border-color:var(--red);color:#fff}
+.notice{display:flex;gap:12px;align-items:center;padding:8px 18px;background:var(--noticebg);border-bottom:1px solid var(--noticeb);color:var(--noticetx);font-size:13px}
+.notice i{width:18px;height:14px;background:var(--yellow);clip-path:polygon(0 0,100% 12%,100% 88%,0 100%)}
+
+/* spectator desktop */
+.site{min-width:1240px;background:var(--panel);border:1px solid var(--line);overflow:hidden}
+.main{display:grid;grid-template-columns:320px 1fr 340px;min-height:620px}
+.tower{background:var(--deep);border-right:1px solid var(--line);padding:12px 0}
+.tower h3{font-family:var(--display);font-style:italic;font-weight:800;font-size:18px;padding:0 14px 8px}
+.tabs{display:flex;gap:6px;padding:0 14px 10px;flex-wrap:wrap}
+.chip{padding:3px 10px;border:1px solid var(--line);color:var(--mute);font-size:12px;transform:skewX(-12deg)}
+.chip span{display:block;transform:skewX(12deg)}
+.chip.on{background:var(--text);color:var(--onink);border-color:var(--text);font-weight:600}
+.row{display:grid;grid-template-columns:34px 4px 1fr auto 26px;align-items:center;gap:8px;height:44px;padding:0 10px 0 0;border-bottom:1px solid var(--panel)}
+.row .pos{height:100%;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-style:italic;font-weight:800;font-size:20px;background:var(--panel2)}
+.row .team{width:4px;height:24px;background:var(--c)}
+.row .nm b{font-family:var(--display);font-style:italic;font-weight:800;font-size:19px}
+.row .nm small{color:var(--mute);font-size:11px;margin-left:6px}
+.row .gap{font-family:var(--display);font-style:italic;font-weight:600;font-size:16px;text-align:right}
+.row .star{text-align:center;color:var(--dim);font-size:16px}
+.row.fol{background:linear-gradient(90deg,rgba(255,30,60,.22),rgba(255,30,60,0))}
+.row.fol .pos{background:var(--red);color:#fff}
+.row.fol .star{color:var(--yellow)}
+.row.fin .gap{color:var(--green)}
+.mapwrap{position:relative;min-height:620px;background:radial-gradient(900px 500px at 60% 40%,var(--map1),var(--map2));overflow:hidden}
+.mapwrap svg.map{position:absolute;inset:0;width:100%;height:100%}
+.callout{position:absolute;left:14px;bottom:14px;width:250px;background:var(--glass);border-left:5px solid var(--red);padding:10px 12px;clip-path:polygon(0 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%)}
+.callout b{font-family:var(--display);font-style:italic;font-weight:900;font-size:22px}
+.callout p{color:var(--mute);font-size:12px}
+.right{background:var(--deep);border-left:1px solid var(--line);padding:14px}
+.right h3{font-family:var(--display);font-style:italic;font-weight:800;font-size:18px;margin-bottom:8px}
+.fcard{background:var(--panel);border-left:5px solid var(--red);padding:12px;clip-path:polygon(0 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%)}
+.fcard .nm{display:flex;align-items:baseline;gap:8px}
+.fcard .nm b{font-family:var(--display);font-style:italic;font-weight:900;font-size:28px}
+.eta{display:flex;justify-content:space-between;align-items:flex-end;margin:10px 0 4px}
+.eta .big{font-size:56px;line-height:.9}
+.eta small{color:var(--mute);font-size:12px}
+.prog{position:relative;height:6px;background:var(--line);margin:20px 30px 34px 30px;transform:skewX(-20deg)}
+.prog i{position:absolute;left:0;top:0;bottom:0;width:67%;background:var(--green)}
+.prog em{position:absolute;top:-5px;width:2px;height:16px;background:var(--text);font-style:normal}
+.prog em span{position:absolute;top:20px;left:-22px;width:46px;text-align:center;font-size:11px;color:var(--mute);transform:skewX(20deg)}
+.prog em span b{display:block;color:var(--text);font-weight:600}
+.dot{position:absolute;top:-6px;left:67%;width:18px;height:18px;background:var(--red);border:3px solid var(--deep);border-radius:50%;transform:skewX(20deg)}
+.kv{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px}
+.kv div{background:var(--panel2);padding:6px 8px}
+.kv small{display:block;color:var(--mute);font-size:11px}
+.kv b{font-family:var(--display);font-style:italic;font-weight:800;font-size:20px}
+.actions{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.actions .btn{text-align:center;padding:6px 16px;font-size:16px}
+.mini{margin-top:14px}
+.mini .r2{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--panel)}
+.mini .r2 b{font-family:var(--display);font-style:italic;font-weight:800;font-size:18px}
+.mini .r2 small{color:var(--mute)}
+
+/* phones */
+.row-phones{display:flex;gap:28px;flex-wrap:wrap;margin-top:8px;align-items:flex-start}
+.phonebox{width:300px}
+.phonebox .cap{color:var(--mute);margin:10px 4px 0;font-size:13px}
+.phone{width:300px;min-height:600px;border-radius:40px;border:3px solid var(--phoneborder);background:var(--deep);padding:14px 12px 16px;position:relative;box-shadow:0 30px 60px var(--shadow);display:flex;flex-direction:column}
+.phone:before{content:"";display:block;width:84px;height:20px;background:#000;border-radius:0 0 14px 14px;margin:-14px auto 10px}
+.stepbar{display:flex;gap:4px;margin:0 4px 12px}
+.stepbar i{flex:1;height:5px;background:var(--line);transform:skewX(-20deg)}
+.stepbar i.on{background:var(--red)}
+.phone h2{font-family:var(--display);font-style:italic;font-weight:900;font-size:34px;line-height:1;padding:0 4px}
+.phone p.lead{color:var(--mute);padding:6px 4px 12px;font-size:14px}
+.evtcard{margin:0 0 12px;padding:10px 12px;background:var(--panel);border-left:5px solid var(--red)}
+.evtcard b{font-family:var(--display);font-style:italic;font-weight:800;font-size:20px}
+.evtcard small{display:block;color:var(--mute)}
+.field{margin:0 0 10px}
+.field label{display:block;color:var(--mute);font-size:12px;margin:0 0 3px 4px}
+.field div{height:42px;padding:0 12px;display:flex;align-items:center;background:var(--panel2);border:1px solid var(--line);clip-path:polygon(0 0,100% 0,calc(100% - 10px) 100%,0 100%)}
+.field div.ok{border-color:var(--green)}
+.cta{margin-top:auto;height:54px;display:flex;align-items:center;justify-content:center;background:var(--red);color:#fff;font-family:var(--display);font-style:italic;font-weight:900;font-size:22px;letter-spacing:.04em;clip-path:polygon(0 0,100% 0,calc(100% - 16px) 100%,0 100%)}
+.cta.off{background:var(--line);color:var(--dim)}
+.who{display:grid;grid-template-columns:34px 1fr;gap:10px;margin:0 0 8px;align-items:start}
+.who i{width:34px;height:34px;background:var(--panel2);display:flex;align-items:center;justify-content:center;font-style:normal;font-family:var(--display);font-weight:800;font-size:15px;color:var(--yellow)}
+.who b{display:block}
+.who span{color:var(--mute);font-size:13px}
+.chk{display:grid;grid-template-columns:24px 1fr;gap:10px;padding:10px 4px;border-top:1px solid var(--line);align-items:start}
+.chk .ic{width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;clip-path:polygon(0 0,100% 0,calc(100% - 5px) 100%,0 100%)}
+.ic.ok{background:var(--green);color:#03170B}.ic.warn{background:var(--yellow);color:#241c00}.ic.todo{background:var(--line);color:var(--mute)}
+.chk b{display:block;font-weight:600}
+.chk span{color:var(--mute);font-size:12.5px}
+.toggle{display:grid;grid-template-columns:1fr 44px;gap:10px;align-items:center;padding:10px 4px;border-top:1px solid var(--line)}
+.toggle i{height:22px;background:var(--green);transform:skewX(-14deg);position:relative}
+.toggle i:after{content:"";position:absolute;right:3px;top:3px;bottom:3px;width:14px;background:#03170B}
+.toggle i.offt{background:var(--line)}.toggle i.offt:after{right:auto;left:3px;background:var(--mute)}
+.toggle b{font-weight:600;display:block}
+.toggle span{color:var(--mute);font-size:12.5px}
+.count{text-align:center;padding:10px 0 4px}
+.count .big{font-size:60px;line-height:.9}
+.count small{color:var(--mute)}
+.meters{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:10px 0}
+.meters div{background:var(--panel);padding:8px 10px;border-left:3px solid var(--green)}
+.meters small{display:block;color:var(--mute);font-size:11px}
+.meters b{font-family:var(--display);font-style:italic;font-weight:800;font-size:22px}
+.meters .w{border-left-color:var(--yellow)}
+.qr{width:112px;height:112px;margin:6px auto;background:#fff;padding:8px}
+.qr i{display:block;width:100%;height:100%;background:
+ conic-gradient(#000 25%,#fff 0 50%,#000 0 75%,#fff 0) 0 0/14px 14px}
+.mapph{height:240px;background:radial-gradient(300px 240px at 50% 50%,var(--map1),var(--map2));border:1px solid var(--line);margin-bottom:8px;position:relative}
+.sheet{background:var(--deep);border-top:3px solid var(--red);margin:0 -12px;padding:10px 14px 0;flex:1}
+.sheet .grab{width:44px;height:4px;background:var(--line);margin:0 auto 8px}
+@media (prefers-reduced-motion:reduce){.pulse{animation:none}}
+.lang{display:flex;border:1px solid var(--line);transform:skewX(-12deg)}.lang span{padding:2px 10px;font-family:var(--display);font-style:italic;font-weight:800;color:var(--mute);transform:skewX(12deg)}.lang span.on{background:var(--text);color:var(--onink)}
+.seg{display:flex;gap:6px;margin-top:2px}.seg div{flex:1;height:40px;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);background:var(--panel2);transform:skewX(-12deg);font-weight:600}.seg div span{transform:skewX(12deg)}.seg div.on{background:var(--text);color:var(--onink);border-color:var(--text)}.cta2{height:40px;margin-top:8px;display:flex;align-items:center;justify-content:center;color:var(--mute);border:1px solid var(--line);font-weight:600}.field small{display:block;color:var(--mute);font-size:12px;margin:3px 4px 0}
+</style>
+</head>
+<body>
+<div class="page">
+
+<h1 class="sec"><i></i>Divácka stránka</h1>
+<p class="sub">Verejný odkaz bez prihlásenia. Divák nájde svojho pretekára, označí ho hviezdičkou a vidí, kde je a kedy príde do cieľa. Batéria, GPS presnosť a alarmy sú skryté.</p>
+
+<div class="site">
+  <div class="bar">
+    <div class="logo"><b>PT</b></div>
+    <div class="evt"><span class="t">Beskydy MTB 50</span><span class="s">Sobota 7. novembra 2026, štart 10:00, 4 kolá × 12,5 km</span></div>
+    <div class="livepill"><span><i class="pulse"></i>LIVE</span></div>
+    <div class="search"><span>Hľadať meno alebo štartové číslo</span></div>
+    <div class="barR"><div class="lang"><span class="on">SK</span><span>EN</span></div><span style="color:var(--mute)">Sledujete 2</span><div class="btn"><span>Zdieľať odkaz</span></div></div>
+  </div>
+  <div class="notice"><i></i>Poloha je oneskorená o 30 s a poradie je orientačné. Oficiálne výsledky vydá organizátor.</div>
+
+  <div class="main">
+    <aside class="tower">
+      <h3>Poradie</h3>
+      <div class="tabs">
+        <div class="chip on"><span>Všetci</span></div><div class="chip"><span>Muži</span></div><div class="chip"><span>Ženy</span></div><div class="chip"><span>Sledovaní</span></div>
+      </div>
+      <div class="row fin" style="--c:var(--yellow)"><div class="pos">1</div><div class="team"></div><div class="nm"><b>NOV</b><small>Novák Jozef</small></div><div class="gap">2:01:48</div><div class="star">☆</div></div>
+      <div class="row fol" style="--c:var(--red)"><div class="pos">2</div><div class="team"></div><div class="nm"><b>KOV</b><small>Kováč Peter</small></div><div class="gap g">+0:48</div><div class="star">★</div></div>
+      <div class="row" style="--c:var(--blue)"><div class="pos">3</div><div class="team"></div><div class="nm"><b>HOR</b><small>Horváth Marek</small></div><div class="gap">+4:12</div><div class="star">☆</div></div>
+      <div class="row" style="--c:var(--green)"><div class="pos">4</div><div class="team"></div><div class="nm"><b>TOT</b><small>Tóth Lukáš</small></div><div class="gap">+6:20</div><div class="star">☆</div></div>
+      <div class="row fol" style="--c:var(--purple)"><div class="pos">5</div><div class="team"></div><div class="nm"><b>MAR</b><small>Marková Eva</small></div><div class="gap">+7:02</div><div class="star">★</div></div>
+      <div class="row" style="--c:#FF8A00"><div class="pos">6</div><div class="team"></div><div class="nm"><b>KOL</b><small>Kolár Tomáš</small></div><div class="gap">+9:30</div><div class="star">☆</div></div>
+      <div class="row" style="--c:var(--red)"><div class="pos">7</div><div class="team"></div><div class="nm"><b>BEN</b><small>Beňo Adam</small></div><div class="gap">+11:05</div><div class="star">☆</div></div>
+      <div class="row" style="--c:var(--blue)"><div class="pos">8</div><div class="team"></div><div class="nm"><b>VAR</b><small>Varga Dávid</small></div><div class="gap" style="color:var(--dim)">bez signálu</div><div class="star">☆</div></div>
+      <div style="padding:12px 14px;color:var(--mute);font-size:12px">87 pretekárov na trati, 38 v cieli</div>
+    </aside>
+
+    <section class="mapwrap">
+      <svg class="map" viewBox="0 0 800 620" preserveAspectRatio="xMidYMid meet">
+        <g fill="none" stroke="var(--contour)" stroke-width="1.2">
+          <path d="M-20 160 C120 100 220 170 330 130 S560 60 820 120"/><path d="M-20 210 C110 160 230 230 340 190 S570 120 820 180"/>
+          <path d="M-20 520 C150 480 260 540 420 500 S650 430 820 480"/><ellipse cx="620" cy="400" rx="130" ry="64"/><ellipse cx="620" cy="400" rx="80" ry="36"/>
+        </g>
+        <path d="M60 540 C140 500 160 400 230 390 S330 440 400 370 S480 230 560 240 S700 190 740 90" fill="none" stroke="var(--roadbase)" stroke-width="16" stroke-linecap="round"/>
+        <path d="M60 540 C140 500 160 400 230 390 S330 440 400 370 S480 230 560 240 S700 190 740 90" fill="none" stroke="var(--ink)" stroke-opacity=".9" stroke-width="2.5" stroke-dasharray="1 7"/>
+        <path pathLength="100" d="M60 540 C140 500 160 400 230 390 S330 440 400 370 S480 230 560 240 S700 190 740 90" fill="none" stroke="var(--red)" stroke-width="4" stroke-dasharray="66.5 100"/>
+        <g style="offset-path:path('M60 540 C140 500 160 400 230 390 S330 440 400 370 S480 230 560 240 S700 190 740 90');offset-distance:25%;offset-rotate:0deg"><circle r="8" fill="var(--carbon)" stroke="var(--ink)" stroke-width="2"/><text x="14" y="22" fill="var(--mute)" font-size="12" font-family="Titillium Web">CP1 Pila</text></g>
+        <g style="offset-path:path('M60 540 C140 500 160 400 230 390 S330 440 400 370 S480 230 560 240 S700 190 740 90');offset-distance:50%;offset-rotate:0deg"><circle r="8" fill="var(--carbon)" stroke="var(--ink)" stroke-width="2"/><text x="-16" y="30" fill="var(--mute)" font-size="12" font-family="Titillium Web">CP2 Sedlo</text></g>
+        <g style="offset-path:path('M60 540 C140 500 160 400 230 390 S330 440 400 370 S480 230 560 240 S700 190 740 90');offset-distance:75%;offset-rotate:0deg"><circle r="8" fill="var(--carbon)" stroke="var(--ink)" stroke-width="2"/><text x="14" y="-12" fill="var(--mute)" font-size="12" font-family="Titillium Web">CP3 Chata</text></g>
+        <g style="offset-path:path('M60 540 C140 500 160 400 230 390 S330 440 400 370 S480 230 560 240 S700 190 740 90');offset-distance:100%;offset-rotate:0deg"><rect x="-8" y="-8" width="8" height="8" fill="#FFFFFF"/><rect x="0" y="0" width="8" height="8" fill="#FFFFFF"/><rect x="0" y="-8" width="8" height="8" fill="#000"/><rect x="-8" y="0" width="8" height="8" fill="#000"/><text x="-50" y="-14" fill="var(--ink)" font-size="12" font-weight="700" font-family="Titillium Web">Cieľ</text></g>
+        <!-- followed riders big, others small -->
+        <g style="offset-path:path('M60 540 C140 500 160 400 230 390 S330 440 400 370 S480 230 560 240 S700 190 740 90');offset-distance:68%;offset-rotate:0deg"><circle r="5" fill="var(--yellow)"/></g>
+        <g style="offset-path:path('M60 540 C140 500 160 400 230 390 S330 440 400 370 S480 230 560 240 S700 190 740 90');offset-distance:66.5%;offset-rotate:0deg"><circle r="14" fill="none" stroke="var(--ink)" stroke-width="2"/><circle r="9" fill="var(--red)" stroke="var(--carbon)" stroke-width="3"/><text x="-44" y="28" fill="var(--ink)" font-family="Barlow Condensed" font-style="italic" font-weight="800" font-size="17">KOV</text></g>
+        <g style="offset-path:path('M60 540 C140 500 160 400 230 390 S330 440 400 370 S480 230 560 240 S700 190 740 90');offset-distance:58%;offset-rotate:0deg"><circle r="9" fill="var(--purple)" stroke="var(--carbon)" stroke-width="3"/><text x="-44" y="-12" fill="var(--purple)" font-family="Barlow Condensed" font-style="italic" font-weight="800" font-size="17">MAR</text></g>
+        <g fill="var(--dim)"><g style="offset-path:path('M60 540 C140 500 160 400 230 390 S330 440 400 370 S480 230 560 240 S700 190 740 90');offset-distance:62%"><circle r="4"/></g><g style="offset-path:path('M60 540 C140 500 160 400 230 390 S330 440 400 370 S480 230 560 240 S700 190 740 90');offset-distance:55%"><circle r="4"/></g><g style="offset-path:path('M60 540 C140 500 160 400 230 390 S330 440 400 370 S480 230 560 240 S700 190 740 90');offset-distance:49%"><circle r="4"/></g><g style="offset-path:path('M60 540 C140 500 160 400 230 390 S330 440 400 370 S480 230 560 240 S700 190 740 90');offset-distance:40%"><circle r="4"/></g><g style="offset-path:path('M60 540 C140 500 160 400 230 390 S330 440 400 370 S480 230 560 240 S700 190 740 90');offset-distance:33%"><circle r="4"/></g></g>
+      </svg>
+      <div class="callout"><b>KOVÁČ PETER</b><p>2. miesto, 33,7 km z 50. Rýchlosť 29,8 km/h.</p></div>
+    </section>
+
+    <aside class="right">
+      <h3>Sledujete</h3>
+      <div class="fcard">
+        <div class="nm"><b>KOVÁČ PETER</b><span class="num" style="color:var(--red);font-size:18px">#21</span></div>
+        <div style="color:var(--mute);font-size:12px">2. miesto, Muži 30 – 39, kolo 3/4</div>
+        <div class="eta"><div><small>Odhad príchodu do cieľa</small><div class="num big">14:03</div></div><div style="text-align:right"><small>o</small><div class="num" style="font-size:26px">2 h 21 min</div></div></div>
+        <div class="prog">
+          <i></i>
+          <em style="left:0"><span><b>Štart</b>10:00</span></em>
+          <em style="left:25%"><span><b>CP1</b>10:52</span></em>
+          <em style="left:50%"><span><b>CP2</b>11:31</span></em>
+          <em style="left:75%"><span><b>CP3</b>12:41?</span></em>
+          <em style="left:100%"><span><b>Cieľ</b>14:03?</span></em>
+          <div class="dot"></div>
+        </div>
+        <div class="kv">
+          <div><small>prejdené</small><b>33,7 km</b></div>
+          <div><small>rýchlosť, km/h</small><b>29,8</b></div>
+          <div><small>odstup</small><b class="g">+0:48</b></div>
+        </div>
+      </div>
+      <div class="actions">
+        <div class="btn red"><span>Upozorniť ma pri cieli</span></div>
+        <div class="btn"><span>Zdieľať môjho pretekára</span></div>
+      </div>
+      <div class="mini">
+        <h3 style="font-size:16px;margin-bottom:2px">Ďalší sledovaný</h3>
+        <div class="r2"><span class="num" style="color:var(--purple);font-size:20px">5.</span><div><b>MARKOVÁ EVA</b><br><small>31,0 km, +7:02</small></div><div class="num" style="font-size:20px">14:19</div></div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<h1 class="sec" style="margin-top:46px"><i></i>Divák na mobile</h1>
+<p class="sub">Mapa je hore, dolu vysuniete panel so sledovaným pretekárom. Odkaz sa zdieľa cez QR alebo správu a nevyžaduje inštaláciu.</p>
+<div class="row-phones">
+  <div class="phonebox">
+    <div class="phone">
+      <div class="mapph">
+        <svg viewBox="0 0 276 240" width="100%" height="100%">
+          <g fill="none" stroke="var(--contour)"><ellipse cx="200" cy="150" rx="60" ry="30"/><path d="M0 60C80 30 160 70 276 40"/></g>
+          <path d="M20 210 C60 200 80 150 130 140 S190 150 220 100 S250 60 258 28" fill="none" stroke="var(--roadbase)" stroke-width="12" stroke-linecap="round"/>
+          <path pathLength="100" d="M20 210 C60 200 80 150 130 140 S190 150 220 100 S250 60 258 28" fill="none" stroke="var(--red)" stroke-width="4" stroke-dasharray="66 100"/>
+          <circle cx="188" cy="130" r="14" fill="rgba(255,30,60,.25)"/><circle cx="188" cy="130" r="8" fill="var(--red)" stroke="var(--carbon)" stroke-width="3"/>
+          <circle cx="170" cy="144" r="4" fill="var(--yellow)"/><circle cx="100" cy="158" r="4" fill="var(--dim)"/>
+          <circle cx="258" cy="28" r="5" fill="var(--ink)"/>
+        </svg>
+      </div>
+      <div class="sheet">
+        <div class="grab"></div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><b class="num" style="font-size:24px">KOVÁČ P.</b><span style="color:var(--mute);font-size:13px">2. miesto</span></div>
+        <div class="eta" style="margin:6px 0 0"><div><small>Odhad cieľa</small><div class="num" style="font-size:52px;line-height:.9">14:03</div></div><div style="text-align:right"><small>o</small><div class="num" style="font-size:22px">2 h 21 min</div></div></div>
+        <div class="prog" style="margin:18px 26px 30px"><i></i>
+          <em style="left:0"><span><b>Š</b></span></em><em style="left:50%"><span><b>CP2</b></span></em><em style="left:100%"><span><b>Cieľ</b></span></em><div class="dot"></div>
+        </div>
+        <div class="kv"><div><small>prejdené</small><b>33,7 km</b></div><div><small>rýchlosť</small><b>29,8</b></div><div><small>odstup</small><b class="g">+0:48</b></div></div>
+        <div class="btn red" style="text-align:center;margin-top:10px"><span>Upozorniť ma pri cieli</span></div>
+      </div>
+    </div>
+    <div class="cap">Sledovaný pretekár: odhad cieľa je najväčší údaj.</div>
+  </div>
+
+  <div class="phonebox">
+    <div class="phone">
+      <h2 style="margin-top:4px">Beskydy MTB 50</h2>
+      <p class="lead">Nájdite pretekára a sledujte ho na mape.</p>
+      <div class="field"><div style="color:var(--mute)">Hľadať meno alebo číslo</div></div>
+      <div class="tabs" style="padding:0 0 8px"><div class="chip on"><span>Všetci</span></div><div class="chip"><span>Sledovaní 2</span></div><div class="chip"><span>V cieli 38</span></div></div>
+      <div class="row fin" style="--c:var(--yellow);grid-template-columns:34px 4px 1fr auto 26px"><div class="pos">1</div><div class="team"></div><div class="nm"><b>NOV</b><small>Novák Jozef</small></div><div class="gap">2:01:48</div><div class="star">☆</div></div>
+      <div class="row fol" style="--c:var(--red)"><div class="pos">2</div><div class="team"></div><div class="nm"><b>KOV</b><small>Kováč Peter</small></div><div class="gap g">+0:48</div><div class="star">★</div></div>
+      <div class="row" style="--c:var(--blue)"><div class="pos">3</div><div class="team"></div><div class="nm"><b>HOR</b><small>Horváth Marek</small></div><div class="gap">+4:12</div><div class="star">☆</div></div>
+      <div class="row" style="--c:var(--green)"><div class="pos">4</div><div class="team"></div><div class="nm"><b>TOT</b><small>Tóth Lukáš</small></div><div class="gap">+6:20</div><div class="star">☆</div></div>
+      <div class="row fol" style="--c:var(--purple)"><div class="pos">5</div><div class="team"></div><div class="nm"><b>MAR</b><small>Marková Eva</small></div><div class="gap">+7:02</div><div class="star">★</div></div>
+      <div class="cta" style="margin-top:auto">ZOBRAZIŤ MAPU</div>
+    </div>
+    <div class="cap">Zoznam a vyhľadávanie. Hviezdička pridá pretekára medzi sledovaných.</div>
+  </div>
+</div>
+
+<!-- ============ JOIN FLOW ============ -->
+<h1 class="sec" style="margin-top:56px"><i></i>Pripojenie pretekára</h1>
+<p class="sub">Štyri kroky od e-mailovej pozvánky po vysielanie. Cieľom je, aby pretekár vedel, že vysiela, ešte pred štartom. Preto je posledný krok kontrola, nie len tlačidlo.</p>
+
+<div class="row-phones">
+  <div class="phonebox">
+    <div class="phone">
+      <div class="stepbar"><i class="on"></i><i></i><i></i><i></i></div>
+      <h2>Potvrďte účasť</h2>
+      <p class="lead">Ahoj Peter, organizátor vás zapísal na toto podujatie.</p>
+      <div class="evtcard"><b>Beskydy MTB 50</b><small>Čadca, 7. novembra 2026, štart 10:00</small><small>Cyklistika, Muži 30 – 39, číslo 21</small></div>
+      <div class="field"><label>Prezývka (zobrazí sa divákom)</label><div class="ok">Kovy</div><small>Môžete ju meniť aj počas pretekov.</small></div>
+      <div class="field"><label>Pohlavie</label><div class="seg"><div class="on"><span>Muž</span></div><div><span>Žena</span></div></div><small>Do štartu sa dá zmeniť.</small></div>
+      <div class="cta" style="margin-top:auto">POTVRDIŤ ÚČASŤ</div>
+      <div class="cta2">Odmietnuť</div>
+    </div>
+    <div class="cap">1. Potvrdenie účasti z odkazu v e-maile: prezývka a pohlavie.</div>
+  </div>
+
+  <div class="phonebox">
+    <div class="phone">
+      <div class="stepbar"><i class="on"></i><i class="on"></i><i></i><i></i></div>
+      <h2>Vaša poloha</h2>
+      <p class="lead">Počas pretekov odosielame polohu vášho telefónu.</p>
+      <div class="who"><i>1</i><div><b>Kto ju vidí</b><span>Organizátor presne. Diváci s oneskorením 30 s, ak ich zobrazenie povolíte.</span></div></div>
+      <div class="who"><i>2</i><div><b>Kedy to začne a skončí</b><span>Od vášho štartu po cieľ. Po cieli sa vysielanie samo vypne.</span></div></div>
+      <div class="who"><i>3</i><div><b>Ako dlho ju uchováme</b><span>30 dní, potom sa zmaže. Žiadosť o zmazanie pošlete organizátorovi.</span></div></div>
+      <div class="toggle"><div><b>Súhlasím s odosielaním polohy</b><span>Povinné pre účasť</span></div><i></i></div>
+      <div class="toggle"><div><b>Zobraziť moje meno divákom</b><span>Inak sa zobrazí len štartové číslo</span></div><i class="offt"></i></div>
+      <div class="cta" style="margin-top:auto">SÚHLASÍM A POKRAČUJEM</div>
+    </div>
+    <div class="cap">2. Súhlas: kto, kedy a ako dlho. Zobrazenie mena je voliteľné.</div>
+  </div>
+
+  <div class="phonebox">
+    <div class="phone">
+      <div class="stepbar"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></div>
+      <h2>Nastavenie telefónu</h2>
+      <p class="lead">Aby vysielanie fungovalo celý pretek.</p>
+      <div class="chk"><div class="ic ok">✓</div><div><b>Poloha povolená</b><span>Presná poloha je zapnutá.</span></div></div>
+      <div class="chk"><div class="ic warn">!</div><div><b>Pridajte aplikáciu na plochu</b><span>Ťuknite na Zdieľať a potom Pridať na plochu. Bez toho môže systém vysielanie prerušiť.</span></div></div>
+      <div class="chk"><div class="ic ok">✓</div><div><b>Obrazovka zostane zapnutá</b><span>Telefón sa počas pretekov nezamkne. Spotrebuje viac batérie.</span></div></div>
+      <div class="chk"><div class="ic todo">3</div><div><b>Nabitá batéria</b><span>Odporúčame aspoň 60 %. Zoberte si powerbanku.</span></div></div>
+      <div class="chk"><div class="ic todo">4</div><div><b>Nechajte aplikáciu otvorenú</b><span>Nepreplínajte do iných aplikácií, vysielanie na pozadí nie je zaručené.</span></div></div>
+      <div class="cta" style="margin-top:auto">POKRAČOVAŤ</div>
+    </div>
+    <div class="cap">3. Povolenia a inštalácia. Každá položka vysvetlí, prečo je potrebná.</div>
+  </div>
+
+  <div class="phonebox">
+    <div class="phone">
+      <div class="stepbar"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></div>
+      <h2>Pripravený na štart</h2>
+      <div class="count"><small>Štart vašej vlny o</small><div class="num big">00:14:52</div></div>
+      <div class="meters">
+        <div><small>GPS signál</small><b>±4 m</b></div>
+        <div><small>Spojenie</small><b>LTE, dobré</b></div>
+        <div><small>Batéria</small><b>94 %</b></div>
+        <div class="w"><small>Od štartu</small><b>120 m</b></div>
+      </div>
+      <div class="mapph" style="height:120px">
+        <svg viewBox="0 0 276 120" width="100%" height="100%">
+          <path d="M40 90 C90 80 130 40 230 30" fill="none" stroke="var(--roadbase)" stroke-width="12" stroke-linecap="round"/>
+          <rect x="34" y="84" width="12" height="12" fill="var(--ink)"/>
+          <circle cx="110" cy="60" r="12" fill="rgba(37,224,123,.22)"/><circle cx="110" cy="60" r="6" fill="var(--green)" stroke="var(--carbon)" stroke-width="3"/>
+        </svg>
+      </div>
+      <div style="color:var(--mute);font-size:12.5px;padding:0 4px 10px">Presuňte sa k štartovej čiare. Vysielanie sa spustí samo pri štarte vašej vlny.</div>
+      <div class="cta">SPUSTIŤ VYSIELANIE</div>
+    </div>
+    <div class="cap">4. Kontrola pred štartom. Tlačidlo je aktívne po splnení podmienok.</div>
+  </div>
+</div>
+
+</div>
+<div class="theme-toggle" role="group" aria-label="Režim zobrazenia"><button data-t="light" aria-pressed="false">Svetlý</button><button data-t="dark" aria-pressed="false">Tmavý</button></div>
+<script>
+(function(){var r=document.documentElement,k="pt-theme";
+function cur(){var t=r.getAttribute("data-theme");if(t)return t;return matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}
+function mark(){var c=cur();document.querySelectorAll(".theme-toggle button").forEach(function(b){b.setAttribute("aria-pressed",String(b.dataset.t===c))})}
+try{var v=localStorage.getItem(k);if(v)r.setAttribute("data-theme",v)}catch(e){}
+document.querySelectorAll(".theme-toggle button").forEach(function(b){b.addEventListener("click",function(){r.setAttribute("data-theme",b.dataset.t);try{localStorage.setItem(k,b.dataset.t)}catch(e){}mark()})});
+mark()})();
+</script>
+</body>
+</html>

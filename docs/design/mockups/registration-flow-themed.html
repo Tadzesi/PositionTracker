@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PositionTracker: registrácia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,500;0,700;0,800;1,600;1,800;1,900&family=Titillium+Web:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--carbon:#0C0D11;--deep:#0A0B0E;--panel:#15171E;--panel2:#1C1F29;--line:#2A2E3A;--line2:#14161C;--text:#F4F5F8;--mute:#8D93A6;--dim:#5C6275;--red:#FF1E3C;--purple:#B455F5;--green:#25E07B;--yellow:#FFD60A;--blue:#3DA5FF;--green-t:#25E07B;--yellow-t:#FFD60A;--contour:#1F2431;--roadbase:#2D3242;--elev1:#3A4056;--elev2:#0E1016;--badge:#3A3F4C;--phoneborder:#2C3040;--slidebg:#2A0A10;--slidetx:#FF8A9B;--map1:#171B26;--map2:#0C0D11;--glass:rgba(10,11,14,.92);--glass2:rgba(10,11,14,.85);--stripe:rgba(255,255,255,.018);--shadow:rgba(0,0,0,.5);--ink:#FFFFFF;--onink:#000000;--onsignal:#03170B;--noticebg:rgba(255,214,10,.10);--noticeb:#4A410D;--noticetx:#E8D56A;--display:'Barlow Condensed','Arial Narrow',sans-serif;--ui:'Titillium Web',system-ui,sans-serif;}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]){color-scheme:light;--carbon:#EAEDF2;--deep:#FFFFFF;--panel:#F4F6F9;--panel2:#E7EAF0;--line:#D3D8E1;--line2:#E3E7EE;--text:#12141A;--mute:#5B6275;--dim:#9AA1B2;--red:#E10B2D;--purple:#9333EA;--green:#16B364;--yellow:#F2B705;--blue:#1E88E5;--green-t:#0E9A52;--yellow-t:#B07A00;--contour:#CDD4E0;--roadbase:#C4CCD9;--elev1:#C5CDDA;--elev2:#F4F6F9;--badge:#6B7388;--phoneborder:#C2C9D6;--slidebg:#FFE4E9;--slidetx:#C4122F;--map1:#FAFBFD;--map2:#E1E6EE;--glass:rgba(255,255,255,.95);--glass2:rgba(255,255,255,.9);--stripe:rgba(10,20,50,.03);--shadow:rgba(20,30,60,.2);--ink:#12141A;--onink:#FFFFFF;--onsignal:#FFFFFF;--noticebg:rgba(176,122,0,.12);--noticeb:#E6D9A0;--noticetx:#7A5600;}}
+:root[data-theme="light"]{color-scheme:light;--carbon:#EAEDF2;--deep:#FFFFFF;--panel:#F4F6F9;--panel2:#E7EAF0;--line:#D3D8E1;--line2:#E3E7EE;--text:#12141A;--mute:#5B6275;--dim:#9AA1B2;--red:#E10B2D;--purple:#9333EA;--green:#16B364;--yellow:#F2B705;--blue:#1E88E5;--green-t:#0E9A52;--yellow-t:#B07A00;--contour:#CDD4E0;--roadbase:#C4CCD9;--elev1:#C5CDDA;--elev2:#F4F6F9;--badge:#6B7388;--phoneborder:#C2C9D6;--slidebg:#FFE4E9;--slidetx:#C4122F;--map1:#FAFBFD;--map2:#E1E6EE;--glass:rgba(255,255,255,.95);--glass2:rgba(255,255,255,.9);--stripe:rgba(10,20,50,.03);--shadow:rgba(20,30,60,.2);--ink:#12141A;--onink:#FFFFFF;--onsignal:#FFFFFF;--noticebg:rgba(176,122,0,.12);--noticeb:#E6D9A0;--noticetx:#7A5600;}
+:root[data-theme="dark"]{color-scheme:dark;--carbon:#0C0D11;--deep:#0A0B0E;--panel:#15171E;--panel2:#1C1F29;--line:#2A2E3A;--line2:#14161C;--text:#F4F5F8;--mute:#8D93A6;--dim:#5C6275;--red:#FF1E3C;--purple:#B455F5;--green:#25E07B;--yellow:#FFD60A;--blue:#3DA5FF;--green-t:#25E07B;--yellow-t:#FFD60A;--contour:#1F2431;--roadbase:#2D3242;--elev1:#3A4056;--elev2:#0E1016;--badge:#3A3F4C;--phoneborder:#2C3040;--slidebg:#2A0A10;--slidetx:#FF8A9B;--map1:#171B26;--map2:#0C0D11;--glass:rgba(10,11,14,.92);--glass2:rgba(10,11,14,.85);--stripe:rgba(255,255,255,.018);--shadow:rgba(0,0,0,.5);--ink:#FFFFFF;--onink:#000000;--onsignal:#03170B;--noticebg:rgba(255,214,10,.10);--noticeb:#4A410D;--noticetx:#E8D56A;}
+.theme-toggle{position:fixed;right:14px;bottom:14px;z-index:99;display:flex;border:1px solid var(--line);background:var(--deep);box-shadow:0 6px 20px var(--shadow)}.theme-toggle button{all:unset;cursor:pointer;padding:7px 16px;font-family:var(--display);font-style:italic;font-weight:800;font-size:15px;color:var(--mute)}.theme-toggle button:focus-visible{outline:2px solid var(--red);outline-offset:-2px}.theme-toggle button[aria-pressed="true"]{background:var(--text);color:var(--carbon)}
+
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--carbon);color:var(--text);font-family:'Titillium Web',system-ui,sans-serif;font-size:14px;line-height:1.35;
+  background-image:repeating-linear-gradient(135deg,var(--stripe) 0 2px,transparent 2px 7px)}
+.num{font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-style:italic;font-weight:800;font-variant-numeric:tabular-nums}
+.page{max-width:1500px;margin:0 auto;padding:24px 20px 80px}
+h1.sec{font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-style:italic;font-weight:800;font-size:28px;margin:44px 0 12px;display:flex;align-items:center;gap:12px}
+h1.sec:first-child{margin-top:6px}
+h1.sec i{display:block;width:34px;height:6px;background:var(--red);transform:skewX(-30deg)}
+.sub{color:var(--mute);margin:-6px 0 16px;max-width:78ch}
+.g{color:var(--green-t)}.y{color:var(--yellow-t)}.r{color:var(--red)}.p{color:var(--purple)}
+.disp{font-family:'Barlow Condensed','Arial Narrow',sans-serif;font-style:italic;font-weight:800}
+
+/* app chrome */
+.app{min-width:1100px;background:var(--panel);border:1px solid var(--line);overflow:hidden}
+.bar{display:flex;align-items:stretch;height:60px;background:var(--deep);border-bottom:1px solid var(--line)}
+.logo{color:#fff;display:flex;align-items:center;padding:0 38px 0 18px;background:var(--red);clip-path:polygon(0 0,100% 0,calc(100% - 22px) 100%,0 100%);margin-right:-6px;color:#fff}
+.logo b{font-family:'Barlow Condensed',sans-serif;font-style:italic;font-weight:900;font-size:24px}
+.bar .t{display:flex;flex-direction:column;justify-content:center;padding:0 22px}
+.bar .t b{font-family:'Barlow Condensed',sans-serif;font-style:italic;font-weight:800;font-size:22px;line-height:1}
+.bar .t small{color:var(--mute);font-size:12px}
+.barR{margin-left:auto;display:flex;align-items:center;gap:14px;padding-right:18px;color:var(--mute)}
+.lang{display:flex;border:1px solid var(--line);transform:skewX(-12deg)}
+.lang span{padding:2px 10px;font-family:'Barlow Condensed',sans-serif;font-style:italic;font-weight:800;color:var(--mute);transform:skewX(12deg)}
+.lang span.on{background:var(--text);color:var(--onink)}
+.lock{opacity:.9}
+
+.btn{display:inline-block;font-family:'Barlow Condensed',sans-serif;font-style:italic;font-weight:800;font-size:16px;padding:6px 18px;border:1px solid var(--text);transform:skewX(-12deg);white-space:nowrap}
+.btn span{display:block;transform:skewX(12deg)}
+.btn.fill{background:var(--text);color:var(--onink)}
+.btn.red{background:var(--red);border-color:var(--red);color:#fff}
+.btn.off{border-color:var(--line);color:var(--dim)}
+.field{margin:0 0 12px}
+.field label{display:block;color:var(--mute);font-size:12px;margin:0 0 3px 4px}
+.field .in{height:40px;padding:0 12px;display:flex;align-items:center;justify-content:space-between;background:var(--panel2);border:1px solid var(--line);clip-path:polygon(0 0,100% 0,calc(100% - 10px) 100%,0 100%)}
+.field .in.ok{border-color:var(--green)}
+.field .in.ph{color:var(--dim)}
+.field small{display:block;color:var(--mute);font-size:12px;margin:3px 4px 0}
+.seg{display:flex;gap:6px}
+.seg div{flex:1;height:40px;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);background:var(--panel2);transform:skewX(-12deg)}
+.seg div span{transform:skewX(12deg);font-weight:600}
+.seg div.on{background:var(--text);color:var(--onink);border-color:var(--text)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:1px 10px 1px 8px;font-size:12px;font-weight:600;transform:skewX(-12deg);border:1px solid}
+.chip span{transform:skewX(12deg);display:flex;align-items:center;gap:6px}
+.chip i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.c-inv{color:var(--blue);border-color:var(--blue)}
+.c-ok{color:var(--green);border-color:var(--green)}
+.c-no{color:var(--dim);border-color:var(--dim)}
+.c-bad{color:var(--yellow);border-color:var(--yellow)}
+.notice{display:flex;gap:12px;align-items:center;padding:9px 18px;background:var(--noticebg);border-bottom:1px solid var(--noticeb);color:var(--noticetx);font-size:13px}
+.notice i{width:18px;height:14px;background:var(--yellow);clip-path:polygon(0 0,100% 12%,100% 88%,0 100%);flex:none}
+
+/* layouts */
+.pair{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+.card{width:420px;background:var(--panel);border:1px solid var(--line);border-left:5px solid var(--red);padding:20px}
+.card h2{font-family:'Barlow Condensed',sans-serif;font-style:italic;font-weight:900;font-size:30px;line-height:1;margin-bottom:6px}
+.card p.lead{color:var(--mute);margin-bottom:16px}
+.cap{color:var(--mute);margin:8px 2px 0;font-size:13px;max-width:420px}
+.steps{display:flex;flex-direction:column}
+.step{display:grid;grid-template-columns:28px 1fr auto;gap:12px;padding:12px 0;border-top:1px solid var(--line);align-items:center}
+.step:first-child{border-top:0}
+.step .ic{width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;clip-path:polygon(0 0,100% 0,calc(100% - 5px) 100%,0 100%)}
+.ic.ok{background:var(--green);color:#03170B}.ic.now{background:var(--red);color:#fff}.ic.lk{background:var(--line);color:var(--mute)}
+.step b{display:block;font-weight:600}
+.step small{color:var(--mute);font-size:12.5px}
+
+/* participants */
+.pbody{display:grid;grid-template-columns:1fr 360px}
+.plist{padding:14px 16px;min-width:0}
+.counts{display:flex;gap:10px;margin-bottom:12px}
+.counts div{flex:1;background:var(--panel2);padding:8px 12px;border-left:4px solid var(--line)}
+.counts b{display:block;font-family:'Barlow Condensed',sans-serif;font-style:italic;font-weight:800;font-size:28px;line-height:1}
+.counts small{color:var(--mute);font-size:12px}
+.filters{display:flex;gap:8px;margin-bottom:10px;align-items:center}
+.filters .chipf{padding:3px 12px;border:1px solid var(--line);color:var(--mute);font-size:13px;transform:skewX(-12deg)}
+.filters .chipf span{display:block;transform:skewX(12deg)}
+.filters .chipf.on{background:var(--text);color:var(--onink);border-color:var(--text);font-weight:600}
+.filters .sp{margin-left:auto;color:var(--mute);font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{color:var(--mute);font-weight:600;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:7px 8px;border-bottom:1px solid var(--line2);white-space:nowrap}
+td .bib{font-family:'Barlow Condensed',sans-serif;font-style:italic;font-weight:800;font-size:18px}
+td.act{color:var(--blue);font-weight:600}
+tr.bad td{background:rgba(255,214,10,.06)}
+.drawer{background:var(--deep);border-left:1px solid var(--line);padding:16px}
+.drawer h3{font-family:'Barlow Condensed',sans-serif;font-style:italic;font-weight:800;font-size:22px;margin-bottom:10px}
+.csv{margin-top:14px;padding:12px;border:1px dashed var(--dim);color:var(--mute);font-size:13px}
+.csv b{color:var(--text);display:block}
+.csv .tag{display:inline-block;margin-top:6px;padding:0 8px;border:1px solid var(--dim);font-size:11px}
+
+/* email */
+.mail{width:440px;background:#fff;color:#1a1d24;border:1px solid var(--line)}
+.mail .h{padding:10px 14px;background:#EEF0F4;font-size:12px;color:#5B6275;border-bottom:1px solid #D3D8E1}
+.mail .h b{display:block;color:#1a1d24;font-size:14px}
+.mail .b{padding:18px 18px 20px}
+.mail .bt{display:flex;align-items:center;gap:8px;margin-bottom:14px}
+.mail .bt i{width:34px;height:22px;background:#E10B2D;clip-path:polygon(0 0,100% 0,calc(100% - 8px) 100%,0 100%)}
+.mail .bt b{font-family:'Barlow Condensed',sans-serif;font-style:italic;font-weight:900;font-size:20px}
+.mail h4{font-family:'Barlow Condensed',sans-serif;font-style:italic;font-weight:900;font-size:26px;margin-bottom:6px}
+.mail p{font-size:14px;margin-bottom:10px;color:#2a2f3a}
+.mail .ev{padding:10px 12px;background:#F4F6F9;border-left:4px solid #E10B2D;margin:10px 0 14px;font-size:14px}
+.mail .go{display:inline-block;background:#E10B2D;color:#fff;font-family:'Barlow Condensed',sans-serif;font-style:italic;font-weight:900;font-size:18px;padding:8px 22px;clip-path:polygon(0 0,100% 0,calc(100% - 10px) 100%,0 100%)}
+.mail small{display:block;color:#5B6275;font-size:12px;margin-top:12px}
+
+/* phones */
+.phones{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+.phonebox{width:300px}
+.phone{width:300px;min-height:600px;border-radius:40px;border:3px solid var(--phoneborder);background:var(--deep);padding:14px 12px 16px;box-shadow:0 30px 60px var(--shadow);display:flex;flex-direction:column}
+.phone:before{content:"";display:block;width:84px;height:20px;background:#000;border-radius:0 0 14px 14px;margin:-14px auto 10px}
+.stepbar{display:flex;gap:4px;margin:0 4px 12px}
+.stepbar i{flex:1;height:5px;background:var(--line);transform:skewX(-20deg)}
+.stepbar i.on{background:var(--red)}
+.phone h2{font-family:'Barlow Condensed',sans-serif;font-style:italic;font-weight:900;font-size:32px;line-height:1;padding:0 4px}
+.phone p.lead{color:var(--mute);padding:6px 4px 12px}
+.evtcard{margin:0 0 12px;padding:10px 12px;background:var(--panel);border-left:5px solid var(--red)}
+.evtcard b{font-family:'Barlow Condensed',sans-serif;font-style:italic;font-weight:800;font-size:20px}
+.evtcard small{display:block;color:var(--mute)}
+.cta{margin-top:auto;height:52px;display:flex;align-items:center;justify-content:center;background:var(--red);color:#fff;font-family:'Barlow Condensed',sans-serif;font-style:italic;font-weight:900;font-size:21px;letter-spacing:.04em;clip-path:polygon(0 0,100% 0,calc(100% - 16px) 100%,0 100%)}
+.cta2{height:40px;margin-top:8px;display:flex;align-items:center;justify-content:center;color:var(--mute);border:1px solid var(--line);font-weight:600}
+.qr{width:128px;height:128px;margin:6px auto 4px;background:#fff;padding:8px;position:relative}
+.qr i{display:block;width:100%;height:100%;background:conic-gradient(#000 25%,#fff 0 50%,#000 0 75%,#fff 0) 0 0/16px 16px}
+.okbadge{display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(37,224,123,.12);border-left:5px solid var(--green);margin:0 0 12px}
+.okbadge b{font-weight:700}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+<div class="page">
+
+<h1 class="sec"><i></i>1. Účet organizátora</h1>
+<p class="sub">Organizátor sa zaregistruje a potvrdí e-mail. Prihlasuje sa odkazom z e-mailu, bez hesla. Návrh podujatia môže vytvoriť hneď, trať a pozvánky sa odomknú po potvrdení.</p>
+<div class="pair">
+  <div>
+    <div class="card">
+      <h2>Registrácia organizátora</h2>
+      <p class="lead">Vytvorte si účet a spravujte svoje preteky.</p>
+      <div class="field"><label>Meno a priezvisko</label><div class="in ok">Martin Horný</div></div>
+      <div class="field"><label>E-mail</label><div class="in ok">martin@priklad.sk</div><small>Pošleme vám odkaz na potvrdenie a na prihlásenie.</small></div>
+      <div class="field"><label>Jazyk</label><div class="seg"><div class="on"><span>Slovensky</span></div><div><span>English</span></div></div></div>
+      <div class="btn red" style="width:100%;text-align:center;font-size:18px"><span>Vytvoriť účet</span></div>
+    </div>
+    <div class="cap">Registrácia: tri polia, žiadne heslo.</div>
+  </div>
+  <div>
+    <div class="card" style="border-left-color:var(--green)">
+      <h2>Skontrolujte e-mail</h2>
+      <p class="lead">Poslali sme odkaz na <b style="color:var(--text)">martin@priklad.sk</b>. Platí 30 minút.</p>
+      <div class="okbadge"><span class="g">✓</span><div><b>Odkaz odoslaný</b><br><small style="color:var(--mute)">Odoslané o 12:04</small></div></div>
+      <div style="color:var(--mute);margin-bottom:14px">Nič nedorazilo? Pozrite do spamu alebo si nechajte poslať nový odkaz.</div>
+      <div class="btn"><span>Poslať odkaz znova</span></div>
+    </div>
+    <div class="cap">Čakanie na potvrdenie. Nový odkaz zneplatní predchádzajúci.</div>
+  </div>
+</div>
+
+<h1 class="sec"><i></i>2. Vytvorenie podujatia</h1>
+<p class="sub">Povinné sú len údaje o podujatí. Zvyšok sa doplní neskôr, trať a pozvánky po potvrdení e-mailu.</p>
+<div class="pair">
+  <div>
+    <div class="card">
+      <h2>Nové podujatie</h2>
+      <p class="lead">Základné údaje. Ostatné nastavíte ďalej.</p>
+      <div class="field"><label>Názov podujatia</label><div class="in ok">Beskydy MTB 50</div></div>
+      <div class="field"><label>Lokalita</label><div class="in ok">Čadca, Slovensko</div></div>
+      <div class="two">
+        <div class="field"><label>Dátum</label><div class="in ok">7. 11. 2026</div></div>
+        <div class="field"><label>Čas štartu</label><div class="in ok">10:00</div></div>
+      </div>
+      <div class="field"><label>Šport</label><div class="seg"><div><span>Beh</span></div><div class="on"><span>Cyklistika</span></div></div></div>
+      <div class="btn red" style="width:100%;text-align:center;font-size:18px"><span>Vytvoriť podujatie</span></div>
+    </div>
+    <div class="cap">Šport určuje, či sa zobrazuje rýchlosť (km/h) alebo tempo (min/km).</div>
+  </div>
+  <div>
+    <div class="card" style="width:460px">
+      <h2>Príprava podujatia</h2>
+      <p class="lead">Beskydy MTB 50. Návrh, ešte nezverejnené.</p>
+      <div class="steps">
+        <div class="step"><div class="ic ok">✓</div><div><b>Údaje o podujatí</b><small>Názov, lokalita, dátum, šport</small></div><span class="g">Hotovo</span></div>
+        <div class="step"><div class="ic now">2</div><div><b>Potvrdenie e-mailu</b><small>Odomkne trať a pozvánky</small></div><div class="btn red"><span>Potvrdiť</span></div></div>
+        <div class="step"><div class="ic lk">🔒</div><div><b>Trať (GPX), kolá, checkpointy</b><small>Nahrajte trať, nastavte počet kôl</small></div><span style="color:var(--dim)">Zamknuté</span></div>
+        <div class="step"><div class="ic lk">🔒</div><div><b>Kategórie a vlny</b><small>Napr. Muži 30 – 39, štart o 10:00</small></div><span style="color:var(--dim)">Zamknuté</span></div>
+        <div class="step"><div class="ic lk">🔒</div><div><b>Pretekári a pozvánky</b><small>Zadajte mená a e-maily</small></div><span style="color:var(--dim)">Zamknuté</span></div>
+      </div>
+    </div>
+    <div class="cap">Zamknuté kroky chránia pred zneužitím. Po potvrdení e-mailu sa odomknú.</div>
+  </div>
+</div>
+
+<h1 class="sec"><i></i>3. Pretekári (správa registrácií)</h1>
+<p class="sub">Organizátor zadáva pretekárov ručne, import z CSV je voliteľná položka. V zozname vidí, kto účasť potvrdil a kto nie.</p>
+<div class="app">
+  <div class="bar">
+    <div class="logo"><b>PT</b></div>
+    <div class="t"><b>Beskydy MTB 50</b><small>Pretekári</small></div>
+    <div class="barR"><div class="lang"><span class="on">SK</span><span>EN</span></div><span>martin@priklad.sk</span></div>
+  </div>
+  <div class="pbody">
+    <div class="plist">
+      <div class="counts">
+        <div style="border-left-color:var(--text)"><b>124</b><small>všetci</small></div>
+        <div style="border-left-color:var(--green)"><b class="g">87</b><small>potvrdili</small></div>
+        <div style="border-left-color:var(--blue)"><b style="color:var(--blue)">32</b><small>čakajú</small></div>
+        <div style="border-left-color:var(--dim)"><b style="color:var(--mute)">3</b><small>odmietli</small></div>
+        <div style="border-left-color:var(--yellow)"><b class="y">2</b><small>e-mail sa nedoručil</small></div>
+      </div>
+      <div class="filters">
+        <div class="chipf on"><span>Všetci</span></div><div class="chipf"><span>Čakajú</span></div><div class="chipf"><span>Potvrdili</span></div><div class="chipf"><span>Problémy</span></div>
+        <div class="sp">Hľadať meno alebo e-mail</div>
+        <div class="btn"><span>Poslať pripomienku čakajúcim (32)</span></div>
+      </div>
+      <table>
+        <tr><th>#</th><th>Meno</th><th>Nick</th><th>E-mail</th><th>Pohl.</th><th>Kategória</th><th>Vlna</th><th>Jazyk</th><th>Stav</th><th></th></tr>
+        <tr><td><span class="bib">07</span></td><td>Jozef Novák</td><td>Joe</td><td>jozef.novak@…</td><td>M</td><td>Muži 30 – 39</td><td>1</td><td>SK</td><td><span class="chip c-ok"><span><i></i>Potvrdený</span></span></td><td class="act">Upraviť</td></tr>
+        <tr><td><span class="bib">21</span></td><td>Peter Kováč</td><td>Kovy</td><td>p.kovac@…</td><td>M</td><td>Muži 30 – 39</td><td>1</td><td>SK</td><td><span class="chip c-ok"><span><i></i>Potvrdený</span></span></td><td class="act">Upraviť</td></tr>
+        <tr><td><span class="bib">33</span></td><td>Marek Horváth</td><td>–</td><td>marek.h@…</td><td>M</td><td>Muži 40 – 49</td><td>1</td><td>SK</td><td><span class="chip c-inv"><span><i></i>Pozvaný, pred 3 dňami</span></span></td><td class="act">Poslať znova</td></tr>
+        <tr><td><span class="bib">45</span></td><td>Eva Marková</td><td>Evka</td><td>eva.markova@…</td><td>Ž</td><td>Ženy 30 – 39</td><td>2</td><td>EN</td><td><span class="chip c-ok"><span><i></i>Potvrdená</span></span></td><td class="act">Upraviť</td></tr>
+        <tr class="bad"><td><span class="bib">58</span></td><td>Tomáš Kolár</td><td>–</td><td>t.kolar@gmial.com</td><td>M</td><td>Muži 30 – 39</td><td>2</td><td>SK</td><td><span class="chip c-bad"><span><i></i>E-mail sa nedoručil</span></span></td><td class="act">Opraviť adresu</td></tr>
+        <tr><td><span class="bib">12</span></td><td>Lukáš Tóth</td><td>Luky</td><td>lukas.toth@…</td><td>M</td><td>Muži 20 – 29</td><td>2</td><td>SK</td><td><span class="chip c-no"><span><i></i>Odmietol</span></span></td><td class="act">Upraviť</td></tr>
+      </table>
+    </div>
+    <aside class="drawer">
+      <h3>Pridať pretekára</h3>
+      <div class="field"><label>Meno a priezvisko</label><div class="in ok">Dávid Varga</div></div>
+      <div class="field"><label>E-mail</label><div class="in ok">david.varga@priklad.sk</div></div>
+      <div class="two">
+        <div class="field"><label>Pohlavie</label><div class="in">Muž <span>▾</span></div></div>
+        <div class="field"><label>Jazyk e-mailu</label><div class="in">Slovensky <span>▾</span></div></div>
+      </div>
+      <div class="two">
+        <div class="field"><label>Kategória</label><div class="in">Muži 20 – 29 <span>▾</span></div></div>
+        <div class="field"><label>Vlna</label><div class="in">1, 10:00 <span>▾</span></div></div>
+      </div>
+      <div class="field"><label>Štartové číslo</label><div class="in ph">Pridelí sa automaticky (46)</div></div>
+      <div class="btn red" style="width:100%;text-align:center"><span>Pridať a poslať pozvánku</span></div>
+      <div class="csv"><b>Import z CSV</b>Nahrajte súbor so stĺpcami meno, e-mail, pohlavie, jazyk. Pred uložením skontrolujeme chybné a duplicitné adresy.<br><span class="tag">Voliteľné, neskôr</span></div>
+    </aside>
+  </div>
+</div>
+<p class="cap" style="max-width:none">Žltý riadok upozorní na preklep v adrese (gmial.com). Hromadná pripomienka ide len čakajúcim.</p>
+
+<h1 class="sec"><i></i>4. E-mail s pozvánkou (SK a EN)</h1>
+<p class="sub">Pošle sa v jazyku pretekára. Odkaz je jeho osobný vstup a platí 14 dní. Nový odkaz zneplatní starý.</p>
+<div class="pair">
+  <div class="mail">
+    <div class="h"><b>Pozvánka na Beskydy MTB 50: potvrďte účasť</b>Od: PositionTracker &lt;pozvanky@lab463.com&gt;</div>
+    <div class="b">
+      <div class="bt"><i></i><b>PositionTracker</b></div>
+      <h4>Ahoj Peter,</h4>
+      <p>organizátor vás pozval na podujatie. Potvrďte svoju účasť, aby sme vás vedeli sledovať na trati.</p>
+      <div class="ev"><b>Beskydy MTB 50</b><br>Čadca · 7. novembra 2026 · štart 10:00 · Cyklistika</div>
+      <span class="go">POTVRDIŤ ÚČASŤ</span>
+      <small>Odkaz platí 14 dní. Ak o pozvánku nestojíte, e-mail ignorujte alebo ju v odkaze odmietnite.</small>
+    </div>
+  </div>
+  <div class="mail">
+    <div class="h"><b>Invitation to Beskydy MTB 50: confirm your participation</b>From: PositionTracker &lt;pozvanky@lab463.com&gt;</div>
+    <div class="b">
+      <div class="bt"><i></i><b>PositionTracker</b></div>
+      <h4>Hi Eva,</h4>
+      <p>The organizer has invited you to an event. Confirm your participation so we can follow you on the course.</p>
+      <div class="ev"><b>Beskydy MTB 50</b><br>Čadca · 7 November 2026 · start 10:00 · Cycling</div>
+      <span class="go">CONFIRM PARTICIPATION</span>
+      <small>The link is valid for 14 days. If you don't want this invitation, ignore the email or decline through the link.</small>
+    </div>
+  </div>
+</div>
+
+<h1 class="sec"><i></i>5. Pretekár: potvrdenie účasti</h1>
+<p class="sub">Odkaz z e-mailu otvorí tieto obrazovky. Nick sa dá meniť kedykoľvek, pohlavie do štartu. Súhlas s polohou je samostatný ďalší krok.</p>
+<div class="phones">
+  <div class="phonebox">
+    <div class="phone">
+      <div class="stepbar"><i class="on"></i><i></i><i></i><i></i></div>
+      <h2>Potvrďte účasť</h2>
+      <p class="lead">Ahoj Peter, organizátor vás zapísal na toto podujatie.</p>
+      <div class="evtcard"><b>Beskydy MTB 50</b><small>Čadca, 7. novembra 2026, štart 10:00</small><small>Cyklistika, Muži 30 – 39, číslo 21</small></div>
+      <div class="field"><label>Prezývka (zobrazí sa divákom)</label><div class="in ok">Kovy</div><small>Môžete ju meniť aj počas pretekov.</small></div>
+      <div class="field"><label>Pohlavie</label><div class="seg"><div class="on"><span>Muž</span></div><div><span>Žena</span></div></div><small>Dá sa zmeniť do štartu, potom sa zamkne.</small></div>
+      <div class="cta">POTVRDIŤ ÚČASŤ</div>
+      <div class="cta2">Odmietnuť</div>
+    </div>
+    <div class="cap">Pozvánka: potvrdenie alebo odmietnutie.</div>
+  </div>
+  <div class="phonebox">
+    <div class="phone">
+      <div class="stepbar"><i class="on"></i><i></i><i></i><i></i></div>
+      <h2>Účasť potvrdená</h2>
+      <div class="okbadge" style="margin-top:12px"><span class="g">✓</span><div><b>Ste na štartovej listine</b><br><small style="color:var(--mute)">Číslo 21, vlna 1 o 10:00</small></div></div>
+      <p class="lead" style="padding-top:0">Odkaz na túto stránku si uložte. Vo dni pretekov cez neho spustíte vysielanie. Môžete ho otvoriť aj na inom telefóne.</p>
+      <div class="qr"><i></i></div>
+      <div style="text-align:center;color:var(--mute);font-size:12px;margin-bottom:12px">Váš osobný odkaz</div>
+      <div class="cta">POKRAČOVAŤ</div>
+      <div class="cta2">Zmeniť prezývku</div>
+    </div>
+    <div class="cap">Potvrdené: osobný odkaz a QR. Tlačidlo vedie na súhlas s polohou.</div>
+  </div>
+  <div class="phonebox">
+    <div class="phone">
+      <div class="stepbar"><i></i><i></i><i></i><i></i></div>
+      <h2>Odkaz už neplatí</h2>
+      <p class="lead">Platnosť tohto odkazu vypršala, alebo vám organizátor vydal nový. Použite najnovší e-mail.</p>
+      <div class="evtcard" style="border-left-color:var(--yellow)"><b>Nemáte novší e-mail?</b><small>Požiadajte organizátora o nový odkaz. Pošle vám ho znova.</small></div>
+      <div class="cta2" style="margin-top:auto">Kontaktovať organizátora</div>
+    </div>
+    <div class="cap">Neplatný alebo zneplatnený odkaz: vždy povie, čo ďalej.</div>
+  </div>
+</div>
+
+</div>
+<div class="theme-toggle" role="group" aria-label="Režim zobrazenia"><button data-t="light" aria-pressed="false">Svetlý</button><button data-t="dark" aria-pressed="false">Tmavý</button></div>
+<script>
+(function(){var r=document.documentElement,k="pt-theme";
+function cur(){var t=r.getAttribute("data-theme");if(t)return t;return matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}
+function mark(){var c=cur();document.querySelectorAll(".theme-toggle button").forEach(function(b){b.setAttribute("aria-pressed",String(b.dataset.t===c))})}
+try{var v=localStorage.getItem(k);if(v)r.setAttribute("data-theme",v)}catch(e){}
+document.querySelectorAll(".theme-toggle button").forEach(function(b){b.addEventListener("click",function(){r.setAttribute("data-theme",b.dataset.t);try{localStorage.setItem(k,b.dataset.t)}catch(e){}mark()})});
+mark()})();
+</script>
+</body>
+</html>

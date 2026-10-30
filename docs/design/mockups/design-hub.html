@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PositionTracker: návrhy stránok</title>
+<style>
+html,body{height:100%;margin:0}
+body{display:flex;flex-direction:column;background:#0C0D11;font-family:system-ui,sans-serif}
+nav{display:flex;gap:8px;padding:8px 12px;background:#0A0B0E;border-bottom:1px solid #2A2E3A;align-items:center}
+nav b{color:#F4F5F8;margin-right:8px;font-style:italic}
+nav button{all:unset;cursor:pointer;color:#8D93A6;padding:6px 14px;border:1px solid #2A2E3A}
+nav button[aria-pressed="true"]{background:#F4F5F8;color:#000;border-color:#F4F5F8}
+nav button:focus-visible{outline:2px solid #FF1E3C}
+nav span{margin-left:auto;color:#8D93A6;font-size:13px}
+iframe{flex:1;border:0;width:100%}
+</style>
+</head>
+<body>
+<nav>
+  <b>PositionTracker</b>
+  <button data-src="registration-flow-themed.html" aria-pressed="true">Registrácia</button>
+  <button data-src="broadcast-design-themed.html" aria-pressed="false">Organizátor a pretekár</button>
+  <button data-src="spectator-join-themed.html" aria-pressed="false">Divák a pripojenie</button>
+  <span>Prepínač Svetlý / Tmavý je vpravo dole na každej stránke</span>
+</nav>
+<iframe id="f" title="Návrh stránky" src="registration-flow-themed.html"></iframe>
+<script>
+document.querySelectorAll("nav button").forEach(function(b){
+  b.addEventListener("click",function(){
+    document.querySelectorAll("nav button").forEach(function(x){x.setAttribute("aria-pressed","false")});
+    b.setAttribute("aria-pressed","true");
+    document.getElementById("f").src=b.dataset.src;
+  });
+});
+</script>
+</body>
+</html>

@@ -105,7 +105,7 @@ All thresholds are configurable per event.
 
 ## 6. Surfaces
 
-Mockups (dark and light) are in `.superpowers/brainstorm/488-1793344784/content/`: `design-hub.html` opens all three: `registration-flow-themed.html` (organizer account, event creation, participant management, invitation email, participant confirmation), `broadcast-design-themed.html` (organizer dashboard and participant live screens) and `spectator-join-themed.html` (spectator and join flow). The design was approved by the user on 2026-10-30. The mockups are the visual reference, not pixel specifications.
+Mockups (dark and light) are in `docs/design/mockups/` (copied from the brainstorm workspace; open `design-hub.html` from the file system): `design-hub.html` opens all three: `registration-flow-themed.html` (organizer account, event creation, participant management, invitation email, participant confirmation), `broadcast-design-themed.html` (organizer dashboard and participant live screens) and `spectator-join-themed.html` (spectator and join flow). The design was approved by the user on 2026-10-30. The mockups are the visual reference, not pixel specifications.
 
 ### 6.0 Organizer account, event creation and participant registration
 
