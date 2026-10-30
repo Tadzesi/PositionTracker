@@ -46,3 +46,26 @@ public sealed class EmailDeliveryException(bool permanent, string reason, Except
 {
     public bool Permanent { get; } = permanent;
 }
+
+/// <summary>
+/// Whether email is really delivered (<c>"smtp"</c>) or only simulated (<c>"simulated"</c>: no SMTP host
+/// configured). Organizer-facing endpoints surface it as <c>emailMode</c>.
+/// </summary>
+public interface IEmailMode
+{
+    bool IsSimulated { get; }
+
+    string Mode => IsSimulated ? EmailModes.Simulated : EmailModes.Smtp;
+}
+
+public static class EmailModes
+{
+    public const string Smtp = "smtp";
+    public const string Simulated = "simulated";
+}
+
+/// <summary>The mode of the registered <see cref="IEmailSender"/>.</summary>
+public sealed class EmailMode(IEmailSender sender) : IEmailMode
+{
+    public bool IsSimulated => sender.IsSimulated;
+}

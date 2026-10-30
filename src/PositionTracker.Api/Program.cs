@@ -41,6 +41,7 @@ app.MapGet("/healthz", () => "ok");
 app.MapIngestEndpoints();
 app.MapLiveEndpoints();
 app.MapDemoEndpoints();
+app.MapOpsEndpoints();
 app.MapHub<LiveHub>(LiveHub.Path);
 
 app.Run();

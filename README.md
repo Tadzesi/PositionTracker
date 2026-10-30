@@ -149,9 +149,10 @@ event and participant (in Plan 1 only the demo simulator issues them).
 | `Persistence:EnqueueTimeoutMs` | How long a device request waits for a free write slot before `503`; default 2 000. |
 | `Persistence:BatchFixes` / `Persistence:BatchIntervalMs` | The writer writes at 200 fixes or 500 ms after the oldest held write, whichever comes first. |
 | `Persistence:MigrateOnStartup` | Apply pending migrations at startup (default false; true in Development). |
-| `Email:Smtp:Host` | SMTP server. Empty (the committed default): nothing is sent, the `LoggingEmailSender` logs the outbox id, purpose and recipient domain and the row ends `Simulated`. Real sending is an explicit opt-in. |
+| `Email:Smtp:Host` | SMTP server. Empty (the committed default): nothing is sent, the `LoggingEmailSender` logs the outbox id, purpose and recipient domain and the row ends `Simulated`. Real sending is an explicit opt-in. Outside Development an empty host fails startup unless `Email:AllowSimulated=true`. |
+| `Email:AllowSimulated` | Allow simulated email outside Development (default false). The mode is reported by `GET /api/ops/email-mode` (operator key): `{"mode": "smtp" or "simulated", "simulatedLast24h": n}`. |
 | `Email:Smtp:{Port,UseStartTls,User,Password,TimeoutSeconds}` | SMTP connection (defaults 587, STARTTLS required, no auth, 30 s). |
-| `Email:From` / `Email:FromName` / `Email:PublicBaseUrl` | Sender and the base of emailed links; `From` and `PublicBaseUrl` are required once a host is set. |
+| `Email:From` / `Email:FromName` / `Email:PublicBaseUrl` | Sender and the base of emailed links; `From` and `PublicBaseUrl` are required once a host is set. `PublicBaseUrl` must be https outside Development, without query or fragment (trailing `/` removed). Port 465 needs `UseStartTls=false`; credentials over a plain connection are rejected. |
 | `Email:Outbox:{PollIntervalSeconds,BatchSize,MaxAttempts,RetryBaseSeconds,RetryMaxSeconds,RetentionDays}` | Outbox worker (defaults 5, 20, 6, 60, 3600, 7). |
 
 Email credentials, real host names and addresses are never committed; `appsettings*.json` keep empty values.
@@ -165,8 +166,10 @@ delivery gate: `docs/ops/email-deliverability.md`.
 Callers add an `EmailOutboxEntity` (`EmailOutbox.Create(message, participantId, now)`) in the same transaction as
 the change that causes the mail; templates are `EmailTemplates.Invitation/SignIn/ConfirmOrganizerEmail`, links come
 from `EmailLinks.Build(Email:PublicBaseUrl, path, rawToken)`. The `EmailOutboxWorker` (needs the database) claims due
-rows with `FOR UPDATE SKIP LOCKED`, sends them, retries transient failures with doubling delay and marks permanent
-ones (and the last failed attempt) `Failed`; a failed invitation turns its `Invited` participant into `EmailFailed`.
+rows with `FOR UPDATE SKIP LOCKED` and a lease sized for the whole batch, sends them, retries transient failures
+(4xx, 5.7.x policy, 554 greeting/blocklist, network) with doubling delay and marks permanent ones (5xx recipient or
+message rejection, 5.1.x) and the last failed attempt `Failed`; a failed invitation turns its `Invited` participant
+into `EmailFailed`. The event time zone (`Europe/Bratislava`, needs tzdata) is checked at startup.
 Delivery is **at least once**: a crash after the SMTP server accepted a message but before the outcome was saved
 sends it again after the retry delay, at most `MaxAttempts` times in total (then the row is `Failed`, outcome
 unknown). Logs and `LastError` never contain addresses, names, subjects, bodies or links; bodies are cleared when a

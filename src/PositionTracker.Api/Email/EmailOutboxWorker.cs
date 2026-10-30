@@ -11,12 +11,16 @@ namespace PositionTracker.Api.Email;
 /// Sends the email outbox. Every <see cref="OutboxOptions.PollIntervalSeconds"/> (on the injected clock) it:
 /// <list type="number">
 /// <item><b>claims</b> due <see cref="EmailOutboxStatus.Pending"/> rows in one transaction with
-/// <c>SELECT ... FOR UPDATE SKIP LOCKED</c> (so several instances never take the same row), counts the attempt and
-/// moves <c>NextAttemptAt</c> to the retry time <i>before</i> sending: the claim is also the lease;</item>
+/// <c>SELECT ... FOR UPDATE SKIP LOCKED</c>, counts the attempt and moves <c>NextAttemptAt</c> to the end of a
+/// <b>lease</b> <i>before</i> sending. The row lock only lasts for the claim transaction; afterwards the lease keeps
+/// other workers off the row. The lease covers the whole batch in the worst case
+/// (<see cref="OutboxOptions.BatchSize"/> × <see cref="SmtpOptions.OperationsPerMessage"/> ×
+/// <see cref="SmtpOptions.TimeoutSeconds"/>), and a row whose lease has run out before its turn is not sent in this
+/// round (it is claimed again later), so a second instance cannot send a row that is still being sent;</item>
 /// <item><b>sends</b> each claimed row through <see cref="IEmailSender"/> and records the outcome: <c>Sent</c>,
-/// <c>Simulated</c> (no SMTP configured), <c>Failed</c> (permanent error, or a transient one on the last attempt),
-/// or still <c>Pending</c> for a retry at the already set time (delay <see cref="OutboxOptions.RetryBaseSeconds"/>,
-/// doubling, at most <see cref="OutboxOptions.RetryMaxSeconds"/>);</item>
+/// <c>Simulated</c> (no SMTP configured), <c>Failed</c> (permanent error, or a transient one on the last attempt,
+/// with the last reason and the attempt count), or still <c>Pending</c> with <c>NextAttemptAt</c> = now + retry
+/// delay (<see cref="OutboxOptions.RetryBaseSeconds"/>, doubling, at most <see cref="OutboxOptions.RetryMaxSeconds"/>);</item>
 /// <item><b>deletes</b> finished rows older than <see cref="OutboxOptions.RetentionDays"/>.</item>
 /// </list>
 /// A failed invitation turns its participant from <see cref="ParticipantStatus.Invited"/> into
@@ -35,9 +39,9 @@ public sealed class EmailOutboxWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!persistence.Value.Enabled) return;
         if (sender.IsSimulated)
-            logger.LogWarning("Email:Smtp:Host is not set: emails are not sent; outbox rows are marked Simulated.");
+            logger.LogWarning("Simulated email mode: Email:Smtp:Host is not set, no email is delivered; outbox rows are marked Simulated.");
+        if (!persistence.Value.Enabled) return;
         var interval = TimeSpan.FromSeconds(options.Value.Outbox.PollIntervalSeconds);
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -72,6 +76,9 @@ public sealed class EmailOutboxWorker(
         foreach (var row in toSend)
         {
             ct.ThrowIfCancellationRequested();
+            // Normally unreachable (the lease is sized for the worst case); if it happens, another worker may own the
+            // row now: leave it, it is claimed again once due (the counted attempt is lost).
+            if (clock.GetUtcNow() >= row.NextAttemptAt) break;
             await DeliverAsync(row, ct);
         }
         await CleanupAsync(ct);
@@ -85,6 +92,7 @@ public sealed class EmailOutboxWorker(
     {
         var outbox = options.Value.Outbox;
         var now = clock.GetUtcNow();
+        var lease = Lease();
         await using var db = await contexts.CreateDbContextAsync(ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var pending = nameof(EmailOutboxStatus.Pending);
@@ -109,7 +117,7 @@ public sealed class EmailOutboxWorker(
                 continue;
             }
             row.Attempts++;
-            row.NextAttemptAt = now + RetryDelay(row.Attempts);
+            row.NextAttemptAt = now + lease;
             toSend.Add(row);
         }
         await db.SaveChangesAsync(ct);
@@ -155,12 +163,17 @@ public sealed class EmailOutboxWorker(
             if (!sender.IsSimulated) row.SentAt = now;
             row.LastError = null;
         }
-        else if (failure.Permanent || row.Attempts >= options.Value.Outbox.MaxAttempts)
+        else if (failure.Permanent)
         {
             await FailAsync(db, row, failure.Message, now, CancellationToken.None);
         }
+        else if (row.Attempts >= options.Value.Outbox.MaxAttempts)
+        {
+            await FailAsync(db, row, $"{failure.Message} Gave up after {row.Attempts} attempts.", now, CancellationToken.None);
+        }
         else
         {
+            row.NextAttemptAt = now + RetryDelay(row.Attempts);
             row.LastError = Truncate(failure.Message);
             logger.LogWarning("Email outbox {OutboxId} ({Purpose}) attempt {Attempt} failed: {Reason}; retrying at {NextAttemptAt:o}.",
                 row.Id, row.Purpose, row.Attempts, row.LastError, row.NextAttemptAt);
@@ -196,6 +209,13 @@ public sealed class EmailOutboxWorker(
         var cutoff = clock.GetUtcNow() - TimeSpan.FromDays(options.Value.Outbox.RetentionDays);
         await using var db = await contexts.CreateDbContextAsync(ct);
         await db.Outbox.Where(r => r.FinishedAt != null && r.FinishedAt <= cutoff).ExecuteDeleteAsync(ct);
+    }
+
+    /// <summary>How long a claimed batch may take in the worst case: every message using every SMTP timeout.</summary>
+    private TimeSpan Lease()
+    {
+        var value = options.Value;
+        return TimeSpan.FromSeconds((double)value.Outbox.BatchSize * SmtpOptions.OperationsPerMessage * value.Smtp.TimeoutSeconds);
     }
 
     private TimeSpan RetryDelay(int attempt)

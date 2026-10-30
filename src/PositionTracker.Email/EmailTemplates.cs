@@ -15,8 +15,16 @@ public static class EmailTemplates
 {
     public const string ProductName = "PositionTracker";
 
-    /// <summary>Events take place in Slovakia; their stored UTC start is shown in Central European time.</summary>
-    public static readonly TimeZoneInfo EventTimeZone = FindEventTimeZone();
+    public const string EventTimeZoneId = "Europe/Bratislava";
+
+    /// <summary>
+    /// Events take place in Slovakia; their stored UTC start is shown in Central European time. Null when the time
+    /// zone data is missing on this machine (startup validation then fails; there is no silent UTC fallback).
+    /// </summary>
+    public static TimeZoneInfo? EventTimeZoneOrNull { get; } = ResolveTimeZone([EventTimeZoneId, "Central Europe Standard Time"]);
+
+    public static TimeZoneInfo EventTimeZone => EventTimeZoneOrNull
+        ?? throw new InvalidOperationException($"The time zone {EventTimeZoneId} cannot be resolved (install tzdata/ICU).");
 
     /// <summary>The participant invitation, sent on behalf of the organizer (replies go to the organizer).</summary>
     public static EmailMessage Invitation(ParticipantEntity p, EventEntity e, OrganizerEntity organizer, string confirmUrl, string language)
@@ -228,12 +236,12 @@ public static class EmailTemplates
         return new EmailMessage(toAddress.Trim(), toName, subject, html.ToString(), text.ToString(), language) { Purpose = purpose };
     }
 
-    private static TimeZoneInfo FindEventTimeZone()
+    internal static TimeZoneInfo? ResolveTimeZone(IEnumerable<string> ids)
     {
-        foreach (var id in new[] { "Europe/Bratislava", "Central Europe Standard Time" })
+        foreach (var id in ids)
         {
             if (TimeZoneInfo.TryFindSystemTimeZoneById(id, out var zone)) return zone;
         }
-        return TimeZoneInfo.Utc;
+        return null;
     }
 }

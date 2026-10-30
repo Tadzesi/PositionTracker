@@ -36,6 +36,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     /// <summary>Whether the host gets the in-memory test event <see cref="EventId"/> (default true).</summary>
     public bool SeedTestEvent { get; init; } = true;
 
+    /// <summary>Host environment name (default: the factory's, Development).</summary>
+    public string? EnvironmentName { get; init; }
+
     /// <summary>Extra service registrations applied after the app's own (to replace a service in a test).</summary>
     public Action<IServiceCollection>? ConfigureServices { get; init; }
 
@@ -76,6 +79,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        if (EnvironmentName is not null) builder.UseEnvironment(EnvironmentName);
         builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(Settings));
         builder.ConfigureTestServices(services =>
         {

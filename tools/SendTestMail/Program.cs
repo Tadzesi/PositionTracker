@@ -60,13 +60,14 @@ var configuration = new ConfigurationBuilder()
     .Build();
 var options = new EmailOptions();
 configuration.GetSection(EmailOptions.Section).Bind(options);
+options.PublicBaseUrl = options.PublicBaseUrl.Trim().TrimEnd('/');
 
 if (!options.SmtpEnabled)
 {
     Console.Error.WriteLine("Email:Smtp:Host is not configured: nothing to test. Set it with dotnet user-secrets or Email__Smtp__Host.");
     return 3;
 }
-var validation = new EmailOptionsValidator().Validate(null, options);
+var validation = new EmailOptionsValidator(isDevelopment: false).Validate(null, options);
 if (validation.Failed)
 {
     Console.Error.WriteLine("Invalid email configuration:");

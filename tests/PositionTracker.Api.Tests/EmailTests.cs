@@ -214,31 +214,76 @@ public sealed class EmailTests(PostgresFixture postgres) : IClassFixture<Postgre
         Assert.Equal("sk", mime.Headers[HeaderId.ContentLanguage]);
     }
 
-    [Fact]
-    public void Smtp_errors_are_classified_without_personal_data()
+    [Theory]
+    [InlineData(SmtpErrorCode.RecipientNotAccepted, 550, "550 5.1.1 <anna@example.org> user unknown", true, "5.1.1")]
+    [InlineData(SmtpErrorCode.RecipientNotAccepted, 550, "mailbox anna@example.org unavailable", true, null)]
+    [InlineData(SmtpErrorCode.MessageNotAccepted, 552, "552 5.3.4 message too big", true, "5.3.4")]
+    [InlineData(SmtpErrorCode.UnexpectedStatusCode, 550, "550 5.1.10 recipient anna@example.org not found", true, "5.1.10")]
+    [InlineData(SmtpErrorCode.RecipientNotAccepted, 550, "550 5.7.1 <anna@example.org>: Relay access denied", false, "5.7.1")]
+    [InlineData(SmtpErrorCode.MessageNotAccepted, 554, "554 5.7.1 Service unavailable; client host blocked", false, "5.7.1")]
+    [InlineData(SmtpErrorCode.MessageNotAccepted, 554, "554 Transaction failed", false, null)]
+    [InlineData(SmtpErrorCode.UnexpectedStatusCode, 554, "554 mx.example.org ESMTP not accepting messages", false, null)]
+    [InlineData(SmtpErrorCode.SenderNotAccepted, 553, "553 sender not allowed", false, null)]
+    [InlineData(SmtpErrorCode.RecipientNotAccepted, 450, "450 4.2.1 <anna@example.org> try later", false, "4.2.1")]
+    public void Smtp_replies_are_classified_without_personal_data(
+        SmtpErrorCode code, int status, string reply, bool permanent, string? enhanced)
     {
-        var mailbox = new MailboxAddress("Anna", "anna@example.org");
-        var rejected = SmtpEmailSender.Classify(new SmtpCommandException(SmtpErrorCode.RecipientNotAccepted,
-            SmtpStatusCode.MailboxUnavailable, mailbox, "550 5.1.1 <anna@example.org> unknown"));
-        var busy = SmtpEmailSender.Classify(new SmtpCommandException(SmtpErrorCode.RecipientNotAccepted,
-            SmtpStatusCode.MailboxBusy, mailbox, "450 <anna@example.org> try later"));
-        var io = SmtpEmailSender.Classify(new IOException("connection reset"));
-        var badAddress = SmtpEmailSender.Classify(new ParseException("bad address anna@", 0, 0));
+        var e = SmtpEmailSender.Classify(new SmtpCommandException(code, (SmtpStatusCode)status,
+            new MailboxAddress("Anna", "anna@example.org"), reply));
 
-        Assert.True(rejected.Permanent);
-        Assert.False(busy.Permanent);
-        Assert.False(io.Permanent);
-        Assert.True(badAddress.Permanent);
-        foreach (var e in new[] { rejected, busy, io, badAddress })
-        {
-            Assert.DoesNotContain("@", e.Message);
-            Assert.DoesNotContain("anna", e.Message, StringComparison.OrdinalIgnoreCase);
-        }
-        Assert.Contains("550", rejected.Message);
+        Assert.Equal(permanent, e.Permanent);
+        Assert.StartsWith($"SMTP {status} ", e.Message);
+        if (enhanced is not null) Assert.Contains(enhanced, e.Message);
+        Assert.DoesNotContain("@", e.Message);
+        Assert.DoesNotContain("anna", e.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("relay", e.Message, StringComparison.OrdinalIgnoreCase); // no server text
     }
 
     [Fact]
-    public async Task Logging_sender_logs_only_domain_purpose_and_outbox_id()
+    public void Other_errors_are_classified_without_personal_data()
+    {
+        var io = SmtpEmailSender.Classify(new IOException("connection reset for anna@example.org"));
+        var badAddress = SmtpEmailSender.Classify(new ParseException("bad address anna@", 0, 0));
+        var auth = SmtpEmailSender.Classify(new MailKit.Security.AuthenticationException("user anna@example.org"));
+
+        Assert.False(io.Permanent);
+        Assert.True(badAddress.Permanent);
+        Assert.False(auth.Permanent);
+        foreach (var e in new[] { io, badAddress, auth })
+            Assert.DoesNotContain("@", e.Message);
+    }
+
+    [Fact]
+    public async Task An_accepted_message_stays_sent_when_QUIT_fails_or_shutdown_cancels_it()
+    {
+        using var cts = new CancellationTokenSource();
+        var client = FakeSmtpClient.Create(onSend: cts.Cancel, disconnectThrows: true);
+        var sender = new SmtpEmailSender(Microsoft.Extensions.Options.Options.Create(Options(o => o.Smtp.Host = "smtp.invalid")),
+            () => client);
+        var message = EmailTemplates.SignIn(Organizer(), "https://tracker.example.org/s?t=1");
+
+        await sender.SendAsync(message, cts.Token); // the token is cancelled while the server accepts the message
+
+        var calls = FakeSmtpClient.Calls(client);
+        Assert.Equal(["ConnectAsync", "SendAsync", "DisconnectAsync"], calls.Select(c => c.Method));
+        Assert.False(calls[^1].Token.CanBeCanceled); // QUIT does not use the shutdown token
+    }
+
+    [Fact]
+    public async Task A_failure_before_acceptance_is_classified()
+    {
+        var client = FakeSmtpClient.Create(sendThrows: new SmtpCommandException(SmtpErrorCode.RecipientNotAccepted,
+            SmtpStatusCode.MailboxUnavailable, new MailboxAddress("", "anna@example.org"), "550 5.1.1 unknown"));
+        var sender = new SmtpEmailSender(Microsoft.Extensions.Options.Options.Create(Options(o => o.Smtp.Host = "smtp.invalid")),
+            () => client);
+
+        var ex = await Assert.ThrowsAsync<EmailDeliveryException>(() => sender.SendAsync(
+            EmailTemplates.SignIn(Organizer(), "https://tracker.example.org/s?t=1"), CancellationToken.None));
+        Assert.True(ex.Permanent);
+    }
+
+    [Fact]
+    public async Task Logging_sender_logs_only_domain_purpose_and_outbox_id_and_warns_on_the_first_send()
     {
         var logs = new ListLoggerProvider();
         using var factory = LoggerFactory.Create(b => b.AddProvider(logs));
@@ -248,14 +293,178 @@ public sealed class EmailTests(PostgresFixture postgres) : IClassFixture<Postgre
             with { OutboxId = id };
 
         await sender.SendAsync(message, CancellationToken.None);
+        await sender.SendAsync(message, CancellationToken.None);
 
         Assert.True(sender.IsSimulated);
-        var line = Assert.Single(logs.Lines);
-        Assert.Contains("example.org", line);
-        Assert.Contains(EmailPurpose.Invitation, line);
-        Assert.Contains(id.ToString(), line);
-        foreach (var secret in new[] { "anna@", "Anna", "Nováková", "abc123", "Jarný", "Peter" })
-            Assert.DoesNotContain(secret, line);
+        var lines = logs.Lines;
+        Assert.Equal(3, lines.Count);
+        Assert.StartsWith("Warning:", lines[0]);
+        Assert.Contains("simulated", lines[0]);
+        Assert.All(lines.Skip(1), l => Assert.StartsWith("Information:", l));
+        Assert.Contains("example.org", lines[1]);
+        Assert.Contains(EmailPurpose.Invitation, lines[1]);
+        Assert.Contains(id.ToString(), lines[1]);
+        foreach (var line in lines)
+            foreach (var secret in new[] { "anna@", "Anna", "Nováková", "abc123", "Jarný", "Peter" })
+                Assert.DoesNotContain(secret, line);
+    }
+
+    // ----- options and startup -----
+
+    [Theory]
+    [InlineData(false, false, "Email:AllowSimulated")]
+    [InlineData(false, true, null)]
+    [InlineData(true, false, null)]
+    public void Simulated_mode_outside_Development_needs_the_explicit_flag(bool development, bool allowSimulated, string? error)
+    {
+        var result = new EmailOptionsValidator(development).Validate(null, new EmailOptions { AllowSimulated = allowSimulated });
+        AssertValidation(result, error);
+    }
+
+    [Theory]
+    [InlineData(465, true, "", "UseStartTls=false")]
+    [InlineData(587, false, "user", "clear text")]
+    [InlineData(25, false, "user", "clear text")]
+    [InlineData(465, false, "user", null)]
+    [InlineData(587, true, "user", null)]
+    [InlineData(25, false, "", null)]
+    [InlineData(0, true, "", "Port")]
+    public void Port_and_TLS_combinations_are_validated(int port, bool startTls, string user, string? error)
+    {
+        var options = Options(o =>
+        {
+            o.Smtp.Host = "smtp.invalid";
+            o.Smtp.Port = port;
+            o.Smtp.UseStartTls = startTls;
+            o.Smtp.User = user;
+        });
+        AssertValidation(new EmailOptionsValidator(false).Validate(null, options), error);
+    }
+
+    [Theory]
+    [InlineData("https://tracker.example.org", false, null)]
+    [InlineData("http://tracker.example.org", false, "https outside Development")]
+    [InlineData("http://localhost:5298", true, null)]
+    [InlineData("https://tracker.example.org/app?x=1", false, "query or a fragment")]
+    [InlineData("https://tracker.example.org/#top", false, "query or a fragment")]
+    [InlineData("ftp://tracker.example.org", true, "absolute http or https")]
+    [InlineData("tracker.example.org", true, "absolute http or https")]
+    public void Public_base_url_is_validated(string url, bool development, string? error)
+    {
+        var options = Options(o =>
+        {
+            o.Smtp.Host = "smtp.invalid";
+            o.PublicBaseUrl = url;
+        });
+        AssertValidation(new EmailOptionsValidator(development).Validate(null, options), error);
+    }
+
+    [Fact]
+    public void A_missing_event_time_zone_fails_validation_instead_of_falling_back_to_UTC()
+    {
+        var result = new EmailOptionsValidator(true, () => null).Validate(null, new EmailOptions());
+        AssertValidation(result, "Europe/Bratislava");
+        Assert.Null(EmailTemplates.ResolveTimeZone(["No/Such_Zone"]));
+        Assert.NotNull(EmailTemplates.EventTimeZoneOrNull);
+    }
+
+    [Fact]
+    public void Production_without_an_smtp_host_fails_to_start()
+    {
+        using var factory = new ApiFactory { SeedTestEvent = false, EnvironmentName = "Production" };
+        var ex = Assert.ThrowsAny<Exception>(() => factory.Services);
+        Assert.Contains("Email:AllowSimulated", ex.ToString());
+    }
+
+    [Fact]
+    public void Production_with_AllowSimulated_starts_in_simulated_mode()
+    {
+        using var factory = new ApiFactory { SeedTestEvent = false, EnvironmentName = "Production" };
+        factory.Settings["Email:AllowSimulated"] = "true";
+        Assert.True(factory.Services.GetRequiredService<IEmailMode>().IsSimulated);
+        Assert.Equal("simulated", factory.Services.GetRequiredService<IEmailMode>().Mode);
+    }
+
+    [Fact]
+    public void Development_without_an_smtp_host_starts_in_simulated_mode()
+    {
+        using var factory = new ApiFactory { SeedTestEvent = false, EnvironmentName = "Development" };
+        Assert.True(factory.Services.GetRequiredService<IEmailMode>().IsSimulated);
+    }
+
+    [Fact]
+    public void Production_with_an_smtp_host_runs_in_smtp_mode_with_a_normalised_base_url()
+    {
+        using var factory = new ApiFactory { SeedTestEvent = false, EnvironmentName = "Production" };
+        factory.Settings["Email:Smtp:Host"] = "smtp.invalid";
+        factory.Settings["Email:From"] = "noreply@example.org";
+        factory.Settings["Email:PublicBaseUrl"] = " https://tracker.example.org/app/ ";
+        Assert.Equal("smtp", factory.Services.GetRequiredService<IEmailMode>().Mode);
+        Assert.Equal("https://tracker.example.org/app",
+            factory.Services.GetRequiredService<IOptions<EmailOptions>>().Value.PublicBaseUrl);
+    }
+
+    [Fact]
+    public async Task Email_mode_endpoint_requires_the_operator_key()
+    {
+        using var factory = new ApiFactory { SeedTestEvent = false };
+        var client = factory.CreateClient();
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, (await client.GetAsync("/api/ops/email-mode")).StatusCode);
+        client.DefaultRequestHeaders.Add("X-Api-Key", "wrong");
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, (await client.GetAsync("/api/ops/email-mode")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Email_mode_endpoint_reports_the_mode_without_a_database()
+    {
+        using var factory = new ApiFactory { SeedTestEvent = false };
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Api-Key", factory.OrganizerKey);
+
+        var body = await client.GetStringAsync("/api/ops/email-mode");
+
+        Assert.Equal("""{"mode":"simulated","simulatedLast24h":null}""", body);
+    }
+
+    [Fact]
+    public async Task Email_mode_endpoint_counts_simulated_rows_of_the_last_24_hours()
+    {
+        var db = await NewDatabaseAsync();
+        await EnqueueInvitationAsync(db, ApiFactory.T0);
+        await EnqueueInvitationAsync(db, ApiFactory.T0, "second@example.org");
+        await using (var ctx = new AppDbContext(PostgresFixture.Options(db)))
+        {
+            // A simulated row finished two days ago does not count.
+            var old = EmailOutbox.Create(EmailTemplates.SignIn(await ctx.Organizers.SingleAsync(), "https://tracker.example.org/s?t=1"),
+                null, ApiFactory.T0.AddDays(-2));
+            old.Status = EmailOutboxStatus.Simulated;
+            old.FinishedAt = ApiFactory.T0.AddDays(-2);
+            ctx.Outbox.Add(old);
+            await ctx.SaveChangesAsync();
+        }
+        using var factory = new ApiFactory { SeedTestEvent = false };
+        factory.Settings["ConnectionStrings:Default"] = db;
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Api-Key", factory.OrganizerKey);
+
+        var body = "";
+        for (var i = 0; i < 300 && !body.Contains("\"simulatedLast24h\":2"); i++)
+        {
+            if (i > 0) await Task.Delay(50);
+            body = await client.GetStringAsync("/api/ops/email-mode");
+        }
+        Assert.Equal("""{"mode":"simulated","simulatedLast24h":2}""", body);
+    }
+
+    private static void AssertValidation(ValidateOptionsResult result, string? error)
+    {
+        if (error is null)
+        {
+            Assert.True(result.Succeeded, result.FailureMessage);
+            return;
+        }
+        Assert.True(result.Failed);
+        Assert.Contains(error, result.FailureMessage);
     }
 
     // ----- outbox worker -----
@@ -389,6 +598,7 @@ public sealed class EmailTests(PostgresFixture postgres) : IClassFixture<Postgre
         var row = await RowAsync(db, id);
         Assert.Equal(EmailOutboxStatus.Failed, row!.Status);
         Assert.Equal(3, row.Attempts);
+        Assert.Equal("SMTP 451 transient Gave up after 3 attempts.", row.LastError);
         Assert.Equal(ParticipantStatus.EmailFailed, (await ParticipantAsync(db)).Status);
     }
 
@@ -510,7 +720,114 @@ public sealed class EmailTests(PostgresFixture postgres) : IClassFixture<Postgre
         Assert.Contains("Email:From", ex.ToString());
     }
 
+    [Fact]
+    public async Task Concurrent_claims_never_take_the_same_row()
+    {
+        var db = await NewDatabaseAsync();
+        var clock = new FakeTimeProvider(T0);
+        for (var i = 0; i < 12; i++) await EnqueueInvitationAsync(db, T0, $"p{i}@example.org");
+        var a = Worker(db, new RecordingSender(clock), clock, o => o.Outbox.BatchSize = 5);
+        var b = Worker(db, new RecordingSender(clock), clock, o => o.Outbox.BatchSize = 5);
+
+        var claims = await Task.WhenAll(Enumerable.Range(0, 4).Select(i => (i % 2 == 0 ? a : b).ClaimAsync(CancellationToken.None)));
+
+        var ids = claims.SelectMany(c => c).Select(r => r.Id).ToList();
+        Assert.Equal(12, ids.Count);
+        Assert.Equal(12, ids.Distinct().Count());
+    }
+
+    [Fact]
+    public async Task A_claim_skips_rows_locked_by_another_transaction_instead_of_waiting()
+    {
+        var db = await NewDatabaseAsync();
+        var clock = new FakeTimeProvider(T0);
+        await EnqueueInvitationAsync(db, T0);
+        var worker = Worker(db, new RecordingSender(clock), clock);
+
+        await using (var other = new AppDbContext(PostgresFixture.Options(db)))
+        {
+            await using var tx = await other.Database.BeginTransactionAsync();
+            await other.Database.ExecuteSqlRawAsync("""SELECT 1 FROM "Outbox" FOR UPDATE""");
+            Assert.Empty(await worker.ClaimAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10)));
+            await tx.RollbackAsync();
+        }
+
+        Assert.Single(await worker.ClaimAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Worker_logs_contain_no_address_name_subject_or_link()
+    {
+        var db = await NewDatabaseAsync();
+        var clock = new FakeTimeProvider(T0);
+        var logs = new ListLoggerProvider();
+        using var loggers = LoggerFactory.Create(b => b.AddProvider(logs));
+        var sender = new RecordingSender(clock, Transient(), new EmailDeliveryException(true, "SMTP 550 5.1.1 RecipientNotAccepted"));
+        await EnqueueInvitationAsync(db, T0);
+        var worker = Worker(db, sender, clock, o => o.Outbox.RetentionDays = 7, loggers.CreateLogger<EmailOutboxWorker>());
+
+        for (var i = 0; i < 3; i++)
+        {
+            await worker.ProcessDueAsync(CancellationToken.None);
+            clock.Advance(TimeSpan.FromMinutes(5));
+        }
+
+        Assert.Equal(2, sender.Sent.Count);
+        Assert.Equal(2, logs.Lines.Count); // one retry warning, one failure warning
+        foreach (var line in logs.Lines)
+            foreach (var secret in new[] { "anna", "Anna", "example.org", "abc123", "confirm", "Jarný", "Pozvánka", "Peter" })
+                Assert.DoesNotContain(secret, line);
+    }
+
     // ----- helpers -----
+
+    /// <summary>
+    /// A fake <see cref="ISmtpClient"/> (DispatchProxy): records calls with their cancellation token; SendAsync
+    /// succeeds (running <c>onSend</c>) or throws <c>sendThrows</c>; DisconnectAsync can throw.
+    /// </summary>
+    public class FakeSmtpClient : System.Reflection.DispatchProxy
+    {
+        private readonly List<(string Method, CancellationToken Token)> _calls = [];
+        private Action? _onSend;
+        private Exception? _sendThrows;
+        private bool _disconnectThrows;
+
+        public static ISmtpClient Create(Action? onSend = null, bool disconnectThrows = false, Exception? sendThrows = null)
+        {
+            var client = Create<ISmtpClient, FakeSmtpClient>();
+            var fake = (FakeSmtpClient)(object)client;
+            fake._onSend = onSend;
+            fake._sendThrows = sendThrows;
+            fake._disconnectThrows = disconnectThrows;
+            return client;
+        }
+
+        public static IReadOnlyList<(string Method, CancellationToken Token)> Calls(ISmtpClient client) =>
+            ((FakeSmtpClient)(object)client)._calls.ToList();
+
+        protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? args)
+        {
+            var name = method!.Name;
+            if (name.StartsWith("get_", StringComparison.Ordinal) || name.StartsWith("set_", StringComparison.Ordinal)
+                || name.StartsWith("add_", StringComparison.Ordinal) || name.StartsWith("remove_", StringComparison.Ordinal)
+                || name == "Dispose")
+                return method.ReturnType.IsValueType && method.ReturnType != typeof(void) ? Activator.CreateInstance(method.ReturnType) : null;
+            var token = args?.OfType<CancellationToken>().FirstOrDefault() ?? default;
+            _calls.Add((name, token));
+            switch (name)
+            {
+                case "SendAsync":
+                    if (_sendThrows is not null) return Task.FromException<string>(_sendThrows);
+                    _onSend?.Invoke();
+                    return Task.FromResult("250 2.0.0 OK");
+                case "DisconnectAsync":
+                    return _disconnectThrows ? Task.FromException(new OperationCanceledException(token)) : Task.CompletedTask;
+                default:
+                    return method.ReturnType == typeof(Task) ? Task.CompletedTask
+                        : throw new NotSupportedException("Unexpected SMTP client call " + name);
+            }
+        }
+    }
 
     private static EmailOptions Options(Action<EmailOptions>? configure = null)
     {
@@ -524,11 +841,12 @@ public sealed class EmailTests(PostgresFixture postgres) : IClassFixture<Postgre
         return options;
     }
 
-    private static EmailOutboxWorker Worker(string db, IEmailSender sender, TimeProvider clock, Action<EmailOptions>? configure = null) =>
+    private static EmailOutboxWorker Worker(string db, IEmailSender sender, TimeProvider clock, Action<EmailOptions>? configure = null,
+        ILogger<EmailOutboxWorker>? logger = null) =>
         new(new PooledDbContextFactory<AppDbContext>(PostgresFixture.Options(db)), sender,
             Microsoft.Extensions.Options.Options.Create(Options(configure)),
             Microsoft.Extensions.Options.Options.Create(new PersistenceOptions { ConnectionString = db }),
-            clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<EmailOutboxWorker>.Instance);
+            clock, logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<EmailOutboxWorker>.Instance);
 
     private static EmailDeliveryException Transient() => new(false, "SMTP 451 transient");
 
@@ -675,7 +993,7 @@ public sealed class EmailTests(PostgresFixture postgres) : IClassFixture<Postgre
                 var values = state is IEnumerable<KeyValuePair<string, object?>> pairs
                     ? string.Join(" | ", pairs.Select(p => $"{p.Key}={p.Value}"))
                     : "";
-                lock (owner._lines) owner._lines.Add(formatter(state, exception) + " || " + values + " || " + exception);
+                lock (owner._lines) owner._lines.Add(logLevel + ": " + formatter(state, exception) + " || " + values + " || " + exception);
             }
         }
     }

@@ -12,14 +12,27 @@ namespace PositionTracker.Email;
 /// Sends through the configured SMTP server with MailKit, one connection per message. Failures become
 /// <see cref="EmailDeliveryException"/> (see <see cref="Classify"/>); the SMTP conversation is never logged.
 /// </summary>
-public sealed class SmtpEmailSender(IOptions<EmailOptions> options) : IEmailSender
+public sealed partial class SmtpEmailSender : IEmailSender
 {
+    private readonly IOptions<EmailOptions> _options;
+    private readonly Func<ISmtpClient> _clients;
+
+    public SmtpEmailSender(IOptions<EmailOptions> options) : this(options, () => new SmtpClient()) { }
+
+    /// <summary>With a client factory (tests use a fake <see cref="ISmtpClient"/>).</summary>
+    internal SmtpEmailSender(IOptions<EmailOptions> options, Func<ISmtpClient> clients)
+    {
+        _options = options;
+        _clients = clients;
+    }
+
     public async Task SendAsync(EmailMessage message, CancellationToken ct)
     {
-        var settings = options.Value;
+        var settings = _options.Value;
         var smtp = settings.Smtp;
         var mime = ToMime(message, settings);
-        using var client = new SmtpClient { Timeout = smtp.TimeoutSeconds * 1000 };
+        using var client = _clients();
+        client.Timeout = smtp.TimeoutSeconds * 1000;
         try
         {
             var security = smtp.UseStartTls ? SecureSocketOptions.StartTls
@@ -38,14 +51,17 @@ public sealed class SmtpEmailSender(IOptions<EmailOptions> options) : IEmailSend
             throw Classify(ex);
         }
 
-        // The server accepted the message: a failing QUIT must not turn it into a failure (and a resend).
+        // The server accepted the message: nothing after this point may turn it into a failure (and a resend), not
+        // even shutdown, so QUIT ignores the token and every error.
         try
         {
-            await client.DisconnectAsync(true, ct);
+            await client.DisconnectAsync(true, CancellationToken.None);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+#pragma warning disable CA1031 // deliberately swallowed, see above
+        catch (Exception)
         {
         }
+#pragma warning restore CA1031
     }
 
     /// <summary>
@@ -74,17 +90,20 @@ public sealed class SmtpEmailSender(IOptions<EmailOptions> options) : IEmailSend
     }
 
     /// <summary>
-    /// Permanent: a 5xx reply to the recipient or the message, a malformed address. Transient: 4xx replies, a rejected
-    /// sender or failed authentication (a configuration problem the operator can fix), network, TLS and protocol
-    /// errors, timeouts. The reason holds only the status code and error kind, never the server's reply text (which
-    /// can echo the address).
+    /// Permanent (retrying cannot help, the participant is marked EmailFailed): a 5xx reply that rejects this
+    /// recipient or this message (<see cref="SmtpErrorCode.RecipientNotAccepted"/>,
+    /// <see cref="SmtpErrorCode.MessageNotAccepted"/>), or any reply with an enhanced status code 5.1.x (bad
+    /// address); a malformed address. Transient (retried; after the last attempt the row fails with this reason):
+    /// 4xx replies, 5.7.x policy replies (relay denied, authentication required, blocklisted), a 554 without 5.1.x
+    /// (typically a greeting or blocklist rejection of the sending server), a rejected sender, unexpected replies,
+    /// authentication, network, TLS and protocol errors, timeouts: all of them are problems of the sending side,
+    /// not of the recipient. The reason holds only the status code, the enhanced code and the error kind, never the
+    /// server's reply text (which can echo the address).
     /// </summary>
     internal static EmailDeliveryException Classify(Exception ex) => ex switch
     {
         EmailDeliveryException delivery => delivery,
-        SmtpCommandException command => new EmailDeliveryException(
-            (int)command.StatusCode is >= 500 and < 600 && command.ErrorCode != SmtpErrorCode.SenderNotAccepted,
-            $"SMTP {(int)command.StatusCode} {command.ErrorCode}"),
+        SmtpCommandException command => ClassifyCommand(command),
         ParseException => new EmailDeliveryException(true, "Malformed address."),
         AuthenticationException => new EmailDeliveryException(false, "SMTP authentication failed."),
         SslHandshakeException => new EmailDeliveryException(false, "TLS handshake failed."),
@@ -92,4 +111,20 @@ public sealed class SmtpEmailSender(IOptions<EmailOptions> options) : IEmailSend
         SocketException socket => new EmailDeliveryException(false, $"Network error ({socket.SocketErrorCode})."),
         _ => new EmailDeliveryException(false, $"Delivery error ({ex.GetType().Name})."),
     };
+
+    private static EmailDeliveryException ClassifyCommand(SmtpCommandException command)
+    {
+        var status = (int)command.StatusCode;
+        var enhanced = EnhancedStatus().Match(command.Message ?? "") is { Success: true } m ? m.Value : null;
+        var permanent = status is >= 500 and < 600 && (
+            enhanced is not null && enhanced.StartsWith("5.1.", StringComparison.Ordinal)
+            || command.ErrorCode is SmtpErrorCode.RecipientNotAccepted or SmtpErrorCode.MessageNotAccepted
+               && status != 554
+               && (enhanced is null || !enhanced.StartsWith("5.7.", StringComparison.Ordinal)));
+        return new EmailDeliveryException(permanent,
+            enhanced is null ? $"SMTP {status} {command.ErrorCode}" : $"SMTP {status} {enhanced} {command.ErrorCode}");
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"(?<![\d.])[245]\.\d{1,3}\.\d{1,3}(?![\d.])")]
+    private static partial System.Text.RegularExpressions.Regex EnhancedStatus();
 }

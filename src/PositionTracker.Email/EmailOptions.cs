@@ -24,6 +24,12 @@ public sealed class EmailOptions
 
     public OutboxOptions Outbox { get; set; } = new();
 
+    /// <summary>
+    /// Outside Development the app refuses to start without <see cref="SmtpOptions.Host"/> unless this is true:
+    /// simulated email (never delivered, rows <c>Simulated</c>) must be an explicit decision.
+    /// </summary>
+    public bool AllowSimulated { get; set; }
+
     public bool SmtpEnabled => !string.IsNullOrWhiteSpace(Smtp.Host);
 }
 
@@ -44,8 +50,14 @@ public sealed class SmtpOptions
 
     public string Password { get; set; } = "";
 
-    /// <summary>Timeout of each SMTP operation (seconds). Must be below <see cref="OutboxOptions.RetryBaseSeconds"/>.</summary>
+    /// <summary>
+    /// Timeout of each SMTP operation (seconds). A message takes up to <see cref="OperationsPerMessage"/> operations;
+    /// the outbox lease of a claimed batch is sized from it.
+    /// </summary>
     public int TimeoutSeconds { get; set; } = 30;
+
+    /// <summary>Connect, authenticate, send, quit.</summary>
+    public const int OperationsPerMessage = 4;
 }
 
 public sealed class OutboxOptions
@@ -69,31 +81,57 @@ public sealed class OutboxOptions
     public int RetentionDays { get; set; } = 7;
 }
 
-/// <summary>Validates <see cref="EmailOptions"/>; every message names the configuration key.</summary>
-public sealed class EmailOptionsValidator : IValidateOptions<EmailOptions>
+/// <summary>
+/// Validates <see cref="EmailOptions"/>; every message names the configuration key. Outside Development
+/// (<paramref name="isDevelopment"/> false) an SMTP host is required unless <see cref="EmailOptions.AllowSimulated"/>
+/// is set, and <see cref="EmailOptions.PublicBaseUrl"/> must be https. The event time zone must resolve.
+/// </summary>
+public sealed class EmailOptionsValidator(bool isDevelopment, Func<TimeZoneInfo?>? eventTimeZone = null)
+    : IValidateOptions<EmailOptions>
 {
     public ValidateOptionsResult Validate(string? name, EmailOptions options)
     {
         var errors = new List<string>();
         var smtp = options.Smtp;
         var outbox = options.Outbox;
+        if (!options.SmtpEnabled && !isDevelopment && !options.AllowSimulated)
+            errors.Add("Email:Smtp:Host is not set: outside Development the app does not start without real sending. " +
+                "Configure Email:Smtp:* or set Email:AllowSimulated=true to run with simulated (never delivered) email.");
         if (options.SmtpEnabled)
         {
             if (!EmailText.IsPlainAddress(options.From))
                 errors.Add("Email:From must be a plain email address when Email:Smtp:Host is set.");
             if (smtp.Port is < 1 or > 65535)
                 errors.Add("Email:Smtp:Port must be between 1 and 65535.");
+            else if (smtp.Port == 465 && smtp.UseStartTls)
+                errors.Add("Email:Smtp:Port 465 uses implicit TLS: set Email:Smtp:UseStartTls=false (or use port 587 with STARTTLS).");
+            else if (!smtp.UseStartTls && smtp.Port != 465 && !string.IsNullOrEmpty(smtp.User))
+                errors.Add("Email:Smtp:UseStartTls=false on a port other than 465 would send Email:Smtp:User and the password " +
+                    "in clear text: use STARTTLS (port 587) or implicit TLS (port 465).");
             if (string.IsNullOrWhiteSpace(options.PublicBaseUrl))
                 errors.Add("Email:PublicBaseUrl is required when Email:Smtp:Host is set.");
-            if (smtp.TimeoutSeconds < 1 || smtp.TimeoutSeconds >= outbox.RetryBaseSeconds)
-                errors.Add("Email:Smtp:TimeoutSeconds must be positive and below Email:Outbox:RetryBaseSeconds.");
+            if (smtp.TimeoutSeconds < 1)
+                errors.Add("Email:Smtp:TimeoutSeconds must be positive.");
         }
-        if (!string.IsNullOrWhiteSpace(options.PublicBaseUrl) && !EmailLinks.IsHttpUrl(options.PublicBaseUrl))
-            errors.Add("Email:PublicBaseUrl must be an absolute http or https URL.");
+        if (!string.IsNullOrWhiteSpace(options.PublicBaseUrl))
+        {
+            if (!Uri.TryCreate(options.PublicBaseUrl, UriKind.Absolute, out var uri) || !EmailLinks.IsHttpUrl(options.PublicBaseUrl))
+                errors.Add("Email:PublicBaseUrl must be an absolute http or https URL.");
+            else
+            {
+                if (!isDevelopment && uri.Scheme != Uri.UriSchemeHttps)
+                    errors.Add("Email:PublicBaseUrl must use https outside Development.");
+                if (uri.Query.Length > 0 || uri.Fragment.Length > 0)
+                    errors.Add("Email:PublicBaseUrl must not contain a query or a fragment.");
+            }
+        }
         if (outbox.PollIntervalSeconds < 1 || outbox.BatchSize < 1 || outbox.MaxAttempts < 1 || outbox.RetryBaseSeconds < 1
             || outbox.RetryMaxSeconds < outbox.RetryBaseSeconds || outbox.RetentionDays < 0)
             errors.Add("Email:Outbox: PollIntervalSeconds, BatchSize, MaxAttempts and RetryBaseSeconds must be positive, " +
                 "RetryMaxSeconds at least RetryBaseSeconds, RetentionDays not negative.");
+        if ((eventTimeZone ?? (() => EmailTemplates.EventTimeZoneOrNull))() is null)
+            errors.Add($"The event time zone {EmailTemplates.EventTimeZoneId} cannot be resolved on this machine " +
+                "(install the tzdata/ICU time zone data); email dates would be wrong.");
         return errors.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(errors);
     }
 }
