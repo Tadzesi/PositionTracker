@@ -134,6 +134,29 @@ public class CourseMatcherTests
     }
 
     [Fact]
+    public void Backward_jitter_on_out_and_back_stays_on_outbound_leg()
+    {
+        // The return-leg image of the fix (5 710 m) is inside the forward window and equally close.
+        var course = Course.Create(TestCourses.OutAndBack(), 1);
+        var p = course.PointAt(4_290);
+        var r = CourseMatcher.Match(course, p.Lat, p.Lon, 4_300);
+        Assert.True(r.Matched);
+        Assert.InRange(r.LapProgressM, 4_285, 4_295);
+    }
+
+    [Fact]
+    public void Backward_jitter_at_figure_eight_crossing_stays_on_current_branch()
+    {
+        // Compact figure eight: the crossing is at 0 and ~1 000 m, both inside the window from 1 010 m.
+        var course = Course.Create(TestCourses.FigureEight(2_000), 1);
+        var crossing = course.LapLengthM / 2;
+        var p = course.PointAt(crossing);
+        var r = CourseMatcher.Match(course, p.Lat, p.Lon, crossing + 10);
+        Assert.True(r.Matched);
+        Assert.InRange(r.LapProgressM, crossing - 5, crossing + 5);
+    }
+
+    [Fact]
     public void Out_and_back_returning_over_same_road_matches_return_leg()
     {
         var course = Course.Create(TestCourses.OutAndBack(), 1); // 5 000 m out, 5 000 m back
@@ -146,6 +169,8 @@ public class CourseMatcherTests
             Assert.True(r.Matched, $"unmatched at {d} m");
             // Right at the turn one fix is genuinely ambiguous (same spot on both legs);
             // once past the backward window the outbound leg is unreachable.
+            if (d < turn - 50)
+                Assert.True(Math.Abs(r.LapProgressM - d) < 5, $"matched {r.LapProgressM:F1} m for {d} m");
             if (d >= turn + 2 * 50)
                 Assert.True(Math.Abs(r.LapProgressM - d) < 5, $"matched {r.LapProgressM:F1} m for {d} m");
             if (d > turn)

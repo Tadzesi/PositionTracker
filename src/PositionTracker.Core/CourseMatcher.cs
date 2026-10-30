@@ -12,10 +12,27 @@ public sealed record MatchResult(double LapProgressM, double OffCourseM, bool Ma
 public static class CourseMatcher
 {
     private const double TieToleranceM = 5;
+    private const double BackwardPenalty = 3;
     private const double MetresPerDegLat = Math.PI / 180 * 6_371_008.8;
 
-    private readonly record struct Candidate(double UnwrappedM, double DistanceM);
+    /// <summary>Closest point of one segment; AtStart/AtEnd mark a projection clamped to the scanned range's ends.</summary>
+    private readonly record struct Candidate(double UnwrappedM, double DistanceM, bool AtStart, bool AtEnd);
 
+    /// <summary>
+    /// Matches the fix (<paramref name="lat"/>, <paramref name="lon"/>) to a lap distance near
+    /// <paramref name="lastLapProgressM"/>. Closed courses return progress in [0, LapLengthM).
+    /// </summary>
+    /// <remarks>
+    /// <para>The matcher is stateless and only searches the window. After a dropout longer than about
+    /// <c>ForwardWindowM + BackwardWindowM</c> of travel the true position lies outside it, and the result is
+    /// <c>Matched=false</c> with progress unchanged. Callers own re-acquisition. They must widen
+    /// <c>ForwardWindowM</c> by elapsed time × max speed since the last matched fix. After repeated unmatched
+    /// fixes they must retry with <c>ForwardWindowM = LapLengthM</c> (full-lap search).</para>
+    /// <para>When two passes of the course are equally close (self-crossing, shared road), the one needing the
+    /// smallest move from the last progress wins; backward moves cost <c>BackwardPenalty</c> times more.
+    /// At a hairpin (out-and-back turn) one fix is genuinely ambiguous. The first fix after the turn can match
+    /// the outbound image, which is a one-fix stall that the next fix corrects.</para>
+    /// </remarks>
     public static MatchResult Match(Course course, double lat, double lon, double lastLapProgressM, MatcherOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(course);
@@ -52,17 +69,20 @@ public static class CourseMatcher
         if (bestDistance > options.OffCourseThresholdM)
             return new MatchResult(lastLapProgressM, bestDistance, false);
 
-        // Among distinct local minima (separate passes of the course) that are as close as the best,
-        // prefer the one closest ahead of the last progress, then the one closest behind it.
+        // Among distinct passes of the course (local minima of distance along the course) that are as
+        // close as the best, pick the smallest move from the last progress, backward moves weighted
+        // by BackwardPenalty: near-zero forward motion wins at hairpins, but small backward jitter
+        // beats a far-ahead image of the same spot on another pass.
         Candidate? chosen = null;
         for (var j = 0; j < candidates.Count; j++)
         {
             var c = candidates[j];
             if (c.DistanceM > bestDistance + TieToleranceM) continue;
-            var isLocalMinimum = (j == 0 || c.DistanceM <= candidates[j - 1].DistanceM)
-                              && (j == candidates.Count - 1 || c.DistanceM <= candidates[j + 1].DistanceM);
-            if (!isLocalMinimum) continue;
-            if (chosen is null || Preference(c.UnwrappedM - last).CompareTo(Preference(chosen.Value.UnwrappedM - last)) < 0)
+            // A minimum clamped to a segment end continues into the neighbour when that one is closer:
+            // it is the same pass, represented by the neighbour's candidate.
+            if (c.AtStart && j > 0 && candidates[j - 1].DistanceM < c.DistanceM) continue;
+            if (c.AtEnd && j < candidates.Count - 1 && candidates[j + 1].DistanceM < c.DistanceM) continue;
+            if (chosen is null || MoveCost(c.UnwrappedM - last) < MoveCost(chosen.Value.UnwrappedM - last))
                 chosen = c;
         }
 
@@ -71,8 +91,7 @@ public static class CourseMatcher
         return new MatchResult(progress, match.DistanceM, true);
     }
 
-    /// <summary>Ordering key: any forward offset beats any backward one; smaller magnitude wins within each.</summary>
-    private static (int, double) Preference(double deltaM) => deltaM >= 0 ? (0, deltaM) : (1, -deltaM);
+    private static double MoveCost(double deltaM) => deltaM >= 0 ? deltaM : -deltaM * BackwardPenalty;
 
     /// <summary>Projects the fix onto every segment overlapping lap distances [a, b], clamped to that range.</summary>
     private static void Scan(Course course, double lat, double lon, double a, double b, double offset, List<Candidate> candidates)
@@ -103,7 +122,7 @@ public static class CourseMatcher
 
             var px = ax + t * dx;
             var py = ay + t * dy;
-            candidates.Add(new Candidate(offset + cum[i] + t * span, Math.Sqrt(px * px + py * py)));
+            candidates.Add(new Candidate(offset + cum[i] + t * span, Math.Sqrt(px * px + py * py), t <= tLo, t >= tHi));
         }
     }
 
