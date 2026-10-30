@@ -178,4 +178,82 @@ public class CourseMatcherTests
             last = r.LapProgressM;
         }
     }
+
+    [Fact]
+    public void Out_and_back_hairpin_with_slow_3m_steps_recovers_onto_return_leg()
+    {
+        var course = Course.Create(TestCourses.OutAndBack(), 1);
+        var turn = course.LapLengthM / 2;
+        // 4 990 m, then 5 004, 5 007, 5 010, ... : off-grid step through the turn, then a slowdown.
+        var path = new[] { 4_990.0 }.Concat(Enumerable.Range(0, int.MaxValue).Select(i => turn + 4 + 3 * i)
+            .TakeWhile(d => d < course.LapLengthM - 3));
+        AssertTracksThroughHairpin(course, turn, path, maxFixesToRecover: 2);
+    }
+
+    [Fact]
+    public void Out_and_back_hairpin_with_7m_steps_recovers_onto_return_leg()
+    {
+        var course = Course.Create(TestCourses.OutAndBack(), 1);
+        var turn = course.LapLengthM / 2;
+        AssertTracksThroughHairpin(course, turn, Walk(course, turn - 15, 7), maxFixesToRecover: 2);
+    }
+
+    [Theory]
+    [InlineData(3)]
+    [InlineData(7)]
+    [InlineData(13)]
+    public void Out_and_back_hairpin_recovers_for_every_start_offset(double stepM)
+    {
+        var course = Course.Create(TestCourses.OutAndBack(), 1);
+        var turn = course.LapLengthM / 2;
+        for (var offset = 1; offset <= 49; offset++)
+            AssertTracksThroughHairpin(course, turn, Walk(course, turn - 200 - offset, stepM), maxFixesToRecover: 3);
+    }
+
+    [Fact]
+    public void Duplicated_vertex_is_not_a_separate_candidate()
+    {
+        // Same 90 m-off setup as above, with the vertex at 3 000 m duplicated (zero-length segment).
+        var points = TestCourses.Loop().ToList();
+        var dupIndex = points.FindIndex(p => Math.Abs(GeoMath.DistanceM(p, Loop.PointAt(3_000))) < 0.5);
+        Assert.True(dupIndex > 0);
+        points.Insert(dupIndex, points[dupIndex]);
+        var course = Course.Create(points, 1);
+
+        var p = Offset(course.PointAt(3_010), -90, 0);
+        var r = CourseMatcher.Match(course, p.Lat, p.Lon, 2_900);
+        Assert.True(r.Matched);
+        Assert.InRange(r.LapProgressM, 3_005, 3_015);
+    }
+
+    private static IEnumerable<double> Walk(Course course, double from, double stepM)
+    {
+        for (var d = from; d < course.LapLengthM - stepM; d += stepM) yield return d;
+    }
+
+    /// <summary>
+    /// Feeds fixes at the given true lap distances, carrying the matched progress forward
+    /// (the first one seeds last progress). Before the turn every fix must be exact; after it,
+    /// at most <paramref name="maxFixesToRecover"/> fixes may be ambiguous, all later ones exact.
+    /// </summary>
+    private static void AssertTracksThroughHairpin(Course course, double turn, IEnumerable<double> truePath, int maxFixesToRecover)
+    {
+        double? last = null;
+        var fixesPastTurn = 0;
+        foreach (var d in truePath)
+        {
+            var p = course.PointAt(d);
+            var r = CourseMatcher.Match(course, p.Lat, p.Lon, last ?? d);
+            Assert.True(r.Matched, $"unmatched at {d:F1} m");
+            var err = Math.Abs(Advance(course, d, r.LapProgressM));
+            if (d > turn) fixesPastTurn++;
+            var mustBeExact = d <= turn ? d < turn - 50 : fixesPastTurn > maxFixesToRecover;
+            if (mustBeExact)
+                Assert.True(err < 5, $"matched {r.LapProgressM:F1} m for true {d:F1} m (fix {fixesPastTurn} past turn)");
+            if (d > turn + 100)
+                Assert.True(err <= 60, $"matched {r.LapProgressM:F1} m for true {d:F1} m");
+            last = r.LapProgressM;
+        }
+        Assert.True(fixesPastTurn > maxFixesToRecover);
+    }
 }

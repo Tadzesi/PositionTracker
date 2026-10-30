@@ -12,7 +12,11 @@ public sealed record MatchResult(double LapProgressM, double OffCourseM, bool Ma
 public static class CourseMatcher
 {
     private const double TieToleranceM = 5;
-    private const double BackwardPenalty = 3;
+    // Forward moves up to this size always win a tie between passes. At a hairpin both legs coincide, so
+    // the correct return-leg image lies at most (2 × distance from the turn + one step) ahead; 150 m covers
+    // fixes up to ~75 m apart there. A far-forward image of the same spot on another pass
+    // (e.g. +1 410 m on an out-and-back) loses to small backward jitter instead.
+    private const double PlausibleForwardM = 150;
     private const double MetresPerDegLat = Math.PI / 180 * 6_371_008.8;
 
     /// <summary>Closest point of one segment; AtStart/AtEnd mark a projection clamped to the scanned range's ends.</summary>
@@ -23,15 +27,24 @@ public static class CourseMatcher
     /// <paramref name="lastLapProgressM"/>. Closed courses return progress in [0, LapLengthM).
     /// </summary>
     /// <remarks>
-    /// <para>The matcher is stateless and only searches the window. After a dropout longer than about
-    /// <c>ForwardWindowM + BackwardWindowM</c> of travel the true position lies outside it, and the result is
-    /// <c>Matched=false</c> with progress unchanged. Callers own re-acquisition. They must widen
+    /// <para>The matcher is stateless and only searches the window. If the participant travels more than
+    /// <c>ForwardWindowM</c> beyond the last progress (for example during a dropout), the true position is
+    /// outside the window. The result is then <c>Matched=false</c> with progress unchanged, unless another
+    /// pass of the course lies within <c>OffCourseThresholdM</c> inside the window (shared road, crossing),
+    /// in which case <c>Matched=true</c> lands on that wrong pass. Callers own re-acquisition. They must widen
     /// <c>ForwardWindowM</c> by elapsed time × max speed since the last matched fix. After repeated unmatched
     /// fixes they must retry with <c>ForwardWindowM = LapLengthM</c> (full-lap search).</para>
-    /// <para>When two passes of the course are equally close (self-crossing, shared road), the one needing the
-    /// smallest move from the last progress wins; backward moves cost <c>BackwardPenalty</c> times more.
-    /// At a hairpin (out-and-back turn) one fix is genuinely ambiguous. The first fix after the turn can match
-    /// the outbound image, which is a one-fix stall that the next fix corrects.</para>
+    /// <para>Passes of the course within 5 m of the closest one are tied. A forward move of at most
+    /// <c>PlausibleForwardM</c> (150 m) always wins a tie, and the smallest such move is chosen. Otherwise
+    /// small backward jitter and far-forward images compete by distance moved, so the smaller wins.</para>
+    /// <para>At a hairpin (out-and-back turn) both legs coincide, so one fix just past the turn can match the
+    /// outbound image (a stall). When consecutive fixes are at most about 75 m apart, the next fix's
+    /// return-leg image is a plausible forward move and wins, so a stall lasts at most one fix. When fixes
+    /// straddle the turn more than about 150 m apart (a dropout) and the participant then moves less than
+    /// <c>BackwardWindowM</c> per fix, the match can stay on the outbound leg. Callers that see Matched
+    /// progress decreasing steadily must re-acquire. Conversely, backward jitter within about 75 m before a turn
+    /// can match the return-leg image (at most 150 m ahead). That resolves once the participant passes the
+    /// turn.</para>
     /// </remarks>
     public static MatchResult Match(Course course, double lat, double lon, double lastLapProgressM, MatcherOptions? options = null)
     {
@@ -70,9 +83,7 @@ public static class CourseMatcher
             return new MatchResult(lastLapProgressM, bestDistance, false);
 
         // Among distinct passes of the course (local minima of distance along the course) that are as
-        // close as the best, pick the smallest move from the last progress, backward moves weighted
-        // by BackwardPenalty: near-zero forward motion wins at hairpins, but small backward jitter
-        // beats a far-ahead image of the same spot on another pass.
+        // close as the best, see MoveRank.
         Candidate? chosen = null;
         for (var j = 0; j < candidates.Count; j++)
         {
@@ -82,7 +93,7 @@ public static class CourseMatcher
             // it is the same pass, represented by the neighbour's candidate.
             if (c.AtStart && j > 0 && candidates[j - 1].DistanceM < c.DistanceM) continue;
             if (c.AtEnd && j < candidates.Count - 1 && candidates[j + 1].DistanceM < c.DistanceM) continue;
-            if (chosen is null || MoveCost(c.UnwrappedM - last) < MoveCost(chosen.Value.UnwrappedM - last))
+            if (chosen is null || MoveRank(c.UnwrappedM - last).CompareTo(MoveRank(chosen.Value.UnwrappedM - last)) < 0)
                 chosen = c;
         }
 
@@ -91,7 +102,13 @@ public static class CourseMatcher
         return new MatchResult(progress, match.DistanceM, true);
     }
 
-    private static double MoveCost(double deltaM) => deltaM >= 0 ? deltaM : -deltaM * BackwardPenalty;
+    /// <summary>
+    /// Ordering of tied passes by the move from the last progress (lower wins): a plausible forward move
+    /// (0..PlausibleForwardM) beats everything, smallest first; otherwise, backward jitter and far-forward
+    /// images compete by distance moved.
+    /// </summary>
+    private static (int Tier, double Magnitude) MoveRank(double deltaM) =>
+        deltaM is >= 0 and <= PlausibleForwardM ? (0, deltaM) : (1, Math.Abs(deltaM));
 
     /// <summary>Projects the fix onto every segment overlapping lap distances [a, b], clamped to that range.</summary>
     private static void Scan(Course course, double lat, double lon, double a, double b, double offset, List<Candidate> candidates)
@@ -103,12 +120,10 @@ public static class CourseMatcher
         for (var i = SegmentContaining(cum, a); i < pts.Count - 1 && cum[i] <= b; i++)
         {
             var span = cum[i + 1] - cum[i];
-            double tLo = 0, tHi = 1;
-            if (span > 0)
-            {
-                tLo = Math.Clamp((a - cum[i]) / span, 0, 1);
-                tHi = Math.Clamp((b - cum[i]) / span, 0, 1);
-            }
+            // Duplicate points add nothing; a zero-length candidate would pose as a separate pass.
+            if (span <= 0) continue;
+            var tLo = Math.Clamp((a - cum[i]) / span, 0, 1);
+            var tHi = Math.Clamp((b - cum[i]) / span, 0, 1);
 
             // Local planar metres with the fix at the origin.
             var ax = (pts[i].Lon - lon) * cosLat * MetresPerDegLat;
