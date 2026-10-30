@@ -47,6 +47,14 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
     public string Token2 => EnsureStarted(ref _token2);
 
+    /// <summary>Adds a fresh participant to the seeded event and returns its id and token (for state-sensitive tests).</summary>
+    public (string ParticipantId, string Token) AddParticipant()
+    {
+        var id = "p-" + Guid.NewGuid().ToString("N");
+        Event.AddParticipant(new ParticipantInfo(id, id, "Rider " + id, null, "Open", true, false));
+        return (id, Tokens.Issue(EventId, id));
+    }
+
     public HttpClient CreateClient(string token)
     {
         var client = CreateClient();

@@ -50,6 +50,13 @@ public sealed class EventRuntime
         }
     }
 
+    /// <summary>Whether a participant with this id is registered.</summary>
+    public bool HasParticipant(string participantId)
+    {
+        ArgumentNullException.ThrowIfNull(participantId);
+        lock (_lock) return _participants.ContainsKey(participantId);
+    }
+
     /// <summary>
     /// Applies the batch's fixes in time order with at most one replay and stores its device status. The status
     /// is the device's state as of sending; it carries no timestamp, so the last batch to arrive wins, even if

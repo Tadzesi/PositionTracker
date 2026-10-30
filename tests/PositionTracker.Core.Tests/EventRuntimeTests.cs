@@ -69,6 +69,15 @@ public class EventRuntimeTests
     }
 
     [Fact]
+    public void HasParticipant_reports_registered_ids_only()
+    {
+        var (runtime, _) = Create("a");
+
+        Assert.True(runtime.HasParticipant("a"));
+        Assert.False(runtime.HasParticipant("nobody"));
+    }
+
+    [Fact]
     public void Two_participants_get_ranks_1_and_2_and_the_gap_is_set()
     {
         var (runtime, clock) = Create("fast", "slow");
