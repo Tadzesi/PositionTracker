@@ -1,0 +1,123 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Npgsql;
+using PositionTracker.Api.Email;
+using PositionTracker.Data;
+using PositionTracker.Data.Entities;
+using PositionTracker.Email;
+
+namespace PositionTracker.Api.Accounts;
+
+/// <summary>
+/// Organizer sign-up, sign-in requests and email confirmation. The callers answer the same way whatever happens
+/// here (no account enumeration): sign-up mails a confirmation to a new or unconfirmed account (the new link
+/// supersedes the old one; name and language of an existing account are not changed) and a sign-in link to a
+/// confirmed one; a sign-in request mails a sign-in link to an existing account and nothing to an unknown address.
+/// At most <see cref="AccountOptions.MailsPerEmailPerHour"/> mails go to one address per hour. Each mail is added to
+/// the outbox in the same transaction as its link token (and the new organizer). Addresses and tokens are never logged.
+/// </summary>
+public sealed class OrganizerService(
+    AppDbContext db, LinkTokenService links, AccountRateLimiter limiter, IOptions<EmailOptions> email,
+    IOptions<AccountOptions> options, TimeProvider clock)
+{
+    /// <param name="email">A valid address (<see cref="EmailAddress.TryParse"/>), as entered (trimmed).</param>
+    public async Task SignUpAsync(string name, string email, string language, CancellationToken ct)
+    {
+        var normalized = EmailAddress.Normalize(email);
+        if (!limiter.TryTakeMail(normalized)) return;
+        // A concurrent sign-up of the same address may insert first (unique index): then it is an existing account.
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await using var tx = await db.Database.BeginTransactionAsync(ct);
+                var organizer = await LockByEmailAsync(normalized, ct);
+                if (organizer is null)
+                {
+                    var now = clock.GetUtcNow();
+                    organizer = new OrganizerEntity
+                    {
+                        Id = Guid.CreateVersion7(now),
+                        Name = name,
+                        Email = email,
+                        EmailNormalized = normalized,
+                        Language = language,
+                        CreatedAt = now,
+                        SecurityStamp = Guid.NewGuid(),
+                    };
+                    db.Organizers.Add(organizer);
+                    await db.SaveChangesAsync(ct);
+                }
+                if (organizer.EmailConfirmedAt is null) await QueueConfirmationAsync(organizer, ct);
+                else await QueueSignInAsync(organizer, ct);
+                await db.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+                return;
+            }
+            catch (DbUpdateException ex) when (attempt == 0 && ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+            {
+                db.ChangeTracker.Clear();
+            }
+        }
+    }
+
+    /// <summary>Mails a sign-in link to an existing (confirmed or not) account; nothing for an unknown address.</summary>
+    public async Task RequestSignInAsync(string email, CancellationToken ct)
+    {
+        var normalized = EmailAddress.Normalize(email);
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var organizer = await LockByEmailAsync(normalized, ct);
+        if (organizer is null || !limiter.TryTakeMail(normalized)) return;
+        await QueueSignInAsync(organizer, ct);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+    }
+
+    /// <summary>Redeems a confirmation link; on success the account's email is confirmed (idempotent).</summary>
+    public async Task<LinkStatus> ConfirmEmailAsync(string token, CancellationToken ct)
+    {
+        var result = await links.RedeemAsync(LinkPurpose.OrganizerEmailConfirm, token, singleUse: false, ct);
+        if (!result.IsOk) return result.Status;
+        var now = clock.GetUtcNow();
+        await db.Organizers
+            .Where(o => o.Id == result.SubjectId && o.EmailConfirmedAt == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(o => o.EmailConfirmedAt, now), ct);
+        return LinkStatus.Ok;
+    }
+
+    /// <summary>Redeems a single-use sign-in link; returns the organizer to start a session for.</summary>
+    public async Task<(LinkStatus Status, OrganizerEntity? Organizer)> RedeemSignInAsync(string token, CancellationToken ct)
+    {
+        var result = await links.RedeemAsync(LinkPurpose.OrganizerSignIn, token, singleUse: true, ct);
+        if (!result.IsOk) return (result.Status, null);
+        var organizer = await db.Organizers.AsNoTracking().SingleOrDefaultAsync(o => o.Id == result.SubjectId, ct);
+        return organizer is null ? (LinkStatus.Unknown, null) : (LinkStatus.Ok, organizer);
+    }
+
+    /// <summary>Ends every session of the organizer: sessions carry the old security stamp.</summary>
+    public Task SignOutEverywhereAsync(Guid organizerId, CancellationToken ct) =>
+        db.Organizers.Where(o => o.Id == organizerId)
+            .ExecuteUpdateAsync(s => s.SetProperty(o => o.SecurityStamp, Guid.NewGuid()), ct);
+
+    /// <summary>The account with this address, row-locked until the transaction ends (serializes mails per account).</summary>
+    private Task<OrganizerEntity?> LockByEmailAsync(string normalized, CancellationToken ct) =>
+        db.Organizers
+            .FromSql($"""SELECT * FROM "Organizers" WHERE "EmailNormalized" = {normalized} FOR UPDATE""")
+            .SingleOrDefaultAsync(ct);
+
+    private async Task QueueConfirmationAsync(OrganizerEntity organizer, CancellationToken ct)
+    {
+        var token = await links.IssueAsync(LinkPurpose.OrganizerEmailConfirm, organizer.Id, LinkTokenService.EmailConfirmLifetime, ct);
+        Enqueue(EmailTemplates.ConfirmOrganizerEmail(organizer, Url(options.Value.ConfirmPath, token)));
+    }
+
+    private async Task QueueSignInAsync(OrganizerEntity organizer, CancellationToken ct)
+    {
+        var token = await links.IssueAsync(LinkPurpose.OrganizerSignIn, organizer.Id, LinkTokenService.SignInLifetime, ct);
+        Enqueue(EmailTemplates.SignIn(organizer, Url(options.Value.SignInPath, token)));
+    }
+
+    private string Url(string path, string token) => EmailLinks.Build(email.Value.PublicBaseUrl, path, token);
+
+    private void Enqueue(EmailMessage message) => db.Outbox.Add(EmailOutbox.Create(message, null, clock.GetUtcNow()));
+}

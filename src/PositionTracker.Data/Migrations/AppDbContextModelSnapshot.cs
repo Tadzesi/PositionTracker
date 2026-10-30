@@ -490,6 +490,11 @@ namespace PositionTracker.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<Guid>("SecurityStamp")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
                     b.HasKey("Id");
 
                     b.HasIndex("EmailNormalized")

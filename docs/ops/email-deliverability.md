@@ -96,7 +96,7 @@ missing or malformed, when port and TLS settings do not fit, or outside Developm
   31 minutes with the defaults; about 63 minutes if `MaxAttempts` is raised to 7). Bodies are then cleared.
   Database backups taken in that window contain live links: protect backups like the database itself.
 - **Reverse proxy logs:** the token is in the link's query string. Reverse proxy / web server access logs must not
-  record query strings for `/api/account/*` and `/api/p/*` (log the path only), and the front end must not pass the
+  record query strings for `/api/account/*`, `/api/p/*` and the front-end link pages `/account/*` (log the path only), and the front end must not pass the
   token to analytics or in a `Referer` (use `Referrer-Policy: no-referrer` on those pages).
 
 ## 4. How the app sends (for reading logs)

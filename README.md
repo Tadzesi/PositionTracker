@@ -154,6 +154,11 @@ event and participant (in Plan 1 only the demo simulator issues them).
 | `Email:Smtp:{Port,UseStartTls,User,Password,TimeoutSeconds}` | SMTP connection (defaults 587, STARTTLS required, no auth, 30 s). |
 | `Email:From` / `Email:FromName` / `Email:PublicBaseUrl` | Sender and the base of emailed links; `From` and `PublicBaseUrl` are required once a host is set. `PublicBaseUrl` must be https outside Development, without query or fragment (trailing `/` removed). Port 465 needs `UseStartTls=false`; credentials over a plain connection are rejected. |
 | `Email:Outbox:{PollIntervalSeconds,BatchSize,MaxAttempts,RetryBaseSeconds,RetryMaxSeconds,RetentionDays}` | Outbox worker (defaults 5, 20, 6, 60, 3600, 7). |
+| `Accounts:{RequestsPerIpPerHour,MailsPerEmailPerHour,LinkRedeemsPerIpPerHour}` | Organizer account limits (defaults 20, 3, 60). |
+| `Accounts:MinResponseMilliseconds` | Sign-up and sign-in answer no sooner than this (default 400 ms), so timing does not reveal an account. |
+| `Accounts:RateLimitSalt` | Secret salt of the per-email limiter keys; empty = random per process (the counters are in memory). |
+| `Accounts:ConfirmPath` / `Accounts:SignInPath` | Front-end pages the emailed links open (defaults `account/confirm`, `account/signin`, relative to `Email:PublicBaseUrl`). |
+| `Accounts:DataProtectionKeysPath` | Directory of the keys that encrypt session cookies. Set a persistent volume in a container, or every restart signs everyone out. |
 
 Email credentials, real host names and addresses are never committed; `appsettings*.json` keep empty values.
 Supply them with `dotnet user-secrets` (the API project has a `UserSecretsId`, shared with `tools/SendTestMail`),
@@ -175,6 +180,33 @@ sends it again after the retry delay, at most `MaxAttempts` times in total (then
 unknown). Logs and `LastError` never contain addresses, names, subjects, bodies or links; bodies are cleared when a
 row finishes and rows are deleted after `Email:Outbox:RetentionDays`. All user values are made single-line
 (CR/LF/control characters removed), length-limited, and HTML-escaped in the HTML body.
+
+## Organizer accounts
+
+`/api/account/*` (`src/PositionTracker.Api/Accounts`): `POST signup {name,email,language}` and `POST signin {email}`
+always answer `202 {"status":"accepted"}` (also over a limit, also for an unknown address), never sooner than
+`Accounts:MinResponseMilliseconds`. Sign-up mails a confirmation to a new or unconfirmed account (superseding the
+previous link; name and language of an existing account stay) and a sign-in link to a confirmed one; sign-in mails a
+link to any existing account and nothing to an unknown address. At most 20 such requests per IP and 3 mails per
+address per hour; suppressed requests only increment the `positiontracker.accounts.suppressed` counter (tag
+`limit`) and a debug log line. `GET confirm?token=` (`200 {"confirmed":true}`, reopening is fine) and
+`GET signin/redeem?token=` (sets the session cookie, single use) answer `400 link_expired|link_used|link_invalid`
+(superseded, wrong purpose and unknown links are `link_invalid`) and `429 rate_limited` beyond 60 per IP and hour.
+`POST signout` (204) clears the cookie and rotates the account's security stamp, ending every session of the account.
+`GET me` returns `{name,email,language,emailConfirmed,emailMode}` or `401 unauthorized`. Errors are
+`{"code","message":{"sk","en"}}` (+ `field` for `validation_failed`).
+
+Links are 32 random bytes (base64url); only their SHA-256 is stored; confirmation 14 days, sign-in 15 minutes.
+They point to front-end pages (`Accounts:ConfirmPath`, `Accounts:SignInPath`) that call the API, so mail scanners
+that prefetch links do not burn single-use sign-in links. The session cookie `__Host-pt-session` is `HttpOnly`,
+`Secure`, `SameSite=Lax`, 30 days sliding, and holds only the organizer id and security stamp. Every POST, PUT, PATCH
+or DELETE under `/api` that carries the cookie must send `X-Requested-With: PositionTracker` (`403 csrf_failed`
+otherwise). Policies for later endpoints: `OrganizerSession`, `EmailConfirmedOrganizer` (`403 email_not_confirmed`).
+
+Deployment notes: behind a reverse proxy the per-IP limits need the client address (configure forwarded headers
+for the trusted proxy, otherwise all users share one IP budget); keep `Microsoft.AspNetCore` logging at `Warning`
+(the hosting request log at `Information` contains query strings, i.e. link tokens); persist the data protection
+keys (`Accounts:DataProtectionKeysPath`).
 
 ## Persistence and restart
 

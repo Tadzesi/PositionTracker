@@ -45,6 +45,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.Property(o => o.Email).HasMaxLength(320);
             e.Property(o => o.EmailNormalized).HasMaxLength(320);
             e.Property(o => o.Language).HasMaxLength(2);
+            e.Property(o => o.SecurityStamp).HasDefaultValueSql("gen_random_uuid()");
             e.HasIndex(o => o.EmailNormalized).IsUnique();
         });
 
