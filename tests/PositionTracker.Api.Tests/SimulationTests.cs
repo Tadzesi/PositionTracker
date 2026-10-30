@@ -468,6 +468,20 @@ public class SimulationTests
         Assert.Equal(3, factory.Registry.All.Count(r => r.Settings.IsSimulated));
     }
 
+    [Fact]
+    public async Task The_running_limit_is_checked_before_the_gpx_is_parsed()
+    {
+        using var factory = new ApiFactory();
+        var sim = Simulation(factory);
+        for (var i = 0; i < 3; i++) sim.Start(new DemoRequest(Participants: 2));
+        using var organizer = OrganizerClient(factory);
+        var notGpx = Convert.ToBase64String(Encoding.UTF8.GetBytes("<gpx><trk>not closed"));
+
+        var response = await organizer.PostAsJsonAsync(DemoUrl, new { participants = 2, gpxBase64 = notGpx });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
     /// <summary>
     /// 100 riders 65 minutes into the default 3-lap demo (the fastest have finished, the slowest are in lap 2).
     /// "Before" is the same projection without rounding. Rounding alone saves about 16 %: segment results

@@ -101,6 +101,7 @@ public sealed class SimulationService(
         Validate(request);
         if (profiles.Count != request.Participants)
             throw new ArgumentException("Expected one profile per participant.", nameof(profiles));
+        lock (_lock) EnsureCapacity(); // before parsing the GPX: a full service does no expensive work
         var course = BuildCourse(request);
 
         var now = clock.GetUtcNow();
@@ -122,9 +123,7 @@ public sealed class SimulationService(
 
         lock (_lock)
         {
-            if (_simulations.Count >= MaxSimulatedEvents)
-                throw new DemoRequestException(StatusCodes.Status409Conflict,
-                    $"At most {MaxSimulatedEvents} simulated events can run at once; delete one first.");
+            EnsureCapacity();
             registry.Add(runtime);
             foreach (var rider in riders) rider.Token = tokens.Issue(eventId, rider.Profile.Id);
             _simulations.Add(eventId, simulation);
@@ -333,6 +332,14 @@ public sealed class SimulationService(
     }
 
     private static DemoRequestException Invalid(string message) => new(StatusCodes.Status400BadRequest, message);
+
+    /// <summary>Throws the 409 when <see cref="MaxSimulatedEvents"/> are running; the caller holds <c>_lock</c>.</summary>
+    private void EnsureCapacity()
+    {
+        if (_simulations.Count >= MaxSimulatedEvents)
+            throw new DemoRequestException(StatusCodes.Status409Conflict,
+                $"At most {MaxSimulatedEvents} simulated events can run at once; delete one first.");
+    }
 
     private static string ParticipantId(int index) => $"sim-{index + 1:000}";
 

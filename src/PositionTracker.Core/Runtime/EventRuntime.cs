@@ -160,7 +160,7 @@ public sealed class EventRuntime
             var snapshots = _participants.ToDictionary(p => p.Key, p => p.Value.Tracker.GetSnapshot(now), StringComparer.Ordinal);
             var ranking = Ranking.Rank(_participants.Values
                 .Select(e => new RankInput(e.Info.Id, snapshots[e.Info.Id].TotalDistanceM,
-                    snapshots[e.Info.Id].LastFixTime, snapshots[e.Info.Id].FinishTime, e.Tracker.History,
+                    snapshots[e.Info.Id].LastRaceFixTime, snapshots[e.Info.Id].FinishTime, e.Tracker.History,
                     snapshots[e.Info.Id].State == ParticipantState.Dnf))
                 .ToList());
 
@@ -180,7 +180,11 @@ public sealed class EventRuntime
     private ParticipantView BuildView(Entry entry, ParticipantSnapshot s, RankedParticipant ranked, DateTimeOffset now)
     {
         var id = entry.Info.Id;
-        var hasFix = s.LastFixTime is not null;
+        var hasFix = s.LastRaceFixTime is not null; // warm-up fixes before the start do not rank
+        // Lap and lap progress follow the total, not the lap counter, which can step back behind the start/finish
+        // line while the total (a high-water mark) is already in the next lap.
+        var lap = Math.Clamp((int)Math.Floor(s.TotalDistanceM / Course.LapLengthM) + 1, 1, Course.Laps);
+        var lapProgress = s.TotalDistanceM - (lap - 1) * Course.LapLengthM;
         var eta = s.State is ParticipantState.Finished or ParticipantState.Dnf
             ? null
             : EtaEstimator.Estimate(Course, Settings.Sport, s, now);
@@ -192,8 +196,8 @@ public sealed class EventRuntime
 
         return new ParticipantView(
             id, entry.Info.Bib, entry.Info.Name, entry.Info.Category,
-            hasFix ? ranked.Rank : null, s.Lap,
-            s.TotalDistanceM, s.LapProgressM, s.LastLat, s.LastLon,
+            hasFix ? ranked.Rank : null, lap,
+            s.TotalDistanceM, lapProgress, s.LastLat, s.LastLon,
             s.SpeedMps, s.AvgSpeedMps, s.PaceSecPerKm, s.AscentM, s.DescentM, s.GradePercent,
             s.State,
             hasFix ? ranked.GapToLeader : null, hasFix ? ranked.GapToAhead : null, eta,

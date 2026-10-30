@@ -5,6 +5,8 @@ public sealed record Checkpoint(string Name, double LapDistanceM);
 public sealed class Course
 {
     private const double ClosedToleranceM = 100;
+    /// <summary>Shorter courses are rejected: a lap this short cannot be matched or timed meaningfully.</summary>
+    public const double MinLapLengthM = 50;
     private const double HysteresisM = 3;
     private const int SmoothingRadius = 5;
     private const double GradeWindowM = 50;
@@ -35,6 +37,8 @@ public sealed class Course
             cum[i] = cum[i - 1] + GeoMath.DistanceM(points[i - 1], points[i]);
         CumulativeM = cum;
         LapLengthM = cum[^1];
+        if (!(LapLengthM >= MinLapLengthM))
+            throw new ArgumentException($"A course must be at least {MinLapLengthM:F0} m long (got {LapLengthM:F1} m).", nameof(points));
         IsClosed = GeoMath.DistanceM(points[0], points[^1]) <= ClosedToleranceM;
         if (laps > 1 && !IsClosed)
             throw new ArgumentException("A course with more than one lap must be closed.", nameof(laps));
@@ -51,14 +55,29 @@ public sealed class Course
         if (HasElevation)
         {
             _ele = Smooth(points);
-            var reference = _ele[0];
+            // Hysteresis on the running extremum: within a climb every new maximum counts at once and a dip of
+            // up to HysteresisM is ignored; a drop of more than HysteresisM below the maximum starts a descent,
+            // counted from that maximum (and the other way round). Swings are counted in full, not short by up
+            // to HysteresisM at every reversal as with a fixed reference that jumps in steps.
+            var direction = 0;        // +1 climbing, -1 descending, 0 before the first swing
+            var extreme = _ele[0];    // highest point of the climb, lowest of the descent, or the start
             for (var i = 1; i < _ele.Length; i++)
             {
                 _cumAscent[i] = _cumAscent[i - 1];
                 _cumDescent[i] = _cumDescent[i - 1];
-                var delta = _ele[i] - reference;
-                if (delta > HysteresisM) { _cumAscent[i] += delta; reference = _ele[i]; }
-                else if (-delta > HysteresisM) { _cumDescent[i] -= delta; reference = _ele[i]; }
+                var e = _ele[i];
+                if (direction > 0 ? e > extreme : e - extreme > HysteresisM)
+                {
+                    _cumAscent[i] += e - extreme;
+                    direction = 1;
+                    extreme = e;
+                }
+                else if (direction < 0 ? e < extreme : extreme - e > HysteresisM)
+                {
+                    _cumDescent[i] += extreme - e;
+                    direction = -1;
+                    extreme = e;
+                }
             }
             AscentPerLapM = _cumAscent[^1];
             DescentPerLapM = _cumDescent[^1];

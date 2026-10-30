@@ -154,7 +154,7 @@ public class EventRuntimeGuardTests
         runtime.Ingest("dnf", new PositionBatch(Enumerable.Range(0, 21).Select(k => On(40 * k, 5 * k)).ToList(), null));
         runtime.Act("dnf", ParticipantAction.Dnf);
         clock.SetUtcNow(T0.AddSeconds(275));
-        var ride = Enumerable.Range(0, 56).Select(k => On(Math.Min(8 * 5 * k, 2_000) + Math.Max(0, 8 * 5 * k - 2_000), 5 * k)).ToList();
+        var ride = Enumerable.Range(0, 56).Select(k => On(20 + 8 * 5 * k, 5 * k)).ToList(); // crosses the line at 247.5 s, rides on
         runtime.Ingest("fin", new PositionBatch(ride, null));
         runtime.Ingest("dnf", new PositionBatch(Enumerable.Range(21, 35).Select(k => On(40 * k, 5 * k)).ToList(), null));
 
@@ -164,7 +164,7 @@ public class EventRuntimeGuardTests
         var rows = doc.RootElement.GetProperty("participants").EnumerateArray()
             .ToDictionary(r => r.GetProperty("participantId").GetString()!, r => r.Clone());
 
-        var finish = ride.Single(f => f.Time == T0.AddSeconds(250));
+        var finish = ride.Single(f => f.Time == T0.AddSeconds(245)); // the last fix before the crossing
         Assert.Equal(ParticipantState.Finished, view.Participants.Single(p => p.ParticipantId == "fin").State);
         Assert.Equal(finish.Lat, rows["fin"].GetProperty("lat").GetDouble(), 5);
         Assert.Equal(finish.Lon, rows["fin"].GetProperty("lon").GetDouble(), 5);
@@ -214,5 +214,69 @@ public class EventRuntimeGuardTests
         Assert.Equal(live.Expected, offline.Eta!.Expected);
         Assert.True(delayed.Eta.Approximate);
         Assert.True(offline.Eta.Approximate);
+    }
+
+    // ---- Minor 1: finish time interpolated between fixes ----
+
+    [Fact]
+    public void Two_finishers_crossing_1s_apart_with_fixes_5s_apart_rank_and_gap_correctly()
+    {
+        // Same fix times; z-first crosses 2 000 m at 247.5 s, a-second at 248.5 s. The first fix past the line is
+        // at 250 s for both, and the ids sort against the true order.
+        var course = Course.Create(TestCourses.Loop(2_000, 25), 1);
+        var clock = new FakeTimeProvider(T0.AddSeconds(300));
+        var runtime = new EventRuntime(Settings with { EventId = "evt-fin" }, course, clock);
+        foreach (var id in new[] { "z-first", "a-second" })
+            runtime.AddParticipant(new ParticipantInfo(id, id, id, null, "Open", true, false));
+        List<PositionFix> Ride(double offsetM) => Enumerable.Range(0, 56).Select(k =>
+        {
+            var p = course.PointAt((offsetM + 40 * k) % course.LapLengthM);
+            return new PositionFix(T0.AddSeconds(5 * k), p.Lat, p.Lon, 5);
+        }).ToList();
+        runtime.Ingest("z-first", new PositionBatch(Ride(20), null));
+        runtime.Ingest("a-second", new PositionBatch(Ride(12), null));
+
+        var view = runtime.BuildLiveView();
+
+        Assert.Equal(new[] { "z-first", "a-second" }, view.Participants.Select(p => p.ParticipantId));
+        Assert.All(view.Participants, p => Assert.Equal(ParticipantState.Finished, p.State));
+        Assert.InRange(view.Participants[1].GapToLeader!.Value.TotalSeconds, 0.9, 1.1);
+        Assert.Equal(view.Participants[1].GapToLeader, view.Participants[1].GapToAhead);
+    }
+
+    // ---- Minor 4: warm-up only participants and the lap at the seam ----
+
+    [Fact]
+    public void Participant_with_only_warm_up_fixes_has_no_rank_and_no_gaps()
+    {
+        var (runtime, clock) = CreateAt(T0.AddSeconds(-100), "rider", "warm");
+        runtime.Ingest("warm", new PositionBatch(new[] { FixAt(300, T0.AddSeconds(-60)) }, null));
+        clock.SetUtcNow(T0.AddSeconds(100));
+        runtime.Ingest("rider", new PositionBatch(Ride(8, 0, 100), null));
+
+        var warm = View(runtime, "warm");
+
+        Assert.Equal(ParticipantState.NotStarted, warm.State);
+        Assert.Null(warm.Rank);
+        Assert.Null(warm.GapToLeader);
+        Assert.Null(warm.GapToAhead);
+        Assert.Equal(1, View(runtime, "rider").Rank);
+    }
+
+    [Fact]
+    public void Lap_in_the_view_follows_the_total_distance_at_the_start_finish_seam()
+    {
+        // Past the line at 12 520 m, then a fix drifting 30 m back to 10 m behind it: the lap counter steps back to 1
+        // while the total stays in lap 2.
+        var (runtime, clock) = Create("a");
+        var fixes = Ride(8, 0, 1_565);
+        fixes.Add(FixAt(Loop.LapLengthM - 10, T0.AddSeconds(1_570)));
+        Send(runtime, clock, "a", fixes);
+
+        var view = View(runtime, "a");
+
+        Assert.True(view.TotalDistanceM > Loop.LapLengthM, $"total {view.TotalDistanceM}");
+        Assert.Equal(2, view.Lap);
+        Assert.Equal(view.TotalDistanceM - Loop.LapLengthM, view.LapProgressM, 6);
     }
 }

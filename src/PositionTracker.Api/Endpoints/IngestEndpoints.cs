@@ -84,7 +84,10 @@ public static class IngestEndpoints
             return Results.Problem($"At most {MaxFixesPerBatch} fixes per batch.",
                 statusCode: StatusCodes.Status413PayloadTooLarge);
 
-        var status = request.Status is { } s ? new DeviceStatus(s.Battery, s.Charging, s.Queue, s.Foreground) : null;
+        // A battery level outside 0..100 is a device bug, not a reason to refuse the fixes: it is stored as unknown.
+        var status = request.Status is { } s
+            ? new DeviceStatus(s.Battery is >= 0 and <= 100 ? s.Battery : null, s.Charging, s.Queue, s.Foreground)
+            : null;
         var granted = fixLimiter.Take(caller.TokenHash, fixes.Count);
         var batch = new PositionBatch(fixes.Take(granted).Select(f => new PositionFix(f.T, f.Lat, f.Lon, f.Acc)).ToList(), status);
         var result = runtime.Ingest(caller.ParticipantId, batch);

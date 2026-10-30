@@ -131,6 +131,23 @@ public class IngestEndpointTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.Equal(2, View(id).QueueLength);
     }
 
+    [Theory]
+    [InlineData(-5.0)]
+    [InlineData(100.5)]
+    [InlineData(250.0)]
+    public async Task Battery_outside_0_to_100_is_stored_as_unknown_not_as_an_error(double battery)
+    {
+        var (id, token) = factory.AddParticipant();
+        using var client = factory.CreateClient(token);
+        var body = new { fixes = new[] { Fix(factory, 0, 0) }, status = new { battery, queue = 0, foreground = true } };
+
+        var response = await client.PostAsJsonAsync(PositionsUrl, body);
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.Null(View(id).BatteryPct);
+        Assert.DoesNotContain(View(id).Alarms, a => a.Kind == AlarmKind.LowBattery);
+    }
+
     [Fact]
     public async Task Inaccurate_fix_is_counted_as_rejected()
     {

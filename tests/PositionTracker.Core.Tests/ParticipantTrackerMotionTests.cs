@@ -100,12 +100,14 @@ public class ParticipantTrackerMotionTests
     [Fact]
     public void FinishTime_is_set_when_total_reaches_TotalLength()
     {
+        // The crossing is interpolated between the fixes around it (Minor 1 of the final review), not the time of
+        // the first fix at or past the line.
         var fixes = Ride(Loop, 8, 38_500);
-        var expected = T0.AddSeconds(fixes.Select((_, k) => k * 5.0).First(d => d * 8 >= Loop.TotalLengthM));
+        var expected = T0.AddSeconds(Loop.TotalLengthM / 8);
 
         var s = Snapshot(Track(Loop, Sport.Cycling, fixes));
 
-        Assert.Equal(expected, s.FinishTime);
+        Assert.InRange(s.FinishTime!.Value, expected.AddSeconds(-0.5), expected.AddSeconds(0.5));
         Assert.Equal(Loop.TotalLengthM, s.TotalDistanceM);
         Assert.Equal(3, s.Lap);
     }

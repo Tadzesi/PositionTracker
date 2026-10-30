@@ -81,4 +81,44 @@ public class GpxParserTests
     {
         Assert.Throws<GpxFormatException>(() => GpxParser.Parse(Stream("this is not xml")));
     }
+
+    private static string TwoPoints(string first) => Gpx("<trk><trkseg>" + first + "<trkpt lat=\"49.1\" lon=\"18.1\"/></trkseg></trk>");
+
+    [Theory]
+    [InlineData("<trkpt lon=\"18.0\"/>")]                // missing lat
+    [InlineData("<trkpt lat=\"abc\" lon=\"18.0\"/>")]   // not a number
+    [InlineData("<trkpt lat=\"NaN\" lon=\"18.0\"/>")]   // not finite
+    [InlineData("<trkpt lat=\"49.0\" lon=\"Infinity\"/>")]
+    [InlineData("<trkpt lat=\"90.5\" lon=\"18.0\"/>")]  // out of range
+    [InlineData("<trkpt lat=\"49.0\" lon=\"-181\"/>")]
+    [InlineData("<trkpt lat=\"49.0\" lon=\"18.0\"><ele>NaN</ele></trkpt>")]
+    public void Invalid_point_is_a_GpxFormatException(string point)
+    {
+        Assert.Throws<GpxFormatException>(() => GpxParser.Parse(Stream(TwoPoints(point))));
+    }
+
+    [Fact]
+    public void Empty_document_is_a_GpxFormatException()
+    {
+        Assert.Throws<GpxFormatException>(() => GpxParser.Parse(Stream("")));
+        Assert.Throws<GpxFormatException>(() => GpxParser.Parse(Stream(Gpx(""))));
+    }
+
+    [Fact]
+    public void Document_with_a_DTD_is_a_GpxFormatException()
+    {
+        var gpx = "<?xml version=\"1.0\"?><!DOCTYPE gpx [<!ENTITY lat \"49.0\">]>" +
+            $"<gpx version=\"1.1\" xmlns=\"{Ns}\"><trk><trkseg><trkpt lat=\"49.0\" lon=\"18.0\"/><trkpt lat=\"49.1\" lon=\"18.1\"/></trkseg></trk></gpx>";
+
+        Assert.Throws<GpxFormatException>(() => GpxParser.Parse(Stream(gpx)));
+    }
+
+    [Fact]
+    public void Empty_elevation_gives_null_ele_for_that_point()
+    {
+        var pts = GpxParser.Parse(Stream(TwoPoints("<trkpt lat=\"49.0\" lon=\"18.0\"><ele/></trkpt>")));
+
+        Assert.Equal(2, pts.Count);
+        Assert.Null(pts[0].Ele);
+    }
 }

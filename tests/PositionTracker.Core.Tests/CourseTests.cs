@@ -83,4 +83,44 @@ public class CourseTests
         Assert.Equal(3, course.SegmentCount);
         Assert.Equal("a", course.Checkpoints[0].Name);
     }
+
+    [Fact]
+    public void Course_shorter_than_50m_is_rejected()
+    {
+        var p = new GeoPoint(49.0, 18.0);
+        Assert.Throws<ArgumentException>(() => Course.Create(new[] { p, p }, 1));
+        Assert.Throws<ArgumentException>(() => Course.Create(new[] { p, new GeoPoint(49.0 + 40 / 111_195.0, 18.0) }, 1));
+        Assert.Equal(60, Course.Create(new[] { p, new GeoPoint(49.0 + 60 / 111_195.0, 18.0) }, 1).LapLengthM, 0);
+    }
+
+    /// <summary>Deterministic noise in [-1, 1] per point index.</summary>
+    private static double Noise(int i)
+    {
+        var x = Math.Sin(i * 12.9898) * 43758.5453;
+        return (x - Math.Floor(x)) * 2 - 1;
+    }
+
+    [Fact]
+    public void Zig_zag_profile_with_noise_gives_the_known_ascent_and_descent_within_5_percent()
+    {
+        // ±5 m swings (0 to 10 m) every 1 000 m: 250 m up, 250 m on top, 250 m down, 250 m at the bottom, with
+        // ±1 m of noise per 25 m point. 12 500 m: 13 climbs (130 m) and 12 descents (120 m).
+        static double Profile(double d)
+        {
+            var t = d % 1_000;
+            return t < 250 ? t / 25 : t < 500 ? 10 : t < 750 ? 10 - (t - 500) / 25 : 0;
+        }
+        var points = TestCourses.Loop(12_500, 25).Select((p, i) => p with { Ele = null }).ToList();
+        var cumulative = 0.0;
+        for (var i = 0; i < points.Count; i++)
+        {
+            if (i > 0) cumulative += GeoMath.DistanceM(points[i - 1], points[i]);
+            points[i] = points[i] with { Ele = Profile(cumulative) + Noise(i) };
+        }
+
+        var course = Course.Create(points, 1);
+
+        Assert.InRange(course.AscentPerLapM, 130 * 0.95, 130 * 1.05);
+        Assert.InRange(course.DescentPerLapM, 120 * 0.95, 120 * 1.05);
+    }
 }

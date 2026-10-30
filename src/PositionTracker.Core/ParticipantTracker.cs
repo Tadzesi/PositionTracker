@@ -485,12 +485,15 @@ public sealed class ParticipantTracker
         else _offCourseSince = null;
         if (!_lastAcceptedMatched) return true;
 
-        History.Add(fix.Time, _totalM);
         if (_finishTime is null && _totalM >= _course.TotalLengthM)
         {
-            _finishTime = fix.Time;
+            _finishTime = FinishCrossing(previous, fix.Time);
             _finishFix = fix.Time <= _finishTime || previousAccepted is null ? fix : previousAccepted;
+            // The crossing becomes a history point, so History.TimeAt(TotalLengthM) is the finish time as well.
+            if (previous is { } before && _finishTime > before.Time && _finishTime < fix.Time)
+                History.Add(_finishTime.Value, _course.TotalLengthM);
         }
+        History.Add(fix.Time, _totalM);
 
         // Only between consecutive matched fixes; the filter rejects equal timestamps, so dt > 0.
         // The interval is classified by its whole progress speed; only its unpaused part is counted.
@@ -503,6 +506,19 @@ public sealed class ParticipantTracker
         }
         _maxSpeedMps = Math.Max(_maxSpeedMps, SpeedAt(fix.Time, _options.SpeedWindow));
         return true;
+    }
+
+    /// <summary>
+    /// The finish crossing, interpolated linearly between the previous matched point and the current fix on the
+    /// unclamped position (the total is clamped at the course length, the position runs on past the line), so two
+    /// finishers crossing a second apart between the same fix times are told apart. Without a previous point, or
+    /// when the position did not move past it, the fix time.
+    /// </summary>
+    private DateTimeOffset FinishCrossing((DateTimeOffset Time, double DistanceM)? previous, DateTimeOffset time)
+    {
+        if (previous is not { } p || !(Position > p.DistanceM) || time <= p.Time) return time;
+        var fraction = Math.Clamp((_course.TotalLengthM - p.DistanceM) / (Position - p.DistanceM), 0, 1);
+        return p.Time + TimeSpan.FromTicks((long)Math.Round((time - p.Time).Ticks * fraction));
     }
 
     /// <summary>Windowed progress speed, capped at the sport's plausible maximum.</summary>
