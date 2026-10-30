@@ -32,6 +32,26 @@ public sealed class AccountUnitTests
         Assert.Equal(normalized, actual);
     }
 
+    [Fact]
+    public void Deviation_characters_keep_their_own_domain_and_never_merge_with_the_transitional_form()
+    {
+        Assert.True(EmailAddress.TryParse("x@straße.de", out _, out var sharpS));
+        Assert.True(EmailAddress.TryParse("x@strasse.de", out _, out var doubleS));
+        Assert.Equal("x@xn--strae-oqa.de", sharpS); // nontransitional IDNA (UTS 46 / IDNA2008), as on this platform
+        Assert.Equal("x@strasse.de", doubleS);
+    }
+
+    [Theory]
+    [InlineData("Victim@\uFF47\uFF4D\uFF41\uFF49\uFF4C\uFF0E\uFF43\uFF4F\uFF4D", "Victim@gmail.com")]
+    [InlineData("Victim@gmail\u3002com", "Victim@gmail.com")]
+    [InlineData("Jan.Novak@BÜCHER.de", "Jan.Novak@xn--bcher-kva.de")]
+    [InlineData("  a+b@Example.ORG ", "a+b@example.org")]
+    public void The_delivery_address_keeps_the_local_part_and_uses_the_ASCII_domain(string input, string delivery)
+    {
+        Assert.True(EmailAddress.TryParse(input, out var address, out _));
+        Assert.Equal(delivery, EmailAddress.ToDeliveryAddress(address));
+    }
+
     [Theory]
     [InlineData("x@bü cher.de")]
     [InlineData("x@bücher..de")]
@@ -58,6 +78,15 @@ public sealed class AccountUnitTests
     [InlineData("2001:db8:1:3::1", "2001:db8:1:3::/64")]
     public void IPv6_addresses_are_bucketed_by_64_and_mapped_IPv4_is_plain_IPv4(string ip, string bucket) =>
         Assert.Equal(bucket, AccountRateLimiter.IpBucket(IPAddress.Parse(ip)));
+
+    [Theory]
+    [InlineData("2001:db8:aa:1::1", "2001:db8:aa::/48")]
+    [InlineData("2001:db8:aa:ffff:1:2:3:4", "2001:db8:aa::/48")]
+    [InlineData("2001:db8:ab:1::1", "2001:db8:ab::/48")]
+    [InlineData("198.51.100.7", null)]
+    [InlineData("::ffff:198.51.100.7", null)]
+    public void IPv6_addresses_also_count_per_48_and_IPv4_does_not(string ip, string? prefix) =>
+        Assert.Equal(prefix, AccountRateLimiter.IpPrefix48(IPAddress.Parse(ip)));
 
     [Fact]
     public void A_missing_address_has_its_own_bucket() => Assert.Equal("unknown", AccountRateLimiter.IpBucket(null));

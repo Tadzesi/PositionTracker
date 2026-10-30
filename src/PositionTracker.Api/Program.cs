@@ -38,8 +38,8 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<SimulationService>
 
 var app = builder.Build();
 
+app.UseBrowserApiHeaders(); // first: refused requests never reach a limiter
 app.UseRateLimiter();
-app.UseBrowserApiHeaders();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapGet("/healthz", () => "ok");

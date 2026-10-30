@@ -53,7 +53,7 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
 
         var mail = Assert.Single(await OutboxAsync(host));
         Assert.Equal(EmailPurpose.OrganizerEmailConfirmation, mail.Purpose);
-        Assert.Equal("Zofia.Durcekova@Example.SK", mail.ToAddress);
+        Assert.Equal("Zofia.Durcekova@example.sk", mail.ToAddress); // local part as entered, ASCII domain
         Assert.Equal("sk", mail.Language);
         var (kind, token) = Link(mail);
         Assert.Equal("confirm", kind);
@@ -85,19 +85,23 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         var organizer = Assert.Single(await OrganizersAsync(host));
         Assert.Equal("Anna Nová", organizer.Name);
         Assert.Equal("sk", organizer.Language);
+        Assert.Equal("ANNA@example.org", organizer.Email); // the display form is replaced too
+        Assert.Equal("ANNA@example.org", mails[1].ToAddress);
         await AssertErrorAsync(await ConfirmAsync(client, firstToken), HttpStatusCode.BadRequest, "link_invalid");
         Assert.Equal(HttpStatusCode.OK, (await ConfirmAsync(client, secondToken)).StatusCode);
 
         // Confirmed account: a sign-in link instead, and nothing about the account changes.
-        var third = await SignUpAsync(client, "Mallory", "anna@example.org", "en");
+        var third = await SignUpAsync(client, "Mallory", "Anna@EXAMPLE.org", "en");
         mails = await OutboxAsync(host);
         Assert.Equal(3, mails.Count);
         Assert.Equal(EmailPurpose.SignIn, mails[2].Purpose);
         Assert.Equal("sk", mails[2].Language);
         Assert.Equal("signin", Link(mails[2]).Kind);
+        Assert.Equal("ANNA@example.org", mails[2].ToAddress);
         organizer = Assert.Single(await OrganizersAsync(host));
         Assert.Equal("Anna Nová", organizer.Name);
         Assert.Equal("sk", organizer.Language);
+        Assert.Equal("ANNA@example.org", organizer.Email);
 
         // Unknown, unconfirmed and confirmed: the same answer.
         await AssertSameAnswerAsync(first, second, third);
@@ -138,9 +142,10 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         await SignUpAsync(client, "Anna", "ANNA.NOVA@EXAMPLE.COM", "en");
 
         var organizer = Assert.Single(await OrganizersAsync(host));
-        Assert.Equal("Anna.Nova@Example.COM", organizer.Email);
+        Assert.Equal("ANNA.NOVA@EXAMPLE.COM", organizer.Email); // unconfirmed: the latest form is displayed
         Assert.Equal("anna.nova@example.com", organizer.EmailNormalized);
-        Assert.All(await OutboxAsync(host), m => Assert.Equal("Anna.Nova@Example.COM", m.ToAddress));
+        Assert.Equal(["Anna.Nova@example.com", "anna.nova@example.com", "ANNA.NOVA@example.com"],
+            (await OutboxAsync(host)).Select(m => m.ToAddress));
     }
 
     [Fact]
@@ -158,9 +163,12 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
             Assert.Equal(HttpStatusCode.Accepted, (await SignUpAsync(client, "Xaver", address, "en")).StatusCode);
 
         var organizer = Assert.Single(await OrganizersAsync(host));
-        Assert.Equal("x@bücher.de", organizer.Email);           // the first display form
+        // Unconfirmed: the display form of the latest processed sign-up (the 4th and 5th were suppressed by the mail
+        // limit before any database work).
+        Assert.Equal("X@BÜCHER.de", organizer.Email);
         Assert.Equal("x@xn--bcher-kva.de", organizer.EmailNormalized);
-        Assert.Equal(3, (await OutboxAsync(host)).Count);       // one (address, IP) budget of 3 mails
+        // One (address, IP) budget of 3 mails, each sent to the local part as entered and the ASCII domain.
+        Assert.Equal(["x@xn--bcher-kva.de", "x@xn--bcher-kva.de", "X@xn--bcher-kva.de"], (await OutboxAsync(host)).Select(m => m.ToAddress));
 
         await SignUpAsync(client, "Xaver", "x+race@bücher.de", "en");
         Assert.Equal(2, (await OrganizersAsync(host)).Count);
@@ -389,6 +397,51 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
     }
 
     [Fact]
+    public async Task Mails_to_exotic_domain_forms_go_to_the_ASCII_domain()
+    {
+        await using var host = Host();
+        await SignUpAsync(Client(host, "198.51.100.1"), "Eve", "Victim@\uFF47\uFF4D\uFF41\uFF49\uFF4C\uFF0E\uFF43\uFF4F\uFF4D", "en"); // fullwidth gmail.com
+        await SignUpAsync(Client(host, "198.51.100.2"), "Eve", "other@gmail\u3002com", "en");                                          // ideographic full stop
+
+        Assert.Equal(["Victim@gmail.com", "other@gmail.com"], (await OutboxAsync(host)).Select(m => m.ToAddress));
+        Assert.Equal(["victim@gmail.com", "other@gmail.com"], (await OrganizersAsync(host)).Select(o => o.EmailNormalized));
+    }
+
+    [Fact]
+    public async Task One_IPv6_48_cannot_use_more_than_its_prefix_budget_and_limit_hits_are_reported_to_the_operator()
+    {
+        await using var host = Host();
+        // 30 different /64 buckets inside 2001:db8:aa::/48, 4 requests each (under the 20 per /64).
+        for (var net = 1; net <= 30; net++)
+        {
+            var client = Client(host, $"2001:db8:aa:{net:x}::1");
+            for (var i = 0; i < 4; i++)
+                Assert.Equal(HttpStatusCode.Accepted, (await SignUpAsync(client, "U", $"u{net}-{i}@example.org", "en")).StatusCode);
+        }
+        Assert.Equal(100, (await OrganizersAsync(host)).Count);
+
+        // Another /48 is unaffected.
+        Assert.Equal(HttpStatusCode.Accepted, (await SignUpAsync(Client(host, "2001:db8:bb:1::1"), "U", "other@example.org", "en")).StatusCode);
+        Assert.Equal(101, (await OrganizersAsync(host)).Count);
+
+        using var ops = host.CreateClient();
+        ops.DefaultRequestHeaders.Add("X-Api-Key", host.OrganizerKey);
+        using var json = JsonDocument.Parse(await ops.GetStringAsync("/api/ops/email-mode"));
+        Assert.Equal(20, json.RootElement.GetProperty("limitHitsLast24h").GetInt32());
+        var hits = json.RootElement.GetProperty("limitHits");
+        Assert.Equal(20, hits.GetProperty("perPrefix").GetInt32());
+        Assert.Equal(0, hits.GetProperty("perIp").GetInt32());
+        Assert.Equal(0, hits.GetProperty("global").GetInt32());
+        Assert.Equal(0, hits.GetProperty("perEmail").GetInt32());
+        Assert.Equal(0, hits.GetProperty("perEmailAndIp").GetInt32());
+
+        // The counts cover the last 24 hours.
+        host.Clock.Advance(TimeSpan.FromHours(25));
+        using var later = JsonDocument.Parse(await ops.GetStringAsync("/api/ops/email-mode"));
+        Assert.Equal(0, later.RootElement.GetProperty("limitHitsLast24h").GetInt32());
+    }
+
+    [Fact]
     public async Task The_global_hourly_mail_cap_suppresses_further_mails_with_a_warning_and_the_same_answer()
     {
         var suppressed = new List<string>();
@@ -404,6 +457,11 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         Assert.Equal(5, (await OutboxAsync(host)).Count);
         await AssertSameAnswerAsync([.. answers]);
         Assert.Equal(["global", "global"], suppressed);
+        using var ops = host.CreateClient();
+        ops.DefaultRequestHeaders.Add("X-Api-Key", host.OrganizerKey);
+        using var json = JsonDocument.Parse(await ops.GetStringAsync("/api/ops/email-mode"));
+        Assert.Equal(2, json.RootElement.GetProperty("limitHits").GetProperty("global").GetInt32());
+        Assert.Equal(2, json.RootElement.GetProperty("limitHitsLast24h").GetInt32());
         var text = logs.Text();
         Assert.Contains("Warning", text);
         Assert.Contains("global", text, StringComparison.OrdinalIgnoreCase);
@@ -586,6 +644,40 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
             Assert.Single(results, r => r.Status == LinkStatus.Ok && r.SubjectId == subject);
             Assert.Single(results, r => r.Status == LinkStatus.Used);
         }
+    }
+
+    [Fact]
+    public async Task A_conditional_update_lost_to_another_request_reports_the_real_state()
+    {
+        await using var host = Host();
+        using var scope = host.Services.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<LinkTokenService>();
+        var subject = Guid.NewGuid();
+        var ct = CancellationToken.None;
+        Func<Guid, Task> Meanwhile(bool revoke) => async id =>
+        {
+            await using var other = Db(host);
+            var now = host.Clock.GetUtcNow();
+            if (revoke) await other.LinkTokens.Where(t => t.Id == id).ExecuteUpdateAsync(x => x.SetProperty(t => t.RevokedAt, now));
+            else await other.LinkTokens.Where(t => t.Id == id).ExecuteUpdateAsync(x => x.SetProperty(t => t.UsedAt, now));
+        };
+
+        // Another request opens a reusable token between this request's read and its conditional update: still Ok.
+        var raw = await service.IssueAsync(LinkPurpose.ParticipantInvite, subject, TimeSpan.FromDays(14), ct);
+        service.BeforeMarkUsed = Meanwhile(revoke: false);
+        var opened = await service.RedeemAsync(LinkPurpose.ParticipantInvite, raw, singleUse: false, ct);
+        Assert.Equal((LinkStatus.Ok, subject), (opened.Status, opened.SubjectId));
+
+        // A newer token supersedes it in that gap: the real state is reported.
+        var raw2 = await service.IssueAsync(LinkPurpose.ParticipantInvite, subject, TimeSpan.FromDays(14), ct);
+        service.BeforeMarkUsed = Meanwhile(revoke: true);
+        var superseded = await service.RedeemAsync(LinkPurpose.ParticipantInvite, raw2, singleUse: false, ct);
+        Assert.Equal((LinkStatus.Superseded, subject), (superseded.Status, superseded.SubjectId));
+
+        // A single-use token used by the other request: Used.
+        var raw3 = await service.IssueAsync(LinkPurpose.OrganizerSignIn, subject, TimeSpan.FromMinutes(15), ct);
+        service.BeforeMarkUsed = Meanwhile(revoke: false);
+        Assert.Equal(LinkStatus.Used, (await service.RedeemAsync(LinkPurpose.OrganizerSignIn, raw3, singleUse: true, ct)).Status);
     }
 
     [Fact]

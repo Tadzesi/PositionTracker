@@ -12,8 +12,8 @@ namespace PositionTracker.Api.Accounts;
 /// <summary>
 /// Organizer sign-up, sign-in requests and email confirmation. The callers answer the same way whatever happens
 /// here (no account enumeration): sign-up mails a confirmation to a new or unconfirmed account (the new link
-/// supersedes the old one; an unconfirmed account takes over the new name and language, since nobody has proven
-/// ownership yet, while a confirmed one changes nothing) and a sign-in link to a confirmed one; a sign-in request
+/// supersedes the old one; an unconfirmed account takes over the new name, display address and language, since
+/// nobody has proven ownership yet, while a confirmed one changes nothing) and a sign-in link to a confirmed one; a sign-in request
 /// mails a sign-in link to an existing account and nothing to an unknown address. Mails are limited by
 /// <see cref="AccountRateLimiter.TryTakeMail"/>. Each mail is added to the outbox in the same transaction as its link
 /// token (and the new or updated organizer). Redeeming a sign-in link proves access to the mailbox and confirms the
@@ -54,7 +54,9 @@ public sealed class OrganizerService(
                 }
                 else if (organizer.EmailConfirmedAt is null)
                 {
+                    // Nobody has proven ownership yet: the latest sign-up's details win (the normalized key is equal).
                     organizer.Name = name;
+                    organizer.Email = email;
                     organizer.Language = language;
                 }
                 if (organizer.EmailConfirmedAt is null) await QueueConfirmationAsync(organizer, ct);
@@ -123,16 +125,18 @@ public sealed class OrganizerService(
     private async Task QueueConfirmationAsync(OrganizerEntity organizer, CancellationToken ct)
     {
         var token = await links.IssueAsync(LinkPurpose.OrganizerEmailConfirm, organizer.Id, LinkTokenService.EmailConfirmLifetime, ct);
-        Enqueue(EmailTemplates.ConfirmOrganizerEmail(organizer, Url(options.Value.ConfirmPath, token)));
+        Enqueue(organizer, EmailTemplates.ConfirmOrganizerEmail(organizer, Url(options.Value.ConfirmPath, token)));
     }
 
     private async Task QueueSignInAsync(OrganizerEntity organizer, CancellationToken ct)
     {
         var token = await links.IssueAsync(LinkPurpose.OrganizerSignIn, organizer.Id, LinkTokenService.SignInLifetime, ct);
-        Enqueue(EmailTemplates.SignIn(organizer, Url(options.Value.SignInPath, token)));
+        Enqueue(organizer, EmailTemplates.SignIn(organizer, Url(options.Value.SignInPath, token)));
     }
 
     private string Url(string path, string token) => EmailLinks.Build(email.Value.PublicBaseUrl, path, token);
 
-    private void Enqueue(EmailMessage message) => db.Outbox.Add(EmailOutbox.Create(message, null, clock.GetUtcNow()));
+    /// <summary>Queues the mail to the account's delivery address (local part as entered, ASCII domain).</summary>
+    private void Enqueue(OrganizerEntity organizer, EmailMessage message) =>
+        db.Outbox.Add(EmailOutbox.Create(message with { ToAddress = EmailAddress.ToDeliveryAddress(organizer.Email) }, null, clock.GetUtcNow()));
 }

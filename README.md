@@ -185,7 +185,8 @@ row finishes and rows are deleted after `Email:Outbox:RetentionDays`. All user v
 ## Organizer accounts
 
 `/api/account/*` (`src/PositionTracker.Api/Accounts`). **Every POST needs `X-Requested-With: PositionTracker` and
-`Content-Type: application/json`** (`400 csrf_failed` / `415 unsupported_media_type`, checked by the
+`Content-Type: application/json`** (missing header: HTTP **400** `csrf_failed`; other content type: HTTP 415
+`unsupported_media_type`; checked by the
 `BrowserApiHeaders` middleware before any limiter or database work; the same rule covers `/api/p/*` and the organizer
 routes under `/api/events/**`, but not the device ingest `/api/events/{id}/positions|actions`).
 
@@ -204,12 +205,17 @@ routes under `/api/events/**`, but not the device ingest `/api/events/{id}/posit
   `OrganizerSession`, `EmailConfirmedOrganizer` (`403 email_not_confirmed`).
 
 Limits (in memory, per process, salted HMAC keys, no address or IP kept): 20 sign-up/sign-in requests per IP bucket
-(IPv4 address or IPv6 /64) and hour; account mails 3 per (address, IP bucket), 10 per address and
-`Accounts:GlobalMailsPerHour` (200) in total per hour. Suppressed requests increment
-`positiontracker.accounts.suppressed` (tag `limit` = `ip|email_ip|email|global`); the global cap logs a warning.
+(IPv4 address or IPv6 /64) and, for IPv6, 100 per /48 (`Accounts:RequestsPerHourPerPrefix48`) per hour, taken all or
+none; account mails 3 per (address, IP bucket), 10 per address and `Accounts:GlobalMailsPerHour` (200) in total per
+hour. Suppressed requests increment `positiontracker.accounts.suppressed` (tag `limit` =
+`ip|prefix|email_ip|email|global`); the global cap logs a warning once per hour. `GET /api/ops/email-mode` (operator
+key) adds `limitHitsLast24h` and `limitHits` (`global`, `perEmail`, `perEmailAndIp`, `perIp`, `perPrefix`, `total`),
+counts only: alert when `global` is above zero, since then nobody gets account mail for the rest of that hour.
 Addresses are unique by their normalized form: lower-case local part and the lower-case IDNA ASCII domain
-(`x@bücher.de` = `x@xn--bcher-kva.de` = `x@ＢÜＣＨＥＲ．de`); plus-addresses stay distinct; the form first entered
-is kept for display and sending.
+(`x@bücher.de` = `x@xn--bcher-kva.de` = `x@ＢÜＣＨＥＲ．de`); plus-addresses stay distinct; IDNA deviation
+characters are mapped nontransitionally (`straße.de` ≠ `strasse.de`). Mail always goes to the delivery address
+(local part as entered, `@`, ASCII domain), never to an exotic display form. An unconfirmed account takes over the
+display address, name and language of a repeated sign-up; a confirmed one keeps them.
 
 Links are 32 random bytes (base64url); only their SHA-256 is stored; confirmation 14 days (a new one supersedes the
 old one, opened or not), sign-in 15 minutes and single use (never superseded: each link lives on its own). The

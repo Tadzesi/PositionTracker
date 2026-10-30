@@ -10,7 +10,8 @@ namespace PositionTracker.Api.Accounts;
 /// <summary>
 /// In-memory hourly limits of the account endpoints, on the injected <see cref="TimeProvider"/> (controller ruling P10):
 /// <list type="bullet">
-/// <item>sign-up/sign-in requests per IP bucket (<see cref="AccountOptions.RequestsPerIpPerHour"/>, 20);</item>
+/// <item>sign-up/sign-in requests per IP bucket (<see cref="AccountOptions.RequestsPerIpPerHour"/>, 20) and, for IPv6,
+/// per /48 (<see cref="AccountOptions.RequestsPerHourPerPrefix48"/>, 100; controller ruling P11), all or none;</item>
 /// <item>account mails per (address, IP bucket) (<see cref="AccountOptions.MailsPerEmailAndIpPerHour"/>, 3), per address
 /// (<see cref="AccountOptions.MailsPerEmailPerHour"/>, 10) and in total (<see cref="AccountOptions.GlobalMailsPerHour"/>,
 /// 200); a mail takes from all of them or from none;</item>
@@ -18,8 +19,9 @@ namespace PositionTracker.Api.Accounts;
 /// </list>
 /// An IP bucket is the IPv4 address (IPv4-mapped IPv6 included) or the IPv6 /64 prefix. Every key is a salted
 /// HMAC-SHA256, so no address or IP is kept. A suppression is counted on <see cref="SuppressedCounterName"/> (tag
-/// <c>limit</c> = <c>ip</c>, <c>email_ip</c>, <c>email</c> or <c>global</c>, nothing personal) and logged at debug
-/// level; the global cap logs a warning once per hour. The built-in ASP.NET Core rate limiter is not used: over the
+/// <c>limit</c> = <c>ip</c>, <c>prefix</c>, <c>email_ip</c>, <c>email</c> or <c>global</c>, nothing personal), logged at
+/// debug level, and kept as hourly counts for 24 hours (<see cref="LimitHitsLast24h"/>, shown to operators by
+/// <c>GET /api/ops/email-mode</c>); the global cap also logs a warning once per hour. The built-in ASP.NET Core rate limiter is not used: over the
 /// limit these endpoints must still answer the usual 202, the address comes from the body, and its windows cannot
 /// run on a <see cref="TimeProvider"/>.
 /// </summary>
@@ -34,6 +36,8 @@ public sealed class AccountRateLimiter
 
     private readonly byte[] _salt;
     private readonly HourlyCounter _requestsPerIp;
+    private readonly HourlyCounter _requestsPerPrefix;
+    private readonly LimitHitLog _hits;
     private readonly HourlyCounter _mailsPerEmailAndIp;
     private readonly HourlyCounter _mailsPerEmail;
     private readonly HourlyCounter _mailsGlobal;
@@ -48,6 +52,8 @@ public sealed class AccountRateLimiter
         var o = options.Value;
         _salt = string.IsNullOrEmpty(o.RateLimitSalt) ? RandomNumberGenerator.GetBytes(32) : Encoding.UTF8.GetBytes(o.RateLimitSalt);
         _requestsPerIp = new HourlyCounter(clock, o.RequestsPerIpPerHour, o.RateLimitMaxKeys);
+        _requestsPerPrefix = new HourlyCounter(clock, o.RequestsPerHourPerPrefix48, o.RateLimitMaxKeys);
+        _hits = new LimitHitLog(clock);
         _mailsPerEmailAndIp = new HourlyCounter(clock, o.MailsPerEmailAndIpPerHour, o.RateLimitMaxKeys);
         _mailsPerEmail = new HourlyCounter(clock, o.MailsPerEmailPerHour, o.RateLimitMaxKeys);
         _mailsGlobal = new HourlyCounter(clock, o.GlobalMailsPerHour, 1);
@@ -57,13 +63,30 @@ public sealed class AccountRateLimiter
         _logger = logger;
     }
 
-    /// <summary>Takes one sign-up/sign-in request of the IP's bucket; false (and counted) when over the limit.</summary>
+    /// <summary>
+    /// Takes one sign-up/sign-in request from the IP's bucket and, for IPv6, its /48, all or none; false (and counted)
+    /// when either is used up.
+    /// </summary>
     public bool TryTakeRequest(IPAddress? ip)
     {
-        if (_requestsPerIp.TryTake(Key("ip", IpBucket(ip)))) return true;
-        Report("ip");
-        return false;
+        var bucketKey = Key("ip", IpBucket(ip));
+        if (IpPrefix48(ip) is not { } prefix)
+        {
+            if (_requestsPerIp.TryTake(bucketKey)) return true;
+            return Refuse("ip");
+        }
+        var prefixKey = Key("prefix", prefix);
+        lock (_requestsPerPrefix)
+        {
+            if (!_requestsPerIp.CanTake(bucketKey)) return Refuse("ip");
+            if (!_requestsPerPrefix.CanTake(prefixKey)) return Refuse("prefix");
+            HourlyCounter.TryTakeAll((_requestsPerIp, bucketKey), (_requestsPerPrefix, prefixKey));
+            return true;
+        }
     }
+
+    /// <summary>Limit hits of the last 24 hours per kind (counts only).</summary>
+    public LimitHits LimitHitsLast24h() => _hits.Last24h();
 
     /// <summary>
     /// Takes one account email to <paramref name="normalizedEmail"/> requested from <paramref name="ip"/>: from the
@@ -105,6 +128,15 @@ public sealed class AccountRateLimiter
         return new IPAddress(bytes) + "/64";
     }
 
+    /// <summary>The IPv6 /48 prefix of <paramref name="ip"/>; null for IPv4 (IPv4-mapped included) or none.</summary>
+    internal static string? IpPrefix48(IPAddress? ip)
+    {
+        if (ip is null || ip.IsIPv4MappedToIPv6 || ip.AddressFamily != AddressFamily.InterNetworkV6) return null;
+        var bytes = ip.GetAddressBytes();
+        Array.Clear(bytes, 6, 10);
+        return new IPAddress(bytes) + "/48";
+    }
+
     private bool Refuse(string limit)
     {
         Report(limit);
@@ -114,11 +146,58 @@ public sealed class AccountRateLimiter
     private void Report(string limit)
     {
         Suppressed.Add(1, new KeyValuePair<string, object?>("limit", limit));
+        _hits.Add(limit);
         _logger.LogDebug("Account request suppressed by the {Limit} rate limit; answered as usual without sending.", limit);
     }
 
     private string Key(string kind, string value) =>
         Convert.ToBase64String(HMACSHA256.HashData(_salt, Encoding.UTF8.GetBytes(kind + "\n" + value)));
+}
+
+/// <summary>Limit hits of the last 24 hours (counts only, no personal data).</summary>
+public sealed record LimitHits(int Global, int PerEmail, int PerEmailAndIp, int PerIp, int PerPrefix)
+{
+    public int Total => Global + PerEmail + PerEmailAndIp + PerIp + PerPrefix;
+}
+
+/// <summary>Hourly counts of limit hits in a ring of 24 slots on the injected clock.</summary>
+internal sealed class LimitHitLog(TimeProvider clock)
+{
+    private static readonly string[] Kinds = ["global", "email", "email_ip", "ip", "prefix"];
+    private readonly long[] _hours = new long[24];
+    private readonly int[,] _counts = new int[24, Kinds.Length];
+
+    public void Add(string kind)
+    {
+        var index = Array.IndexOf(Kinds, kind);
+        if (index < 0) return;
+        var hour = clock.GetUtcNow().UtcTicks / TimeSpan.TicksPerHour;
+        var slot = (int)(hour % 24);
+        lock (_counts)
+        {
+            if (_hours[slot] != hour)
+            {
+                _hours[slot] = hour;
+                for (var k = 0; k < Kinds.Length; k++) _counts[slot, k] = 0;
+            }
+            _counts[slot, index]++;
+        }
+    }
+
+    public LimitHits Last24h()
+    {
+        var hour = clock.GetUtcNow().UtcTicks / TimeSpan.TicksPerHour;
+        var sums = new int[Kinds.Length];
+        lock (_counts)
+        {
+            for (var slot = 0; slot < 24; slot++)
+            {
+                if (_hours[slot] <= hour - 24 || _hours[slot] > hour) continue;
+                for (var k = 0; k < Kinds.Length; k++) sums[k] += _counts[slot, k];
+            }
+        }
+        return new LimitHits(sums[0], sums[1], sums[2], sums[3], sums[4]);
+    }
 }
 
 /// <summary>

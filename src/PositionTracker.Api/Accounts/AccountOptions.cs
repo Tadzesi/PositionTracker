@@ -17,6 +17,12 @@ public sealed class AccountOptions
     /// </summary>
     public int RequestsPerIpPerHour { get; set; } = 20;
 
+    /// <summary>
+    /// Sign-up and sign-in requests per IPv6 /48 and hour (a home connection holds 256–65 536 /64 buckets); taken
+    /// together with the /64 budget, all or none. IPv4 has no prefix budget.
+    /// </summary>
+    public int RequestsPerHourPerPrefix48 { get; set; } = 100;
+
     /// <summary>Account emails (confirmation, sign-in) per (address, IP bucket) and hour; beyond, nothing is sent.</summary>
     public int MailsPerEmailAndIpPerHour { get; set; } = 3;
 
@@ -53,9 +59,9 @@ public sealed class AccountOptions
     internal bool IsValid(out string error)
     {
         error = "";
-        if (RequestsPerIpPerHour < 1 || MailsPerEmailAndIpPerHour < 1 || MailsPerEmailPerHour < 1 || GlobalMailsPerHour < 1
+        if (RequestsPerIpPerHour < 1 || RequestsPerHourPerPrefix48 < 1 || MailsPerEmailAndIpPerHour < 1 || MailsPerEmailPerHour < 1 || GlobalMailsPerHour < 1
             || LinkRedeemsPerIpPerHour < 1 || RateLimitMaxKeys < 1)
-            error = "Accounts:RequestsPerIpPerHour, MailsPerEmailAndIpPerHour, MailsPerEmailPerHour, GlobalMailsPerHour, " +
+            error = "Accounts:RequestsPerIpPerHour, RequestsPerHourPerPrefix48, MailsPerEmailAndIpPerHour, MailsPerEmailPerHour, GlobalMailsPerHour, " +
                 "LinkRedeemsPerIpPerHour and RateLimitMaxKeys must be positive.";
         else if (MinResponseMilliseconds is < 0 or > 10_000)
             error = "Accounts:MinResponseMilliseconds must be between 0 and 10000.";

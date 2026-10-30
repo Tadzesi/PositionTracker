@@ -36,6 +36,9 @@ public sealed class LinkTokenService(AppDbContext db, TimeProvider clock)
     public static readonly TimeSpan SignInLifetime = TimeSpan.FromMinutes(15);
     public static readonly TimeSpan InviteLifetime = TimeSpan.FromDays(14);
 
+    /// <summary>Test seam: runs between the read and the conditional update of <see cref="RedeemAsync"/> (token id).</summary>
+    internal Func<Guid, Task>? BeforeMarkUsed { get; set; }
+
     /// <summary>Longer input is never a token of ours (and is not hashed).</summary>
     private const int MaxTokenLength = 64;
 
@@ -89,6 +92,7 @@ public sealed class LinkTokenService(AppDbContext db, TimeProvider clock)
         if (Classify(token, singleUse, now) is { } failed) return failed;
 
         if (!singleUse && token.UsedAt is not null) return new LinkResult(LinkStatus.Ok, token.SubjectId); // reopened
+        if (BeforeMarkUsed is { } hook) await hook(token.Id);
         var marked = await db.LinkTokens
             .Where(t => t.Id == token.Id && t.RevokedAt == null && t.ExpiresAt > now && t.UsedAt == null)
             .ExecuteUpdateAsync(s => s.SetProperty(t => t.UsedAt, now), ct);

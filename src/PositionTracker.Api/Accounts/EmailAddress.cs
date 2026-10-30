@@ -14,6 +14,13 @@ namespace PositionTracker.Api.Accounts;
 /// <para>The normalized form (lookup and uniqueness) is the lower-case local part, <c>@</c>, the lower-case ASCII
 /// domain: <c>x@bücher.de</c>, <c>x@xn--bcher-kva.de</c>, <c>X@BÜCHER.de</c> and <c>x@ｂüｃｈｅｒ．ｄｅ</c> are one
 /// mailbox. Plus-addresses (<c>x+tag@…</c>) stay distinct.</para>
+/// <para>Mail goes to <see cref="ToDeliveryAddress"/>: the local part exactly as entered and the ASCII domain, so an
+/// exotic display form (fullwidth, ideographic full stop) never reaches the mail transport.</para>
+/// <para>IDNA deviation characters (<c>ß</c>, <c>ς</c>, ZWJ, ZWNJ): <c>straße.de</c> and <c>strasse.de</c> are
+/// different registrable domains, so they must never become one account. .NET maps them nontransitionally
+/// (UTS 46 / IDNA2008: <c>straße.de</c> → <c>xn--strae-oqa.de</c>) on Windows and with ICU. Should a platform map them
+/// transitionally (<c>straße.de</c> → <c>strasse.de</c>), addresses with these characters are rejected instead
+/// (<see cref="NontransitionalIdna"/>).</para>
 /// </summary>
 public static class EmailAddress
 {
@@ -21,6 +28,10 @@ public static class EmailAddress
     private const int MaxLocalLength = 64;
     private const string LocalSpecials = "!#$%&'*+/=?^_`{|}~-";
     private static readonly IdnMapping Idn = new() { UseStd3AsciiRules = true, AllowUnassigned = false };
+    private const string DeviationCharacters = "\u00DF\u03C2\u200C\u200D";
+
+    /// <summary>Whether this platform's IDNA keeps deviation characters distinct (checked once).</summary>
+    internal static readonly bool NontransitionalIdna = Probe();
 
     /// <summary>
     /// Trims surrounding white space into <paramref name="address"/> (the display form) and computes
@@ -39,6 +50,31 @@ public static class EmailAddress
         return normalized.Length <= MaxLength;
     }
 
+    /// <summary>
+    /// The address mail is sent to: the local part as entered, <c>@</c>, the lower-case IDNA ASCII domain. Throws
+    /// <see cref="ArgumentException"/> for an address <see cref="TryParse"/> does not accept.
+    /// </summary>
+    public static string ToDeliveryAddress(string address)
+    {
+        var trimmed = address.Trim();
+        var at = trimmed.IndexOf('@');
+        if (at <= 0 || !TryParse(trimmed, out _, out _) || AsciiDomain(trimmed[(at + 1)..]) is not { } domain)
+            throw new ArgumentException("Not a valid email address.", nameof(address));
+        return trimmed[..at] + "@" + domain;
+    }
+
+    private static bool Probe()
+    {
+        try
+        {
+            return Idn.GetAscii("stra\u00DFe.de") != "strasse.de";
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
     private static bool IsLocalPart(string local)
     {
         if (local.Length > MaxLocalLength || local[0] == '.' || local[^1] == '.' || local.Contains("..", StringComparison.Ordinal))
@@ -53,7 +89,8 @@ public static class EmailAddress
     private static string? AsciiDomain(string domain)
     {
         foreach (var c in domain)
-            if (char.IsControl(c) || char.IsWhiteSpace(c) || char.GetUnicodeCategory(c) == UnicodeCategory.Format)
+            if (char.IsControl(c) || char.IsWhiteSpace(c) || char.GetUnicodeCategory(c) == UnicodeCategory.Format
+                || (!NontransitionalIdna && DeviationCharacters.Contains(c)))
                 return null;
         string ascii;
         try
