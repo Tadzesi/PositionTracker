@@ -249,6 +249,9 @@ namespace PositionTracker.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTimeOffset?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("HtmlBody")
                         .IsRequired()
                         .HasColumnType("text");
@@ -267,6 +270,19 @@ namespace PositionTracker.Data.Migrations
 
                     b.Property<Guid?>("ParticipantId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ReplyToAddress")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.Property<string>("ReplyToName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<DateTimeOffset?>("SentAt")
                         .HasColumnType("timestamp with time zone");
@@ -296,6 +312,8 @@ namespace PositionTracker.Data.Migrations
                         .HasColumnType("character varying(200)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("FinishedAt");
 
                     b.HasIndex("ParticipantId");
 

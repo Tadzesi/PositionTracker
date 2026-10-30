@@ -138,9 +138,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.Property(m => m.ToName).HasMaxLength(200);
             e.Property(m => m.Subject).HasMaxLength(300);
             e.Property(m => m.Language).HasMaxLength(2);
+            e.Property(m => m.Purpose).HasMaxLength(32);
+            e.Property(m => m.ReplyToAddress).HasMaxLength(320);
+            e.Property(m => m.ReplyToName).HasMaxLength(200);
             e.Property(m => m.LastError).HasMaxLength(1000);
             e.HasOne<ParticipantEntity>().WithMany().HasForeignKey(m => m.ParticipantId).OnDelete(DeleteBehavior.SetNull);
             e.HasIndex(m => new { m.Status, m.NextAttemptAt });
+            e.HasIndex(m => m.FinishedAt);
         });
 
         model.Entity<AlarmAckEntity>(e =>

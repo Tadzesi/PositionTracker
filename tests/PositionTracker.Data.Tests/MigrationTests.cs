@@ -61,7 +61,7 @@ public class MigrationTests(PostgresFixture postgres) : IClassFixture<PostgresFi
                 new EmailOutboxEntity
                 {
                     Id = Guid.NewGuid(), ToAddress = "jan@example.com", ToName = "Ján Novák", Subject = "Pozvánka",
-                    HtmlBody = "<p>x</p>", TextBody = "x", Language = "sk", Status = EmailOutboxStatus.Pending,
+                    HtmlBody = "<p>x</p>", TextBody = "x", Language = "sk", Purpose = "invitation", Status = EmailOutboxStatus.Pending,
                     CreatedAt = start, NextAttemptAt = start, ParticipantId = participant.Id,
                 });
             await db.SaveChangesAsync();

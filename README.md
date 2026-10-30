@@ -13,7 +13,9 @@ PostgreSQL persistence:
 | `src/PositionTracker.Core` | Course model, GPX parser, course matching, participant tracker, ranking, ETA, event runtime, spectator projection, virtual riders. No package references. |
 | `src/PositionTracker.Api` | ASP.NET Core host: device ingest, organizer/spectator views, SignalR hub, demo simulator, persistence of the position history and rebuild of live events at startup. |
 | `src/PositionTracker.Data` | EF Core model (`AppDbContext`, entities) and migrations for PostgreSQL. |
-| `tests/*` | xunit tests for both. |
+| `src/PositionTracker.Email` | Email messages, SK/EN templates, sanitising, `IEmailSender` with the MailKit `SmtpEmailSender` and the `LoggingEmailSender`. The only project that references MailKit. |
+| `tools/SendTestMail` | Console tool for the deliverability check (`docs/ops/email-deliverability.md`). |
+| `tests/*` | xunit tests. |
 
 Design: `docs/superpowers/specs/2026-10-30-possition-tracker-design.md`; mockups: `docs/design/mockups/design-hub.html`
 (open it from the file system).
@@ -147,6 +149,29 @@ event and participant (in Plan 1 only the demo simulator issues them).
 | `Persistence:EnqueueTimeoutMs` | How long a device request waits for a free write slot before `503`; default 2 000. |
 | `Persistence:BatchFixes` / `Persistence:BatchIntervalMs` | The writer writes at 200 fixes or 500 ms after the oldest held write, whichever comes first. |
 | `Persistence:MigrateOnStartup` | Apply pending migrations at startup (default false; true in Development). |
+| `Email:Smtp:Host` | SMTP server. Empty (the committed default): nothing is sent, the `LoggingEmailSender` logs the outbox id, purpose and recipient domain and the row ends `Simulated`. Real sending is an explicit opt-in. |
+| `Email:Smtp:{Port,UseStartTls,User,Password,TimeoutSeconds}` | SMTP connection (defaults 587, STARTTLS required, no auth, 30 s). |
+| `Email:From` / `Email:FromName` / `Email:PublicBaseUrl` | Sender and the base of emailed links; `From` and `PublicBaseUrl` are required once a host is set. |
+| `Email:Outbox:{PollIntervalSeconds,BatchSize,MaxAttempts,RetryBaseSeconds,RetryMaxSeconds,RetentionDays}` | Outbox worker (defaults 5, 20, 6, 60, 3600, 7). |
+
+Email credentials, real host names and addresses are never committed; `appsettings*.json` keep empty values.
+Supply them with `dotnet user-secrets` (the API project has a `UserSecretsId`, shared with `tools/SendTestMail`),
+for example `dotnet user-secrets --project src/PositionTracker.Api set "Email:Smtp:Password" "<smtp-password>"`, or
+with environment variables (`Email__Smtp__Password`). Details, the DNS checklist and the (still PENDING) manual
+delivery gate: `docs/ops/email-deliverability.md`.
+
+## Email
+
+Callers add an `EmailOutboxEntity` (`EmailOutbox.Create(message, participantId, now)`) in the same transaction as
+the change that causes the mail; templates are `EmailTemplates.Invitation/SignIn/ConfirmOrganizerEmail`, links come
+from `EmailLinks.Build(Email:PublicBaseUrl, path, rawToken)`. The `EmailOutboxWorker` (needs the database) claims due
+rows with `FOR UPDATE SKIP LOCKED`, sends them, retries transient failures with doubling delay and marks permanent
+ones (and the last failed attempt) `Failed`; a failed invitation turns its `Invited` participant into `EmailFailed`.
+Delivery is **at least once**: a crash after the SMTP server accepted a message but before the outcome was saved
+sends it again after the retry delay, at most `MaxAttempts` times in total (then the row is `Failed`, outcome
+unknown). Logs and `LastError` never contain addresses, names, subjects, bodies or links; bodies are cleared when a
+row finishes and rows are deleted after `Email:Outbox:RetentionDays`. All user values are made single-line
+(CR/LF/control characters removed), length-limited, and HTML-escaped in the HTML body.
 
 ## Persistence and restart
 

@@ -43,9 +43,15 @@ public sealed class DeviceTokenEntity
     public DateTimeOffset? RevokedAt { get; set; }
 }
 
-public enum EmailOutboxStatus { Pending, Sent, Failed }
+/// <summary>
+/// <c>Simulated</c>: no SMTP server is configured, the message was only logged (never delivered).
+/// </summary>
+public enum EmailOutboxStatus { Pending, Sent, Failed, Simulated }
 
-/// <summary>A queued email; the outbox worker sends it with retries.</summary>
+/// <summary>
+/// A queued email; the outbox worker sends it with retries. The bodies are cleared once the row is finished (they
+/// hold a link that is a credential until it expires); the row itself is deleted after the retention period.
+/// </summary>
 public sealed class EmailOutboxEntity
 {
     public Guid Id { get; set; }
@@ -55,12 +61,18 @@ public sealed class EmailOutboxEntity
     public required string HtmlBody { get; set; }
     public required string TextBody { get; set; }
     public required string Language { get; set; }
+    /// <summary>The message kind (invitation, signIn, ...); safe to log.</summary>
+    public required string Purpose { get; set; }
+    public string? ReplyToAddress { get; set; }
+    public string? ReplyToName { get; set; }
     public EmailOutboxStatus Status { get; set; }
     public int Attempts { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset NextAttemptAt { get; set; }
     public DateTimeOffset? SentAt { get; set; }
-    /// <summary>The last delivery error (never contains the address).</summary>
+    /// <summary>When the row became Sent, Simulated or Failed; retention counts from here.</summary>
+    public DateTimeOffset? FinishedAt { get; set; }
+    /// <summary>The last delivery error (never contains an address, a name or the server's reply text).</summary>
     public string? LastError { get; set; }
     /// <summary>The participant whose status follows a permanent failure (invitations only).</summary>
     public Guid? ParticipantId { get; set; }

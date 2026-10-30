@@ -1,9 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <!-- Shared with tools/SendTestMail: dotnet user-secrets set "Email:Smtp:Password" "..." applies to both. -->
+    <UserSecretsId>positiontracker-api-6f1c2b7e</UserSecretsId>
+  </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="PositionTracker.Api.Tests" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\PositionTracker.Core\PositionTracker.Core.csproj" />
     <ProjectReference Include="..\PositionTracker.Data\PositionTracker.Data.csproj" />
+    <ProjectReference Include="..\PositionTracker.Email\PositionTracker.Email.csproj" />
   </ItemGroup>
 </Project>
