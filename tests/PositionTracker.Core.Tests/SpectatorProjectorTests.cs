@@ -80,8 +80,10 @@ public class SpectatorProjectorTests
         Assert.Equal("evt-1", projected.EventId);
         Assert.Equal(["a", "b"], projected.Participants.Select(p => p.ParticipantId));
         var p = projected.Participants[1];
-        Assert.Equal(new SpectatorParticipantView("b", "2", "B", "Open", 2, 0, 1_234, 48.1, 17.1, 8.5, 117.6,
-            ParticipantState.Live, TimeSpan.FromSeconds(42), null, second.Eta, second.Segments), p);
+        // Pace is rounded to whole seconds for spectators (117.6 -> 118); the other values are already round.
+        Assert.Equal(new SpectatorParticipantView("b", "2", "B", "Open", 2, 0, 1_234, 48.1, 17.1, 8.5, 118,
+            ParticipantState.Live, TimeSpan.FromSeconds(42), null, second.Eta, second.Segments), p with { Segments = second.Segments });
+        Assert.Equal(second.Segments, p.Segments);
     }
 
     [Theory]

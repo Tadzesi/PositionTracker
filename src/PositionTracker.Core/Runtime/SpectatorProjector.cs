@@ -3,6 +3,8 @@ namespace PositionTracker.Core.Runtime;
 /// <summary>
 /// A participant as spectators see it: race progress only. Device and safety data (battery, GPS accuracy, queue
 /// length, last signal, alarms) and the ascent/descent/grade fields of <see cref="ParticipantView"/> are absent.
+/// Values are rounded for size: coordinates to 5 decimals, distance (floored) and speed to 0.1, pace, gaps,
+/// ETA and segment times to whole seconds.
 /// </summary>
 public sealed record SpectatorParticipantView(
     string ParticipantId, string Bib, string DisplayName, string Category, int? Rank, int Lap, double TotalDistanceM,
@@ -26,14 +28,40 @@ public static class SpectatorProjector
         ArgumentNullException.ThrowIfNull(view);
         ArgumentNullException.ThrowIfNull(participants);
         return new SpectatorView(view.At, view.EventId, view.Participants
-            .Select(p => new SpectatorParticipantView(
-                p.ParticipantId, p.Bib, DisplayName(participants.GetValueOrDefault(p.ParticipantId), p.Bib),
-                p.Category, p.Rank, p.Lap, p.TotalDistanceM,
-                SpectatorPosition(p).Lat, SpectatorPosition(p).Lon, p.SpeedMps, p.PaceSecPerKm,
-                SpectatorState(p.State),
-                p.GapToLeader, p.GapToAhead, p.Eta, p.Segments))
+            .Select(p =>
+            {
+                var (lat, lon) = SpectatorPosition(p);
+                return new SpectatorParticipantView(
+                    p.ParticipantId, p.Bib, DisplayName(participants.GetValueOrDefault(p.ParticipantId), p.Bib),
+                    p.Category, p.Rank, p.Lap, Distance(p),
+                    Round(lat, 5), Round(lon, 5), Math.Round(p.SpeedMps, 1), Round(p.PaceSecPerKm, 0),
+                    SpectatorState(p.State),
+                    Seconds(p.GapToLeader), Seconds(p.GapToAhead),
+                    p.Eta is { } eta ? eta with { Expected = Seconds(eta.Expected), Earliest = Seconds(eta.Earliest), Latest = Seconds(eta.Latest) } : null,
+                    p.Segments.Select(s => s with { Time = Seconds(s.Time) }).ToList());
+            })
             .ToList());
     }
+
+    // Spectator payload rounding (final review I5): coordinates to 5 decimals (about 1 m), speeds and pace to what
+    // a screen shows, times to whole seconds. The order, ranks and states are taken before rounding, so rounding
+    // never reorders rows or changes a state. Distances of riders still riding are floored to 0.1 m, so the shown
+    // order of distances is kept and they do not reach the course length; a finisher's is rounded, so the clamped
+    // course length (e.g. 37 499.999 999 998) shows as 37 500.0.
+    private static double Distance(ParticipantView p) => p.State == ParticipantState.Finished
+        ? Math.Round(p.TotalDistanceM, 1, MidpointRounding.AwayFromZero)
+        : Math.Floor(p.TotalDistanceM * 10) / 10;
+
+    private static double? Round(double? value, int decimals) =>
+        value is { } v ? Math.Round(v, decimals, MidpointRounding.AwayFromZero) : null;
+
+    private static TimeSpan Seconds(TimeSpan value) =>
+        TimeSpan.FromSeconds(Math.Round(value.TotalSeconds, MidpointRounding.AwayFromZero));
+
+    private static TimeSpan? Seconds(TimeSpan? value) => value is { } v ? Seconds(v) : null;
+
+    private static DateTimeOffset Seconds(DateTimeOffset value) =>
+        new(value.Ticks - value.Ticks % TimeSpan.TicksPerSecond + (value.Ticks % TimeSpan.TicksPerSecond >= TimeSpan.TicksPerSecond / 2 ? TimeSpan.TicksPerSecond : 0), value.Offset);
 
     /// <summary>
     /// The position spectators see, only inside the race window: none before the start (warm-up) and none for a

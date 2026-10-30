@@ -467,4 +467,53 @@ public class SimulationTests
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal(3, factory.Registry.All.Count(r => r.Settings.IsSimulated));
     }
+
+    /// <summary>
+    /// 100 riders 65 minutes into the default 3-lap demo (the fastest have finished, the slowest are in lap 2).
+    /// "Before" is the same projection without rounding. Rounding alone saves about 16 %: segment results
+    /// (about 60 % of the bytes) keep their shape, which Plan 5 (on-demand segments) is to change.
+    /// </summary>
+    [Fact]
+    public void Rounded_spectator_payload_for_100_riders_is_smaller_and_keeps_order_and_states()
+    {
+        using var factory = new ApiFactory();
+        var sim = Simulation(factory);
+        var started = sim.Start(new DemoRequest(Participants: 100, TimeScale: 50, Laps: 3));
+        StepRange(sim, started.EventId, TimeSpan.Zero, TimeSpan.FromMinutes(65), TimeSpan.FromMinutes(5));
+        var runtime = factory.Registry.Get(started.EventId)!;
+        var json = factory.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()
+            .Value.SerializerOptions;
+
+        var view = runtime.BuildLiveView();
+        var spectator = SpectatorProjector.Project(view, runtime.Participants);
+        var unrounded = new SpectatorView(view.At, view.EventId, view.Participants.Zip(spectator.Participants)
+            .Select(x => x.Second with
+            {
+                TotalDistanceM = x.First.TotalDistanceM, SpeedMps = x.First.SpeedMps, PaceSecPerKm = x.First.PaceSecPerKm,
+                Lat = x.Second.Lat is null ? null : x.First.State == ParticipantState.Finished ? x.First.FinishLat : x.First.Lat,
+                Lon = x.Second.Lon is null ? null : x.First.State == ParticipantState.Finished ? x.First.FinishLon : x.First.Lon,
+                GapToLeader = x.First.GapToLeader, GapToAhead = x.First.GapToAhead, Eta = x.First.Eta, Segments = x.First.Segments,
+            }).ToList());
+        var before = JsonSerializer.SerializeToUtf8Bytes(unrounded, json).Length;
+        var after = JsonSerializer.SerializeToUtf8Bytes(spectator, json).Length;
+
+        Assert.True(after <= before * 0.86, $"{before} -> {after} bytes");
+        Assert.True(after < 90 * 1024, $"{after} bytes");
+        Assert.Contains(view.Participants, p => p.State == ParticipantState.Finished);
+        Assert.Contains(view.Participants, p => p.Lap == 2);
+        Assert.Equal(view.Participants.Select(p => (p.ParticipantId, p.Rank)), spectator.Participants.Select(p => (p.ParticipantId, p.Rank)));
+        foreach (var (o, p) in view.Participants.Zip(spectator.Participants))
+        {
+            Assert.Equal(o.State is ParticipantState.Sos or ParticipantState.Stopped or ParticipantState.OffCourse ? ParticipantState.Live : o.State, p.State);
+            Assert.True(Math.Abs(o.TotalDistanceM - p.TotalDistanceM) < 0.1, $"{o.TotalDistanceM} -> {p.TotalDistanceM}");
+            Assert.Equal(o.State == ParticipantState.Finished, p.TotalDistanceM >= Math.Round(runtime.Course.TotalLengthM, 1));
+            if (p.Lat is { } lat) Assert.Equal(Math.Round(lat, 5), lat);
+            if (p.GapToLeader is { } gap) Assert.Equal(0, gap.Ticks % TimeSpan.TicksPerSecond);
+            if (p.Eta is { } eta) Assert.Equal(0, eta.Expected.Ticks % TimeSpan.TicksPerSecond);
+            Assert.All(p.Segments, seg => Assert.Equal(0, seg.Time.Ticks % TimeSpan.TicksPerSecond));
+        }
+        // Rounded distances keep the order of the rows that are still riding.
+        var riding = spectator.Participants.Where(p => p.State != ParticipantState.Finished && p.Rank is not null).ToList();
+        Assert.True(riding.Zip(riding.Skip(1)).All(x => x.First.TotalDistanceM >= x.Second.TotalDistanceM));
+    }
 }
