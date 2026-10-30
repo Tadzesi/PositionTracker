@@ -172,13 +172,100 @@ public class ParticipantTrackerMotionTests
     }
 
     [Fact]
-    public void Apply_returns_no_segment_completions_yet()
+    public void No_segment_completes_before_the_first_boundary()
     {
         var tracker = new ParticipantTracker(Loop, Sport.Cycling, T0);
         var results = Ride(Loop, 8, 4_000).Select(tracker.Apply).ToList();
 
         Assert.All(results, r => Assert.Empty(r.Completed));
     }
+
+    /// <summary>The 12 500 m loop with checkpoints at 3 000 m and 8 000 m: segments of 3 000, 5 000 and 4 500 m.</summary>
+    private static readonly Course CheckpointLoop = Course.Create(
+        TestCourses.Loop(), 3, new[] { new Checkpoint("CP1", 3_000), new Checkpoint("CP2", 8_000) });
+
+    [Fact]
+    public void Segment_completions_are_emitted_once_each_in_course_order()
+    {
+        var tracker = new ParticipantTracker(CheckpointLoop, Sport.Cycling, T0);
+        var emitted = Ride(CheckpointLoop, 8, 16_000).SelectMany(f => tracker.Apply(f).Completed).ToList();
+
+        Assert.Equal(
+            new[] { (1, 0), (1, 1), (1, 2), (2, 0) },
+            emitted.Select(c => (c.Lap, c.SegmentIndex)));
+        AssertSeconds(375, emitted[0].Time);
+        AssertSeconds(625, emitted[1].Time);
+        AssertSeconds(562.5, emitted[2].Time);
+        AssertSeconds(375, emitted[3].Time);
+    }
+
+    [Fact]
+    public void Segment_completion_is_reported_by_the_apply_that_crosses_the_boundary()
+    {
+        var tracker = new ParticipantTracker(CheckpointLoop, Sport.Cycling, T0);
+        var fixes = Ride(CheckpointLoop, 8, 3_200);
+
+        // 3 000 m is reached at 375 s; the matched position of that fix may fall a hair short, so the
+        // completion comes with the fix at 375 s or the next one.
+        var results = fixes.Select(tracker.Apply).ToList();
+        var crossing = results.FindIndex(r => r.Completed.Count > 0);
+
+        Assert.InRange(fixes[crossing].Time, T0.AddSeconds(375), T0.AddSeconds(380));
+        Assert.Single(results[crossing].Completed);
+        Assert.All(results.Skip(crossing + 1), r => Assert.Empty(r.Completed));
+    }
+
+    [Fact]
+    public void Replayed_late_batch_emits_no_duplicate_segment_completions()
+    {
+        var fixes = Ride(CheckpointLoop, 8, 16_000);
+        var trackerA = new ParticipantTracker(CheckpointLoop, Sport.Cycling, T0);
+        var inOrder = fixes.SelectMany(f => trackerA.Apply(f).Completed).ToList();
+
+        var trackerB = new ParticipantTracker(CheckpointLoop, Sport.Cycling, T0);
+        var lists = fixes.Skip(40).Concat(fixes.Take(40)).Select(f => trackerB.Apply(f).Completed).ToList();
+
+        Assert.All(lists, l => Assert.Equal(l.Count, l.Select(c => (c.Lap, c.SegmentIndex)).Distinct().Count()));
+        var all = lists.SelectMany(l => l).ToList();
+        Assert.Equal(all.Count, all.Select(c => (c.Lap, c.SegmentIndex)).Distinct().Count());
+
+        // After the full replay the last emitted completion per segment matches the in-order result.
+        var last = all.GroupBy(c => (c.Lap, c.SegmentIndex)).Select(g => g.Last()).OrderBy(c => c.Lap).ThenBy(c => c.SegmentIndex);
+        Assert.Equal(inOrder, last);
+    }
+
+    [Fact]
+    public void Segment_time_changed_by_a_late_fix_is_emitted_again_with_the_new_time()
+    {
+        // Without fixes between 2 800 m and 3 200 m the 3 000 m crossing is interpolated over that gap;
+        // a late fix showing the rider reached 3 000 m sooner corrects it.
+        var fixes = Ride(CheckpointLoop, 8, 3_400).Where(f => f.Time < T0.AddSeconds(350) || f.Time > T0.AddSeconds(400)).ToList();
+        var tracker = new ParticipantTracker(CheckpointLoop, Sport.Cycling, T0);
+        var first = fixes.SelectMany(f => tracker.Apply(f).Completed).ToList();
+        Assert.Single(first);
+        AssertSeconds(375, first[0].Time);
+
+        var late = tracker.Apply(FixAt(CheckpointLoop, 3_000, T0.AddSeconds(360))).Completed;
+
+        var corrected = Assert.Single(late);
+        Assert.Equal((1, 0), (corrected.Lap, corrected.SegmentIndex));
+        AssertSeconds(360, corrected.Time);
+        Assert.Empty(tracker.Apply(FixAt(CheckpointLoop, 3_000, T0.AddSeconds(360))).Completed);
+    }
+
+    [Fact]
+    public void Finishing_the_race_completes_the_last_segment_of_the_last_lap()
+    {
+        var tracker = new ParticipantTracker(CheckpointLoop, Sport.Cycling, T0);
+        var emitted = Ride(CheckpointLoop, 8, 38_500).SelectMany(f => tracker.Apply(f).Completed).ToList();
+
+        Assert.Equal(9, emitted.Count);
+        Assert.Equal((3, 2), (emitted[^1].Lap, emitted[^1].SegmentIndex));
+        AssertSeconds(562.5, emitted[^1].Time);
+    }
+
+    private static void AssertSeconds(double expected, TimeSpan actual) =>
+        Assert.InRange(actual.TotalSeconds, expected - 5, expected + 5);
 
     [Fact]
     public void Before_any_fix_the_snapshot_is_NotStarted_and_empty()

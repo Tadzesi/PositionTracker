@@ -73,6 +73,9 @@ public sealed class ParticipantTracker
     private bool _sos;
     private DateTimeOffset? _dnfAt;
 
+    // Segment times last reported to callers; kept across replays so only new or changed ones are reported again.
+    private readonly Dictionary<(int Lap, int SegmentIndex), TimeSpan> _emitted = new();
+
     // Fold state; Reset() restores it before a replay.
     private PositionFix? _lastFix;       // newest fix shown to callers, including warm-up before the start
     private PositionFix? _lastAccepted;  // newest fix at or after the start that passed the filter
@@ -101,7 +104,9 @@ public sealed class ParticipantTracker
 
     /// <summary>
     /// Adds a fix in any order and returns the snapshot at the newest accepted fix. Invalid fixes and exact
-    /// resends of a stored fix leave the state unchanged. <c>Completed</c> is empty until segments are tracked.
+    /// resends of a stored fix leave the state unchanged. <c>Completed</c> holds the segment completions that
+    /// are new or whose time changed with this fix (a late fix can move an interpolated crossing), each
+    /// <c>(Lap, SegmentIndex)</c> at most once, in course order; consumers record them idempotently.
     /// </summary>
     public ApplyResult Apply(PositionFix fix)
     {
@@ -117,7 +122,41 @@ public sealed class ParticipantTracker
                 else Replay();
             }
         }
-        return new ApplyResult(GetSnapshot(_lastAccepted?.Time ?? _startTime), Array.Empty<SegmentCompletion>());
+        return new ApplyResult(GetSnapshot(_lastAccepted?.Time ?? _startTime), ChangedCompletions());
+    }
+
+    /// <summary>
+    /// Derives the completed segments from the history and returns those not yet reported with the same time.
+    /// Boundaries are taken on the total distance, not the lap counter (which can disagree with the total near
+    /// the start/finish seam): boundary i of lap n lies at <c>(n-1)·LapLength + SegmentBoundaries[i+1]</c>.
+    /// A segment's time runs from the previous boundary's interpolated crossing (the start time for the first
+    /// segment) to its own; a segment whose start is not covered by the history (the first fix lies beyond it)
+    /// has no time.
+    /// </summary>
+    private IReadOnlyList<SegmentCompletion> ChangedCompletions()
+    {
+        List<SegmentCompletion>? changed = null;
+        var segments = _course.SegmentCount;
+        DateTimeOffset? previous = _startTime;
+        for (var k = 0; k < _course.Laps * segments; k++)
+        {
+            int lap = k / segments + 1, index = k % segments;
+            var boundary = Math.Min(_course.TotalLengthM, (lap - 1) * _course.LapLengthM + _course.SegmentBoundariesM[index + 1]);
+            if (boundary > _totalM) break;
+
+            var crossing = History.TimeAt(boundary);
+            if (crossing is { } end && previous is { } start)
+            {
+                var time = end - start;
+                if (!_emitted.TryGetValue((lap, index), out var reported) || reported != time)
+                {
+                    _emitted[(lap, index)] = time;
+                    (changed ??= new List<SegmentCompletion>()).Add(new SegmentCompletion(lap, index, time));
+                }
+            }
+            previous = crossing;
+        }
+        return changed ?? (IReadOnlyList<SegmentCompletion>)Array.Empty<SegmentCompletion>();
     }
 
     /// <summary>Raises or clears the SOS alarm. It is shown from the moment it is set, even before any fix.</summary>
