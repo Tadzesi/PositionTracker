@@ -45,9 +45,17 @@ public sealed record SegmentCompletion(int Lap, int SegmentIndex, TimeSpan Time)
 /// <param name="EtaWindowFromM">Total distance at the start of that window, for the window's average grade.</param>
 /// <param name="LapsInferred">
 /// Whether whole laps were added after a signal gap on the expected advance alone (see
-/// <see cref="ParticipantTracker"/>), so the lap count may be wrong by a lap. Part of the fold: a late batch that fills
-/// the gap clears it on the replay. A finish reached by the fix that added inferred laps counts only once a later
-/// race fix confirms it (until then Finished is not shown, <c>TotalDistanceM</c> already is). Organizer-only.
+/// <see cref="ParticipantTracker"/>). The lap count is then a guess and can be wrong by a lap: a rider who stopped
+/// or slowed during the gap gets a false extra lap and is shown Finished a lap early; one who sped up misses a lap.
+/// This is not corrected (a real correction is planned for Plan 5); the flag only tells the organizer to check the
+/// rider. Part of the fold: a late batch that fills the gap clears it on the replay. Organizer-only.
+/// </param>
+/// <param name="LapsInferredAt">Time of the first fix whose match added inferred laps; <c>null</c> when none did.</param>
+/// <param name="FinishPending">
+/// The total reached the finish through the very fix that added inferred laps (a single fix after a gap jumping
+/// past the line) and no later race fix has confirmed it yet: the state is not Finished, <c>FinishTime</c> and the
+/// finish position are withheld and the last segment is not reported, while <c>TotalDistanceM</c> already shows the
+/// course length. It does not catch a false lap added earlier in the ride (see <paramref name="LapsInferred"/>).
 /// </param>
 public sealed record ParticipantSnapshot(
     DateTimeOffset? LastFixTime, double? LastLat, double? LastLon, double? LastAccuracyM,
@@ -56,7 +64,8 @@ public sealed record ParticipantSnapshot(
     TimeSpan MovingTime, TimeSpan StoppedTime, double AscentM, double DescentM, double GradePercent,
     ParticipantState State, DateTimeOffset? FinishTime, DateTimeOffset? StoppedSince, DateTimeOffset? OffCourseSince,
     DateTimeOffset? LastRaceFixTime = null, double? FinishLat = null, double? FinishLon = null,
-    double EtaSpeedMps = 0, double EtaWindowFromM = 0, bool LapsInferred = false);
+    double EtaSpeedMps = 0, double EtaWindowFromM = 0, bool LapsInferred = false,
+    DateTimeOffset? LapsInferredAt = null, bool FinishPending = false);
 
 /// <param name="Accepted">Whether the fix was new and passed the filter (see <see cref="ParticipantTracker.ApplyMany"/>).</param>
 public sealed record ApplyResult(ParticipantSnapshot Snapshot, IReadOnlyList<SegmentCompletion> Completed, bool Accepted);
@@ -79,9 +88,10 @@ public sealed record ApplyManyResult(ParticipantSnapshot Snapshot, IReadOnlyList
 /// <para>Matching keeps a lap counter and the matched lap progress (the position on the course). The
 /// lap counter steps up or down whenever the position crosses the start/finish seam in either direction,
 /// so jitter across the line cancels out. After a signal gap long enough to hide whole laps the number of
-/// laps is chosen from the expected advance (see <c>WholeLaps</c>); when that adds laps no fix observed, the snapshot
-/// says so (<c>LapsInferred</c>), and a finish reached by that very fix needs a later race fix to count.
-/// Total distance is the high-water mark of that position,
+/// laps is chosen from the expected advance (see <c>WholeLaps</c>). On a loop shorter than about 2 km a rider whose
+/// speed through a long gap differs from the expectation gets a wrong lap count, which is not corrected later; when
+/// laps no fix observed were added, the snapshot says so (<c>LapsInferred</c>), and only a finish reached by that very
+/// fix waits for a later race fix (<c>FinishPending</c>). Total distance is the high-water mark of that position,
 /// clamped to the course length, and never decreases. Only matched fixes enter the history and the
 /// moving/stopped accounting, so an off-course stretch neither counts as stopped nor causes a speed spike.</para>
 /// <para>SOS, pause and DNF are state inputs, not fixes. They are kept outside the fold state and survive every
@@ -150,7 +160,7 @@ public sealed class ParticipantTracker
     private double _maxSpeedMps;
     private DateTimeOffset? _finishTime;
     private PositionFix? _finishFix;      // last accepted fix at or before _finishTime
-    private bool _lapsInferred;           // some lap count so far was chosen by WholeLaps, not observed
+    private DateTimeOffset? _firstInferenceAt;    // the first fix whose match added inferred laps (WholeLaps, not observed)
     private DateTimeOffset? _lastInferenceAt;     // the newest fix whose match added inferred laps
     private DateTimeOffset? _finishUnconfirmedAt; // that fix, when it also reached the finish, until a later race fix
     private DateTimeOffset? _offCourseSince; // first fix of the current run of accepted fixes the matcher placed off course
@@ -255,7 +265,8 @@ public sealed class ParticipantTracker
     /// the start/finish seam): boundary i of lap n lies at <c>(n-1)·LapLength + SegmentBoundaries[i+1]</c>.
     /// A segment's time runs from the previous boundary's interpolated crossing (the start time for the first
     /// segment) to its own; a segment whose start is not covered by the history (the first fix lies beyond it)
-    /// has no time.
+    /// has no time. The last segment of the race is held back while the finish is pending
+    /// (<see cref="ParticipantSnapshot.FinishPending"/>) and reported with the batch that confirms it.
     /// </summary>
     private IReadOnlyList<SegmentCompletion> ChangedCompletions()
     {
@@ -267,6 +278,7 @@ public sealed class ParticipantTracker
             int lap = k / segments + 1, index = k % segments;
             var boundary = Math.Min(_course.TotalLengthM, (lap - 1) * _course.LapLengthM + _course.SegmentBoundariesM[index + 1]);
             if (boundary > _totalM) break;
+            if (IsFinishPending && k == _course.Laps * segments - 1) break; // the finish segment waits for confirmation
 
             var crossing = History.TimeAt(boundary);
             if (crossing is { } end && previous is { } start)
@@ -295,9 +307,11 @@ public sealed class ParticipantTracker
     /// A switch repeating the state set by the switch before it in that order (pausing while paused) is dropped, so a
     /// device repeating an action does not grow the list. The state in force is judged at the time of the call, and a
     /// dropped switch is not revived when an earlier switch of the opposite state arrives later (pause 10:00, pause
-    /// 10:05, then resume 10:02 leaves the rider running from 10:02), so order independence holds only up to such
-    /// late opposite switches. <see cref="Runtime.EventRuntime"/> records every switch at its clock's current time,
-    /// which only moves forward, so they do not arise there.
+    /// 10:05, then resume 10:02 leaves the rider running from 10:02, where in time order it would be paused again
+    /// from 10:05). So setter calls with out-of-order times can make a dropped duplicate matter, and the result then
+    /// depends on the call order. <see cref="Runtime.EventRuntime"/> passes its clock's current time, which is
+    /// non-decreasing for the time providers in use (system UTC clock, test and simulation clocks); a wall-clock step
+    /// back (NTP correction) could still reorder two switches.
     /// </summary>
     public void SetPaused(DateTimeOffset at, bool paused)
     {
@@ -358,16 +372,19 @@ public sealed class ParticipantTracker
             IsFinished ? _finishTime : null, stoppedSince, offCourseSince,
             last?.Time, finish?.Lat, finish?.Lon,
             Math.Min(etaSpeed, _options.Filter.MaxSpeedMps), etaFromM,
-            _lapsInferred);
+            _firstInferenceAt is not null, _firstInferenceAt, IsFinishPending);
     }
 
     /// <summary>
     /// The finish line was reached, and, if the fix that reached it did so through laps added by
     /// <see cref="WholeLaps"/> (a single fix after a gap jumping past the line), an accepted race fix newer than that
-    /// fix confirms it. Until then the finish is pending: the total already shows the course length, but the state,
-    /// <c>FinishTime</c> and the finish position are withheld.
+    /// fix confirmed it. Until then the finish is pending (<see cref="IsFinishPending"/>). A false lap inferred by an
+    /// earlier fix is not caught: that rider reaches the line a lap early by an ordinary fix and is Finished.
     /// </summary>
     private bool IsFinished => _finishTime is not null && _finishUnconfirmedAt is null;
+
+    /// <summary>See <see cref="ParticipantSnapshot.FinishPending"/>.</summary>
+    private bool IsFinishPending => _finishTime is not null && _finishUnconfirmedAt is not null;
 
     /// <summary>
     /// The state by display priority Dnf > Finished > Sos > Offline > Delayed > OffCourse > Stopped > Live.
@@ -494,7 +511,7 @@ public sealed class ParticipantTracker
         _maxSpeedMps = 0;
         _finishTime = null;
         _finishFix = null;
-        _lapsInferred = false;
+        _firstInferenceAt = null;
         _lastInferenceAt = null;
         _finishUnconfirmedAt = null;
         _offCourseSince = null;
@@ -633,7 +650,7 @@ public sealed class ParticipantTracker
         _totalM = Math.Clamp(Math.Max(_totalM, Position), 0, _course.TotalLengthM);
         if (inferred)
         {
-            _lapsInferred = true;
+            _firstInferenceAt ??= time;
             _lastInferenceAt = time;
         }
         _observedPositionM = Position;

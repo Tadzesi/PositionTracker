@@ -2,8 +2,12 @@ using System.Text.Json.Serialization;
 
 namespace PositionTracker.Core.Runtime;
 
-/// <summary>Alarm kinds; <see cref="LowBattery"/> is raised below 20 % (not at 20 %).</summary>
-public enum AlarmKind { Sos, Stopped, OffCourse, Offline, LowBattery }
+/// <summary>
+/// Alarm kinds; <see cref="LowBattery"/> is raised below 20 % (not at 20 %). <see cref="LapsInferred"/>: the lap count
+/// was guessed after a signal gap and may be wrong by a lap (<see cref="ParticipantSnapshot.LapsInferred"/>); it stays
+/// raised for the rest of the event, also after Finished or DNF, so the organizer checks the rider.
+/// </summary>
+public enum AlarmKind { Sos, Stopped, OffCourse, Offline, LowBattery, LapsInferred }
 
 public sealed record Alarm(AlarmKind Kind, DateTimeOffset Since);
 
@@ -16,7 +20,8 @@ public sealed record SegmentResult(int Lap, int SegmentIndex, TimeSpan Time, Seg
 /// <param name="FinishLon">See <paramref name="FinishLat"/>.</param>
 /// <param name="LapsInferred">
 /// Organizer flag: laps were counted after a signal gap from the expected advance, not observed, so the lap count
-/// may be off by a lap (<see cref="ParticipantSnapshot.LapsInferred"/>). Not part of the spectator view.
+/// may be off by a lap and a Finished state may come a lap early (<see cref="ParticipantSnapshot.LapsInferred"/>);
+/// also raised as <see cref="AlarmKind.LapsInferred"/>. Not part of the spectator view.
 /// </param>
 /// <param name="LastRaceFixTime">
 /// The newest accepted fix at or after the start (<c>null</c> while there is only warm-up); not serialized, it lets

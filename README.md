@@ -2,7 +2,7 @@
 
 Live position tracking for cycling and running events. Participants' phones send GPS fixes; the back end
 matches them onto the course (laps, checkpoints, shared roads), computes distance, speed, ranking, time gaps,
-segment colours, ETA and safety alarms (SOS, stopped, off course, offline, low battery), and broadcasts an
+segment colours, ETA and organizer alarms (SOS, stopped, off course, offline, low battery, laps inferred), and broadcasts an
 organizer view and a delayed, privacy-reduced spectator view.
 
 This repository currently holds the core tracking engine and its HTTP/SignalR back end (Plan 1):
@@ -107,6 +107,9 @@ event and participant (in Plan 1 only the demo simulator issues them).
   until the window ends) and nothing of it, neither fixes nor `status`, is applied. The client keeps the batch
   and resends it after `Retry-After`; since a batch holds at most 500 fixes, it always fits a fresh window. A
   70-minute backlog (840 fixes at 5 s) therefore goes through in two windows.
+- The fix-budget `429` (problem details naming the 600 fixes per minute) is distinct from the request-limit
+  `429` (60 requests per minute); both carry `Retry-After`. Budget taken by a request that then fails with `500`
+  is not refunded.
 
 `POST /api/events/{eventId}/actions` with `{"action": "sos" | "sosCleared" | "pause" | "resume" | "dnf"}`:
 `204`, same authentication and status codes.
@@ -130,17 +133,22 @@ lose signal (fixes queued) from 30 to 34 min.
 
 ## Rulings that bind later plans
 
-- Alarm acknowledgement must be keyed on (participantId, Kind), not on `Since`.
+- Alarm acknowledgement must be keyed on (participantId, Kind), not on `Since`; each kind (including
+  `LapsInferred`) appears at most once per participant.
 - Any future change of participant info (consent, nickname, ...) MUST bump `EventRuntime.ParticipantsVersion`:
   the spectator projection is cached on it, so a missed bump is a privacy leak.
 - Non-simulated events must be created with `EventSettings.Create`, which accepts a `SpectatorDelay` from 5 s to
   300 s (`ArgumentOutOfRangeException` otherwise); the unvalidated primary constructor is for tests and the demo
   simulator.
 - Participant info changes go through `EventRuntime.UpdateParticipant`, which bumps `ParticipantsVersion`.
-- After a signal gap on a short loop the lap count may be inferred from the expected advance; the organizer view
-  then shows `lapsInferred: true` (not visible to spectators). A finish reached by the fix that added such a lap is
-  shown as Finished only after a later fix confirms it; until then the organizer sees the inferred distance and the
-  normal state chain (Live, Offline, ...). The flag does not detect a lap that was wrongly not added.
+- Known limitation: after a long signal gap on a loop shorter than about 2 km the lap count can be wrong. The
+  laps ridden unseen are guessed from the expected speed; a rider who stopped or slowed during the gap gets a false
+  extra lap and is shown Finished a lap early, one who sped up misses a lap and never finishes. This is not
+  corrected; a real correction is planned (Plan 5 pilot item). When laps were guessed, the organizer view shows
+  `lapsInferred: true` and a `lapsInferred` alarm (since the fix that guessed them; it stays raised after Finished,
+  never shown to spectators) so the organizer checks the rider. Only when the very fix that guessed the lap
+  reaches the finish is the finish held back until a later fix confirms it (ETA null, no last segment time); a
+  false lap guessed earlier is not caught. A lap wrongly not added raises no alarm.
 - `HasParticipant` check-then-act in the ingest endpoint assumes participants are never removed.
 - The client must drop a batch on HTTP 400.
 - Configuration must be read via options (`IOptions<T>`), not ad hoc.

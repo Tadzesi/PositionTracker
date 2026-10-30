@@ -39,7 +39,7 @@ public sealed class FixRateLimiter(TimeProvider clock)
                 window = (now, 0);
             if (window.Used + requested > FixesPerMinute)
             {
-                _windows[key] = window;
+                // Only a running window can refuse (a fresh one fits any batch), and it is already stored.
                 retryAfter = window.Start + Window - now;
                 return false;
             }

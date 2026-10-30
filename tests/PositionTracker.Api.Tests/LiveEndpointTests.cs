@@ -213,6 +213,28 @@ public class LiveEndpointTests(ApiFactory shared) : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task UpdateParticipant_nickname_is_visible_on_public_at_the_next_tick()
+    {
+        using var factory = new ApiFactory();
+        factory.Settings["Live:IntervalMs"] = "3600000"; // ticks are driven by the test
+        var broadcaster = factory.Services.GetRequiredService<LiveBroadcaster>();
+        using var client = factory.CreateClient();
+        string? NameOf(JsonElement view) => view.GetProperty("participants").EnumerateArray()
+            .Single(r => r.GetProperty("participantId").GetString() == ApiFactory.Participant1)
+            .GetProperty("displayName").GetString();
+
+        await broadcaster.BroadcastAsync();
+        factory.Clock.Advance(TimeSpan.FromSeconds(31));
+        Assert.Equal("Rider One", NameOf(await ReadJson(await client.GetAsync(PublicUrl))));
+
+        factory.Event.UpdateParticipant(new ParticipantInfo(ApiFactory.Participant1, "1", "Rider One", "Rocket", "Open", true, false));
+        await broadcaster.BroadcastAsync();
+        factory.Clock.Advance(TimeSpan.FromSeconds(1));
+
+        Assert.Equal("Rocket", NameOf(await ReadJson(await client.GetAsync(PublicUrl))));
+    }
+
+    [Fact]
     public async Task Failing_event_does_not_stop_the_broadcast_for_other_events()
     {
         using var factory = new ApiFactory();

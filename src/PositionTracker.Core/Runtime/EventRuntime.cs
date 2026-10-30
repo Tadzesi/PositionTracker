@@ -12,7 +12,10 @@ namespace PositionTracker.Core.Runtime;
 /// after finishing or DNF is still real), Stopped and OffCourse from the snapshot's
 /// <see cref="ParticipantSnapshot.StoppedSince"/> and <see cref="ParticipantSnapshot.OffCourseSince"/>, Offline
 /// from the newest fix plus <see cref="TrackerOptions.OfflineAfter"/>, LowBattery from the first ingest that
-/// reported under 20 %. Stopped, OffCourse and Offline follow the shown state.
+/// reported under 20 %, LapsInferred from <see cref="ParticipantSnapshot.LapsInferredAt"/> (raised whatever state
+/// is shown, including Finished, since that finish may be a lap early). Stopped, OffCourse and Offline follow the
+/// shown state. Each kind appears at most once per participant, so (participant, kind) identifies an alarm.
+/// The ETA is null while a finish is pending (<see cref="ParticipantSnapshot.FinishPending"/>).
 /// </remarks>
 public sealed class EventRuntime
 {
@@ -202,7 +205,7 @@ public sealed class EventRuntime
         // line while the total (a high-water mark) is already in the next lap.
         var lap = Math.Clamp((int)Math.Floor(s.TotalDistanceM / Course.LapLengthM) + 1, 1, Course.Laps);
         var lapProgress = s.TotalDistanceM - (lap - 1) * Course.LapLengthM;
-        var eta = s.State is ParticipantState.Finished or ParticipantState.Dnf
+        var eta = s.State is ParticipantState.Finished or ParticipantState.Dnf || s.FinishPending
             ? null
             : EtaEstimator.Estimate(Course, Settings.Sport, s, now);
         var segments = entry.Completions
@@ -243,6 +246,7 @@ public sealed class EventRuntime
         }
         if (entry.Status?.BatteryPct < LowBatteryBelowPct)
             alarms.Add(new Alarm(AlarmKind.LowBattery, entry.LowBatterySince ?? now));
+        if (s.LapsInferredAt is { } inferredAt) alarms.Add(new Alarm(AlarmKind.LapsInferred, inferredAt));
         return alarms;
     }
 
