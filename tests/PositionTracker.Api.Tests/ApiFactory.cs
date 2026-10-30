@@ -1,0 +1,87 @@
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Time.Testing;
+using PositionTracker.Api.Auth;
+using PositionTracker.Api.Events;
+using PositionTracker.Core;
+using PositionTracker.Core.Runtime;
+using PositionTracker.Core.Simulation;
+
+namespace PositionTracker.Api.Tests;
+
+/// <summary>
+/// Test host with a <see cref="FakeTimeProvider"/>, the organizer key <c>test-key</c> and a seeded cycling event
+/// (<see cref="EventId"/>, one lap of the 12.5 km demo loop starting at <see cref="T0"/>) with participants
+/// <see cref="Participant1"/> and <see cref="Participant2"/> and their tokens. Change <see cref="Settings"/>
+/// before the first use of the factory to override configuration.
+/// </summary>
+public sealed class ApiFactory : WebApplicationFactory<Program>
+{
+    public static readonly DateTimeOffset T0 = new(2026, 11, 7, 10, 0, 0, TimeSpan.Zero);
+    public const string EventId = "evt-test";
+    public const string Participant1 = "p1";
+    public const string Participant2 = "p2";
+
+    private string? _token1;
+    private string? _token2;
+
+    public FakeTimeProvider Clock { get; } = new(T0);
+
+    public string OrganizerKey => "test-key";
+
+    /// <summary>Configuration overrides applied on top of the app's settings when the host is built.</summary>
+    public Dictionary<string, string?> Settings { get; } = new() { ["Organizer:ApiKey"] = "test-key" };
+
+    public EventRegistry Registry => Services.GetRequiredService<EventRegistry>();
+
+    public TokenService Tokens => Services.GetRequiredService<TokenService>();
+
+    public EventRuntime Event => Registry.Get(EventId)!;
+
+    public string Token1 => EnsureStarted(ref _token1);
+
+    public string Token2 => EnsureStarted(ref _token2);
+
+    public HttpClient CreateClient(string token)
+    {
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", token);
+        return client;
+    }
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(Settings));
+        builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<TimeProvider>();
+            services.AddSingleton<TimeProvider>(Clock);
+        });
+    }
+
+    protected override IHost CreateHost(IHostBuilder builder)
+    {
+        var host = base.CreateHost(builder);
+        var registry = host.Services.GetRequiredService<EventRegistry>();
+        var tokens = host.Services.GetRequiredService<TokenService>();
+        var settings = new EventSettings(EventId, "Test Ride", Sport.Cycling, T0, TimeSpan.FromSeconds(30), false,
+            TrackerOptions.Defaults(Sport.Cycling));
+        var runtime = registry.Add(new EventRuntime(settings, Course.Create(DemoCourses.Loop(), 1), Clock));
+        runtime.AddParticipant(new ParticipantInfo(Participant1, "1", "Rider One", null, "Open", true, false));
+        runtime.AddParticipant(new ParticipantInfo(Participant2, "2", "Rider Two", null, "Open", true, false));
+        _token1 = tokens.Issue(EventId, Participant1);
+        _token2 = tokens.Issue(EventId, Participant2);
+        return host;
+    }
+
+    private string EnsureStarted(ref string? token)
+    {
+        _ = Services;
+        return token!;
+    }
+}
