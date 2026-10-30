@@ -44,6 +44,9 @@ public sealed record ApplyResult(ParticipantSnapshot Snapshot, IReadOnlyList<Seg
 /// so jitter across the line cancels out. Total distance is the high-water mark of that position,
 /// clamped to the course length, and never decreases. Only matched fixes enter the history and the
 /// moving/stopped accounting, so an off-course stretch neither counts as stopped nor causes a speed spike.</para>
+/// <para>SOS, pause and DNF are state inputs, not fixes. They are kept outside the fold state and survive every
+/// replay. Pauses are stored as time intervals and excluded from moving and stopped time, so changing them
+/// replays the fixes. The snapshot state is a pure function of the stored fixes, these inputs and <c>now</c>.</para>
 /// </remarks>
 public sealed class ParticipantTracker
 {
@@ -64,6 +67,12 @@ public sealed class ParticipantTracker
     private readonly TrackerOptions _options;
     private readonly List<PositionFix> _fixes = new(); // sorted by FixOrder
 
+    // State inputs from the setters, not fixes: they survive Reset() and every replay.
+    private readonly List<(DateTimeOffset At, bool Paused)> _pauseSwitches = new(); // sorted
+    private readonly List<(DateTimeOffset Start, DateTimeOffset End)> _pauses = new(); // disjoint, sorted; open end = MaxValue
+    private bool _sos;
+    private DateTimeOffset? _dnfAt;
+
     // Fold state; Reset() restores it before a replay.
     private PositionFix? _lastFix;       // newest fix shown to callers, including warm-up before the start
     private PositionFix? _lastAccepted;  // newest fix at or after the start that passed the filter
@@ -77,6 +86,7 @@ public sealed class ParticipantTracker
     private TimeSpan _stoppedTime;
     private double _maxSpeedMps;
     private DateTimeOffset? _finishTime;
+    private DateTimeOffset? _offCourseSince; // first fix of the current run of unmatched accepted fixes
 
     public ParticipantTracker(Course course, Sport sport, DateTimeOffset startTime, TrackerOptions? options = null)
     {
@@ -110,6 +120,38 @@ public sealed class ParticipantTracker
         return new ApplyResult(GetSnapshot(_lastAccepted?.Time ?? _startTime), Array.Empty<SegmentCompletion>());
     }
 
+    /// <summary>Raises or clears the SOS alarm. It is shown from the moment it is set, even before any fix.</summary>
+    public void SetSos(bool on) => _sos = on;
+
+    /// <summary>
+    /// Records a pause switch at <paramref name="at"/>. Switches may arrive in any order; they are kept sorted
+    /// (at equal times an unpause sorts before a pause) and a pause runs from the first pause switch to the next
+    /// unpause switch. Changing the pauses replays the fixes, because paused time is neither moving nor stopped time.
+    /// </summary>
+    public void SetPaused(DateTimeOffset at, bool paused)
+    {
+        var index = _pauseSwitches.BinarySearch((at, paused));
+        if (index >= 0) return;
+        _pauseSwitches.Insert(~index, (at, paused));
+
+        _pauses.Clear();
+        DateTimeOffset? start = null;
+        foreach (var (time, on) in _pauseSwitches)
+        {
+            if (on) start ??= time;
+            else if (start is { } s)
+            {
+                _pauses.Add((s, time));
+                start = null;
+            }
+        }
+        if (start is { } open) _pauses.Add((open, DateTimeOffset.MaxValue));
+        Replay();
+    }
+
+    /// <summary>Marks the participant as DNF from <paramref name="at"/> on; the earliest mark wins.</summary>
+    public void MarkDnf(DateTimeOffset at) => _dnfAt = _dnfAt < at ? _dnfAt : at;
+
     /// <summary>Snapshot of the current state. Speeds are evaluated at the newest accepted fix.</summary>
     public ParticipantSnapshot GetSnapshot(DateTimeOffset now)
     {
@@ -130,9 +172,74 @@ public sealed class ParticipantTracker
             speed, movingSpeed, avgSpeed, _maxSpeedMps, pace,
             _movingTime, _stoppedTime,
             _course.AscentUpTo(_totalM), _course.DescentUpTo(_totalM), _course.GradePercentAt(lapProgress),
-            last is null ? ParticipantState.NotStarted : ParticipantState.Live,
+            StateAt(now),
             _finishTime);
     }
+
+    /// <summary>
+    /// The state by display priority Dnf > Finished > Sos > Offline > Delayed > OffCourse > Stopped > Live.
+    /// Without an accepted race fix the participant is NotStarted, unless DNF or SOS apply. Silence is measured
+    /// from the newest accepted fix to <paramref name="now"/> and is Delayed/Offline only when it is strictly
+    /// longer than the threshold ("within 15 s" is Live, "over 2 min" is Offline). Off course and stopped are
+    /// judged at the newest accepted fix, since either silence state outranks them.
+    /// </summary>
+    private ParticipantState StateAt(DateTimeOffset now)
+    {
+        if (_dnfAt <= now) return ParticipantState.Dnf;
+        if (_finishTime is not null) return ParticipantState.Finished;
+        if (_sos) return ParticipantState.Sos;
+        if (_lastAccepted is not { } last) return ParticipantState.NotStarted;
+
+        var silence = now - last.Time;
+        if (silence > _options.OfflineAfter) return ParticipantState.Offline;
+        if (silence > _options.DelayedAfter) return ParticipantState.Delayed;
+        if (last.Time - _offCourseSince > _options.OffCourseDebounce) return ParticipantState.OffCourse;
+        if (!IsPausedAt(now) && IsStopped(last.Time)) return ParticipantState.Stopped;
+        return ParticipantState.Live;
+    }
+
+    /// <summary>
+    /// Stopped: over the last <c>StoppedAfter</c> of unpaused time before <paramref name="until"/> the total
+    /// grew by less than <c>StoppedSpeedMps × StoppedAfter</c> (an average under the speed threshold). The
+    /// window starts at the last history point at or before its start, so it needs a matched fix that old.
+    /// Comparing totals, not per-interval speeds, keeps GPS jitter (the total is a high-water mark) and
+    /// unmatched or rejected fixes in between (they leave the total unchanged) from resetting the stop.
+    /// </summary>
+    private bool IsStopped(DateTimeOffset until) =>
+        History.DistanceAtOrBefore(UnpausedWindowStart(until, _options.StoppedAfter)) is { } from
+        && _totalM - from < _options.StoppedSpeedMps * _options.StoppedAfter.TotalSeconds;
+
+    /// <summary>The time from which the span up to <paramref name="end"/> holds <paramref name="length"/> of unpaused time.</summary>
+    private DateTimeOffset UnpausedWindowStart(DateTimeOffset end, TimeSpan length)
+    {
+        var cursor = end;
+        for (var i = _pauses.Count - 1; i >= 0; i--)
+        {
+            var (start, stop) = _pauses[i];
+            if (start >= cursor) continue;
+            if (stop < cursor)
+            {
+                if (cursor - stop >= length) break;
+                length -= cursor - stop;
+            }
+            cursor = start;
+        }
+        return cursor - length;
+    }
+
+    private TimeSpan PausedWithin(DateTimeOffset from, DateTimeOffset to)
+    {
+        var total = TimeSpan.Zero;
+        foreach (var (start, stop) in _pauses)
+        {
+            var a = start > from ? start : from;
+            var b = stop < to ? stop : to;
+            if (b > a) total += b - a;
+        }
+        return total;
+    }
+
+    private bool IsPausedAt(DateTimeOffset time) => _pauses.Exists(p => p.Start <= time && time < p.End);
 
     /// <summary>Rejects malformed input before the filter (which accepts any first fix) and fixes failing the accuracy limit.</summary>
     private bool IsStorable(PositionFix fix) =>
@@ -160,6 +267,7 @@ public sealed class ParticipantTracker
         _stoppedTime = TimeSpan.Zero;
         _maxSpeedMps = 0;
         _finishTime = null;
+        _offCourseSince = null;
         History.Clear();
     }
 
@@ -178,18 +286,26 @@ public sealed class ParticipantTracker
         _lastFix = _lastAccepted = fix;
         var previous = History.Last;
 
+        // A matched fix is within OffCourseM of the course, so "unmatched" covers "over the threshold".
         _lastAcceptedMatched = Locate(fix);
-        if (!_lastAcceptedMatched) return;
+        if (!_lastAcceptedMatched)
+        {
+            _offCourseSince ??= fix.Time;
+            return;
+        }
+        _offCourseSince = null;
 
         History.Add(fix.Time, _totalM);
         if (_finishTime is null && _totalM >= _course.TotalLengthM) _finishTime = fix.Time;
 
         // Only between consecutive matched fixes; the filter rejects equal timestamps, so dt > 0.
+        // The interval is classified by its whole progress speed; only its unpaused part is counted.
         if (previousMatched && previous is { } p && fix.Time > p.Time)
         {
             var dt = fix.Time - p.Time;
-            if ((_totalM - p.DistanceM) / dt.TotalSeconds >= _options.StoppedSpeedMps) _movingTime += dt;
-            else _stoppedTime += dt;
+            var counted = dt - PausedWithin(p.Time, fix.Time);
+            if ((_totalM - p.DistanceM) / dt.TotalSeconds >= _options.StoppedSpeedMps) _movingTime += counted;
+            else _stoppedTime += counted;
         }
         _maxSpeedMps = Math.Max(_maxSpeedMps, SpeedAt(fix.Time, _options.SpeedWindow));
     }

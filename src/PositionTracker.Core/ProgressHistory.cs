@@ -74,6 +74,14 @@ public sealed class ProgressHistory
         return dt > 0 ? (_distances[last] - _distances[first]) / dt : 0;
     }
 
+    /// <summary>Distance of the last point at or before <paramref name="time"/>; <c>null</c> if there is none.</summary>
+    internal double? DistanceAtOrBefore(DateTimeOffset time)
+    {
+        var i = FirstTimeIndexAtOrAfter(time);
+        if (i < _times.Count && _times[i] == time) i++;
+        return i == 0 ? null : _distances[i - 1];
+    }
+
     internal void Clear()
     {
         _times.Clear();
