@@ -222,6 +222,175 @@ public class EventRuntimeTests
         Assert.Equal(Json(expected), Json(late.BuildLiveView()));
     }
 
+    /// <summary>Fixes every 5 s standing at <paramref name="totalM"/> from <paramref name="fromS"/> to <paramref name="toS"/> seconds.</summary>
+    private static IEnumerable<PositionFix> Stand(double totalM, int fromS, int toS)
+    {
+        for (var s = fromS; s <= toS; s += 5) yield return FixAt(totalM, T0.AddSeconds(s));
+    }
+
+    /// <summary>Fixes every 5 s riding at 8 m/s from <paramref name="fromM"/>, starting at <paramref name="fromS"/>.</summary>
+    private static IEnumerable<PositionFix> RideOn(double fromM, int fromS, int toS)
+    {
+        for (var s = fromS; s <= toS; s += 5) yield return FixAt(fromM + 8 * (s - fromS), T0.AddSeconds(s));
+    }
+
+    private static PositionFix North(double totalM, double northM, int atS)
+    {
+        var f = FixAt(totalM, T0.AddSeconds(atS));
+        return f with { Lat = f.Lat + northM / 111_195 };
+    }
+
+    /// <summary>
+    /// 8 m/s to 800 m at T0 + 100 s, then north off the first (east-running) edge at 8 m/s to 200 m (off course
+    /// over 100 m from T0 + 115 s), then standing there every 5 s up to <paramref name="toS"/>.
+    /// </summary>
+    private static List<PositionFix> RideOffCourse(int toS)
+    {
+        var fixes = Ride(8, 100);
+        for (var k = 1; k <= 5; k++) fixes.Add(North(800, 40 * k, 100 + 5 * k));
+        for (var s = 130; s <= toS; s += 5) fixes.Add(North(800, 200, s));
+        return fixes;
+    }
+
+    private static Alarm SingleAlarm(EventRuntime runtime, string id, AlarmKind kind) =>
+        Assert.Single(View(runtime, id).Alarms, a => a.Kind == kind);
+
+    [Fact]
+    public void Stopped_alarm_since_is_stable_across_views_and_clears_when_moving_again()
+    {
+        var (runtime, clock) = Create("a");
+        runtime.Ingest("a", Batch(Ride(8, 100).Concat(Stand(800, 105, 400)))); // stops at T0 + 100 s
+        clock.SetUtcNow(T0.AddSeconds(400));
+        var first = SingleAlarm(runtime, "a", AlarmKind.Stopped);
+
+        runtime.Ingest("a", Batch(Stand(800, 405, 760)));
+        clock.SetUtcNow(T0.AddSeconds(760)); // 6 minutes later
+        var view = View(runtime, "a");
+        var second = Assert.Single(view.Alarms);
+
+        Assert.Equal(ParticipantState.Stopped, view.State);
+        Assert.Equal(new Alarm(AlarmKind.Stopped, T0.AddSeconds(100)), first);
+        Assert.Equal(first, second);
+        Assert.Equal(TimeSpan.FromSeconds(660), clock.GetUtcNow() - second.Since);
+
+        runtime.Ingest("a", Batch(RideOn(800, 765, 820)));
+        clock.SetUtcNow(T0.AddSeconds(820));
+        var moving = View(runtime, "a");
+        Assert.Equal(ParticipantState.Live, moving.State);
+        Assert.Empty(moving.Alarms);
+    }
+
+    [Fact]
+    public void OffCourse_alarm_since_is_the_start_of_the_off_course_run_and_clears_on_return()
+    {
+        var (runtime, clock) = Create("a");
+        runtime.Ingest("a", Batch(RideOffCourse(160)));
+        clock.SetUtcNow(T0.AddSeconds(160));
+        var first = SingleAlarm(runtime, "a", AlarmKind.OffCourse);
+
+        runtime.Ingest("a", Batch(Enumerable.Range(0, 72).Select(i => North(800, 200, 165 + 5 * i)))); // to T0 + 520 s
+        clock.SetUtcNow(T0.AddSeconds(520));
+        var view = View(runtime, "a");
+        var second = Assert.Single(view.Alarms);
+
+        // The first fix over 100 m off (T0 + 115 s), not the moment the 15 s debounce elapsed.
+        Assert.Equal(ParticipantState.OffCourse, view.State);
+        Assert.Equal(new Alarm(AlarmKind.OffCourse, T0.AddSeconds(115)), first);
+        Assert.Equal(first, second);
+
+        var back = Enumerable.Range(1, 5).Select(k => North(800, 200 - 40 * k, 520 + 5 * k)) // on course at T0 + 545 s
+            .Concat(RideOn(800, 550, 610));
+        runtime.Ingest("a", Batch(back));
+        clock.SetUtcNow(T0.AddSeconds(610));
+        var returned = View(runtime, "a");
+        Assert.Equal(ParticipantState.Live, returned.State);
+        Assert.Empty(returned.Alarms);
+    }
+
+    [Fact]
+    public void Late_batch_gives_the_same_alarm_since_as_ordered_input()
+    {
+        var stopper = Ride(8, 100).Concat(Stand(800, 105, 400)).ToList();
+        var wanderer = RideOffCourse(400);
+
+        var (ordered, orderedClock) = Create("stop", "off");
+        ordered.Ingest("stop", Batch(stopper.Take(40)));
+        ordered.Ingest("stop", Batch(stopper.Skip(40)));
+        ordered.Ingest("off", Batch(wanderer.Take(25)));
+        ordered.Ingest("off", Batch(wanderer.Skip(25)));
+        orderedClock.SetUtcNow(T0.AddSeconds(400));
+
+        var (late, lateClock) = Create("stop", "off");
+        late.Ingest("stop", Batch(stopper.Skip(40)));
+        late.Ingest("stop", Batch(stopper.Take(40)));
+        late.Ingest("off", Batch(wanderer.Skip(25)));
+        late.Ingest("off", Batch(wanderer.Take(25)));
+        lateClock.SetUtcNow(T0.AddSeconds(400));
+
+        Assert.Equal(new Alarm(AlarmKind.Stopped, T0.AddSeconds(100)), SingleAlarm(late, "stop", AlarmKind.Stopped));
+        Assert.Equal(new Alarm(AlarmKind.OffCourse, T0.AddSeconds(115)), SingleAlarm(late, "off", AlarmKind.OffCourse));
+        Assert.Equal(Json(ordered.BuildLiveView()), Json(late.BuildLiveView()));
+    }
+
+    [Fact]
+    public void Late_backlog_of_120_fixes_gives_the_same_live_view_as_ordered_input()
+    {
+        var fixes = Ride(8, 4_000); // 801 fixes, crosses laps and checkpoints
+        var backlog = fixes.Skip(400).Take(120).ToList();
+
+        var (ordered, orderedClock) = Create("a");
+        ordered.Ingest("a", Batch(fixes));
+        orderedClock.SetUtcNow(T0.AddSeconds(4_000));
+
+        var (late, lateClock) = Create("a");
+        Assert.Equal(new IngestResult(681, 0), late.Ingest("a", Batch(fixes.Except(backlog))));
+        Assert.Equal(new IngestResult(120, 0), late.Ingest("a", Batch(backlog)));
+        lateClock.SetUtcNow(T0.AddSeconds(4_000));
+
+        Assert.Equal(Json(ordered.BuildLiveView()), Json(late.BuildLiveView()));
+    }
+
+    [Fact]
+    public void Sos_after_finish_raises_Sos_alarm_while_state_stays_Finished()
+    {
+        var (runtime, clock) = Create("a");
+        runtime.Ingest("a", Batch(Ride(8, 4_700))); // 37 600 m, past the 37 500 m finish
+        clock.SetUtcNow(T0.AddSeconds(4_700));
+        Assert.Equal(ParticipantState.Finished, View(runtime, "a").State);
+
+        runtime.Act("a", ParticipantAction.Sos);
+        var view = View(runtime, "a");
+
+        Assert.Equal(ParticipantState.Finished, view.State);
+        Assert.Equal(new[] { new Alarm(AlarmKind.Sos, T0.AddSeconds(4_700)) }, view.Alarms);
+    }
+
+    [Fact]
+    public void Pause_suppresses_Stopped_and_Resume_lets_it_return_counting_unpaused_time_only()
+    {
+        var (runtime, clock) = Create("a");
+        runtime.Ingest("a", Batch(Ride(8, 100)));
+        clock.SetUtcNow(T0.AddSeconds(100));
+        runtime.Act("a", ParticipantAction.Pause);
+
+        runtime.Ingest("a", Batch(Stand(800, 105, 400)));
+        clock.SetUtcNow(T0.AddSeconds(400));
+        var paused = View(runtime, "a");
+        Assert.Equal(ParticipantState.Live, paused.State);
+        Assert.Empty(paused.Alarms);
+
+        runtime.Act("a", ParticipantAction.Resume);
+        runtime.Ingest("a", Batch(Stand(800, 405, 500)));
+        clock.SetUtcNow(T0.AddSeconds(500));
+        Assert.Equal(ParticipantState.Live, View(runtime, "a").State); // 100 s unpaused standing so far
+
+        runtime.Ingest("a", Batch(Stand(800, 505, 590)));
+        clock.SetUtcNow(T0.AddSeconds(590));
+        var stopped = View(runtime, "a");
+        Assert.Equal(ParticipantState.Stopped, stopped.State);
+        Assert.Equal(new[] { new Alarm(AlarmKind.Stopped, T0.AddSeconds(400)) }, stopped.Alarms);
+    }
+
     [Fact]
     public void Parallel_ingest_on_different_participants_does_not_corrupt_state()
     {

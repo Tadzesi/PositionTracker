@@ -7,10 +7,12 @@ namespace PositionTracker.Core.Runtime;
 /// <remarks>
 /// Views are built from <see cref="ParticipantTracker.GetSnapshot"/> at the clock's current time, never from
 /// the snapshot returned by <see cref="ParticipantTracker.Apply"/> (that one is taken at the newest fix and
-/// misses later silence or DNF). <see cref="Alarm.Since"/> is the time the alarm condition began where the
-/// runtime knows it: SOS from the <see cref="ParticipantAction.Sos"/> action, Offline from the newest fix plus
-/// <see cref="TrackerOptions.OfflineAfter"/>, LowBattery from the first ingest that reported under 20 %.
-/// Stopped and OffCourse start times are not exposed by the tracker, so they use the view time.
+/// misses later silence or DNF). <see cref="Alarm.Since"/> is the time the alarm condition began, stable across
+/// views: SOS from the <see cref="ParticipantAction.Sos"/> action (raised whatever state is shown, since an SOS
+/// after finishing or DNF is still real), Stopped and OffCourse from the snapshot's
+/// <see cref="ParticipantSnapshot.StoppedSince"/> and <see cref="ParticipantSnapshot.OffCourseSince"/>, Offline
+/// from the newest fix plus <see cref="TrackerOptions.OfflineAfter"/>, LowBattery from the first ingest that
+/// reported under 20 %. Stopped, OffCourse and Offline follow the shown state.
 /// </remarks>
 public sealed class EventRuntime
 {
@@ -49,8 +51,10 @@ public sealed class EventRuntime
     }
 
     /// <summary>
-    /// Applies the batch's fixes in time order and stores its device status (a batch without status keeps
-    /// the previous one). Throws <see cref="KeyNotFoundException"/> for an unknown participant.
+    /// Applies the batch's fixes in time order with at most one replay and stores its device status. The status
+    /// is the device's state as of sending; it carries no timestamp, so the last batch to arrive wins, even if
+    /// it holds older fixes. A batch without status keeps the previous one. Throws
+    /// <see cref="KeyNotFoundException"/> for an unknown participant.
     /// </summary>
     public IngestResult Ingest(string participantId, PositionBatch batch)
     {
@@ -58,17 +62,11 @@ public sealed class EventRuntime
         lock (_lock)
         {
             var entry = Find(participantId);
-            int accepted = 0, rejected = 0;
-            foreach (var fix in batch.Fixes.OrderBy(f => f.Time))
+            var result = entry.Tracker.ApplyMany(batch.Fixes.OrderBy(f => f.Time).ToList());
+            foreach (var c in result.Completed)
             {
-                var result = entry.Tracker.Apply(fix);
-                if (result.Accepted) accepted++;
-                else rejected++;
-                foreach (var c in result.Completed)
-                {
-                    _board.Record(participantId, c.Lap, c.SegmentIndex, c.Time);
-                    entry.Completions[(c.Lap, c.SegmentIndex)] = c.Time;
-                }
+                _board.Record(participantId, c.Lap, c.SegmentIndex, c.Time);
+                entry.Completions[(c.Lap, c.SegmentIndex)] = c.Time;
             }
 
             if (batch.Status is { } status)
@@ -77,7 +75,7 @@ public sealed class EventRuntime
                 if (status.BatteryPct < LowBatteryBelowPct) entry.LowBatterySince ??= _clock.GetUtcNow();
                 else entry.LowBatterySince = null;
             }
-            return new IngestResult(accepted, rejected);
+            return new IngestResult(result.Accepted, result.Rejected);
         }
     }
 
@@ -167,16 +165,14 @@ public sealed class EventRuntime
     private List<Alarm> Alarms(Entry entry, ParticipantSnapshot s, DateTimeOffset now)
     {
         var alarms = new List<Alarm>();
+        if (entry.SosSince is { } sosSince) alarms.Add(new Alarm(AlarmKind.Sos, sosSince));
         switch (s.State)
         {
-            case ParticipantState.Sos:
-                alarms.Add(new Alarm(AlarmKind.Sos, entry.SosSince ?? now));
-                break;
             case ParticipantState.Stopped:
-                alarms.Add(new Alarm(AlarmKind.Stopped, now));
+                alarms.Add(new Alarm(AlarmKind.Stopped, s.StoppedSince ?? now));
                 break;
             case ParticipantState.OffCourse:
-                alarms.Add(new Alarm(AlarmKind.OffCourse, now));
+                alarms.Add(new Alarm(AlarmKind.OffCourse, s.OffCourseSince ?? now));
                 break;
             case ParticipantState.Offline:
                 alarms.Add(new Alarm(AlarmKind.Offline, s.LastFixTime + Settings.Tracker.OfflineAfter ?? now));

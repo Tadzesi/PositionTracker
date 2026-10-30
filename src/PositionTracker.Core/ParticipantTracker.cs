@@ -20,15 +20,28 @@ public enum ParticipantState { NotStarted, Live, Delayed, Offline, Stopped, OffC
 
 public sealed record SegmentCompletion(int Lap, int SegmentIndex, TimeSpan Time);
 
+/// <param name="StoppedSince">
+/// Set while the stopped condition holds (even when a higher-priority state is shown): the end of the newest
+/// matched interval at or above the stopped speed (the same per-interval rule as the moving/stopped time), or
+/// the first matched fix; moved forward to the end of a pause that ended later, since a pause suppresses Stopped.
+/// </param>
+/// <param name="OffCourseSince">
+/// Set while the debounced off-course condition holds (even when a higher-priority state is shown): the first
+/// fix of the current off-course run, not the moment the debounce elapsed.
+/// </param>
 public sealed record ParticipantSnapshot(
     DateTimeOffset? LastFixTime, double? LastLat, double? LastLon, double? LastAccuracyM,
     double TotalDistanceM, int Lap, double LapProgressM, double OffCourseM,
     double SpeedMps, double MovingSpeedMps, double AvgSpeedMps, double MaxSpeedMps, double? PaceSecPerKm,
     TimeSpan MovingTime, TimeSpan StoppedTime, double AscentM, double DescentM, double GradePercent,
-    ParticipantState State, DateTimeOffset? FinishTime);
+    ParticipantState State, DateTimeOffset? FinishTime, DateTimeOffset? StoppedSince, DateTimeOffset? OffCourseSince);
 
-/// <param name="Accepted">Whether the fix was new and passed the filter when it arrived (see <see cref="ParticipantTracker.Apply"/>).</param>
+/// <param name="Accepted">Whether the fix was new and passed the filter (see <see cref="ParticipantTracker.ApplyMany"/>).</param>
 public sealed record ApplyResult(ParticipantSnapshot Snapshot, IReadOnlyList<SegmentCompletion> Completed, bool Accepted);
+
+/// <param name="Accepted">Fixes of the batch that were new and passed the filter (see <see cref="ParticipantTracker.ApplyMany"/>).</param>
+/// <param name="Rejected">All other fixes of the batch.</param>
+public sealed record ApplyManyResult(ParticipantSnapshot Snapshot, IReadOnlyList<SegmentCompletion> Completed, int Accepted, int Rejected);
 
 /// <summary>
 /// Turns one participant's fixes into course progress and motion statistics.
@@ -103,30 +116,54 @@ public sealed class ParticipantTracker
 
     public ProgressHistory History { get; } = new();
 
-    /// <summary>
-    /// Adds a fix in any order and returns the snapshot at the newest accepted fix. Invalid fixes and exact
-    /// resends of a stored fix leave the state unchanged. <c>Completed</c> holds the segment completions that
-    /// are new or whose time changed with this fix (a late fix can move an interpolated crossing), each
-    /// <c>(Lap, SegmentIndex)</c> at most once, in course order; consumers record them idempotently.
-    /// <c>Accepted</c> is true when the fix was newly stored and passed the filter in the fold right after it
-    /// was added; malformed fixes, accuracy failures, exact resends and speed or duplicate rejections are false.
-    /// A later fix can change the filter verdict of an earlier one on replay; that is not reported again.
-    /// </summary>
+    /// <summary>Number of full replays so far; lets tests check that a batch costs at most one.</summary>
+    internal int ReplayCount { get; private set; }
+
+    /// <summary>Adds one fix; see <see cref="ApplyMany"/>.</summary>
     public ApplyResult Apply(PositionFix fix)
     {
         ArgumentNullException.ThrowIfNull(fix);
-        var accepted = false;
-        if (IsStorable(fix))
+        var result = ApplyMany(new[] { fix });
+        return new ApplyResult(result.Snapshot, result.Completed, result.Accepted == 1);
+    }
+
+    /// <summary>
+    /// Adds fixes in any order and returns the snapshot at the newest accepted fix. Invalid fixes and exact
+    /// resends of a stored fix leave the state unchanged. Fixes that extend the stored sequence are folded in
+    /// directly; once one sorts before a stored fix, the rest are only inserted and all stored fixes are
+    /// replayed once at the end. <c>Completed</c> holds the segment completions that are new or whose time
+    /// changed with this batch (a late fix can move an interpolated crossing), each <c>(Lap, SegmentIndex)</c> at
+    /// most once, in course order; consumers record them idempotently. <c>Accepted</c> counts the fixes that were
+    /// newly stored and passed the filter in the fold after the batch; malformed fixes, accuracy failures, exact
+    /// resends and speed or duplicate rejections are <c>Rejected</c>. A later batch can change the filter verdict
+    /// of an earlier fix on replay; that is not reported again.
+    /// </summary>
+    public ApplyManyResult ApplyMany(IReadOnlyList<PositionFix> fixes)
+    {
+        ArgumentNullException.ThrowIfNull(fixes);
+        foreach (var fix in fixes) ArgumentNullException.ThrowIfNull(fix, nameof(fixes));
+
+        var verdicts = new Dictionary<PositionFix, bool>(ReferenceEqualityComparer.Instance); // newly stored fixes
+        var replay = false;
+        var rejected = 0;
+        foreach (var fix in fixes)
         {
-            var index = _fixes.BinarySearch(fix, FixOrder.Instance);
-            if (index < 0)
+            var index = IsStorable(fix) ? _fixes.BinarySearch(fix, FixOrder.Instance) : 0;
+            if (index >= 0) // not storable, or an exact resend of a stored fix
             {
-                index = ~index;
-                _fixes.Insert(index, fix);
-                accepted = index == _fixes.Count - 1 ? Step(fix) : Replay(fix);
+                rejected++;
+                continue;
             }
+            index = ~index;
+            _fixes.Insert(index, fix);
+            replay |= index != _fixes.Count - 1;
+            verdicts[fix] = !replay && Step(fix);
         }
-        return new ApplyResult(GetSnapshot(_lastAccepted?.Time ?? _startTime), ChangedCompletions(), accepted);
+        if (replay) Replay(verdicts);
+
+        var accepted = verdicts.Values.Count(v => v);
+        return new ApplyManyResult(GetSnapshot(_lastAccepted?.Time ?? _startTime), ChangedCompletions(),
+            accepted, rejected + verdicts.Count - accepted);
     }
 
     /// <summary>
@@ -209,6 +246,8 @@ public sealed class ParticipantTracker
         var lapProgress = _lapCounter < 1 ? 0 : _lapCounter > _course.Laps ? _course.LapLengthM : _lapProgressM;
 
         var shown = _lastFix;
+        DateTimeOffset? stoppedSince = last is not null && IsStoppedAt(last, now) ? StoppedSince(now) : null;
+        DateTimeOffset? offCourseSince = last is not null && IsOffCourse(last) ? _offCourseSince : null;
         return new ParticipantSnapshot(
             shown?.Time, shown?.Lat, shown?.Lon, shown?.AccuracyM,
             _totalM, lap, lapProgress, _offCourseM,
@@ -216,7 +255,7 @@ public sealed class ParticipantTracker
             _movingTime, _stoppedTime,
             _course.AscentUpTo(_totalM), _course.DescentUpTo(_totalM), _course.GradePercentAt(lapProgress),
             StateAt(now),
-            _finishTime);
+            _finishTime, stoppedSince, offCourseSince);
     }
 
     /// <summary>
@@ -236,9 +275,25 @@ public sealed class ParticipantTracker
         var silence = now - last.Time;
         if (silence > _options.OfflineAfter) return ParticipantState.Offline;
         if (silence > _options.DelayedAfter) return ParticipantState.Delayed;
-        if (last.Time - _offCourseSince > _options.OffCourseDebounce) return ParticipantState.OffCourse;
-        if (!IsPausedAt(now) && IsStopped(last.Time)) return ParticipantState.Stopped;
+        if (IsOffCourse(last)) return ParticipantState.OffCourse;
+        if (IsStoppedAt(last, now)) return ParticipantState.Stopped;
         return ParticipantState.Live;
+    }
+
+    private bool IsOffCourse(PositionFix last) => last.Time - _offCourseSince > _options.OffCourseDebounce;
+
+    private bool IsStoppedAt(PositionFix last, DateTimeOffset now) => !IsPausedAt(now) && IsStopped(last.Time);
+
+    /// <summary>
+    /// Start of the current stop: the end of the newest matched interval at or above the stopped speed (the rule
+    /// of the moving/stopped accounting), or the end of a later pause that ended by <paramref name="now"/>.
+    /// </summary>
+    private DateTimeOffset? StoppedSince(DateTimeOffset now)
+    {
+        var since = History.SlowSince(_options.StoppedSpeedMps);
+        foreach (var (_, end) in _pauses)
+            if (end <= now && end > since) since = end;
+        return since;
     }
 
     /// <summary>
@@ -290,14 +345,16 @@ public sealed class ParticipantTracker
         && (fix.AccuracyM is null || double.IsFinite(fix.AccuracyM.Value))
         && PositionFilter.Evaluate(fix, null, _options.Filter) == FilterDecision.Accept;
 
-    /// <summary>Refolds all stored fixes; returns whether <paramref name="watched"/> passed the filter.</summary>
-    private bool Replay(PositionFix? watched = null)
+    /// <summary>Refolds all stored fixes; records the filter verdict of each fix in <paramref name="verdicts"/>.</summary>
+    private void Replay(Dictionary<PositionFix, bool>? verdicts = null)
     {
+        ReplayCount++;
         Reset();
-        var accepted = false;
         foreach (var fix in _fixes)
-            if (Step(fix) && ReferenceEquals(fix, watched)) accepted = true;
-        return accepted;
+        {
+            var accepted = Step(fix);
+            if (verdicts is not null && verdicts.ContainsKey(fix)) verdicts[fix] = accepted;
+        }
     }
 
     private void Reset()

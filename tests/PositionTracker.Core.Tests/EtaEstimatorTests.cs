@@ -14,7 +14,7 @@ public class EtaEstimatorTests
 
     private static ParticipantSnapshot Snap(double totalM, double speedMps, double gradePercent = 0, TimeSpan? moving = null) =>
         new(Now, null, null, null, totalM, 0, 0, 0, speedMps, speedMps, speedMps, speedMps, null,
-            moving ?? TimeSpan.FromMinutes(30), TimeSpan.Zero, 0, 0, gradePercent, ParticipantState.Live, null);
+            moving ?? TimeSpan.FromMinutes(30), TimeSpan.Zero, 0, 0, gradePercent, ParticipantState.Live, null, null, null);
 
     [Fact]
     public void Flat_course_expected_is_remaining_distance_over_speed_with_ordered_spread()

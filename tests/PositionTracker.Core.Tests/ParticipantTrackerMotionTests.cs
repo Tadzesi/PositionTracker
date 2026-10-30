@@ -512,5 +512,33 @@ public class ParticipantTrackerMotionTests
         Assert.False(tracker.Apply(ride[2] with { Lat = ride[2].Lat + 1e-5 }).Accepted); // same time as a stored fix
     }
 
+    [Fact]
+    public void ApplyMany_replays_a_late_backlog_of_120_fixes_once()
+    {
+        var fixes = Ride(Loop, 8, 32_000); // 801 fixes
+        var backlog = fixes.Skip(400).Take(120).ToList();
+        var tracker = new ParticipantTracker(Loop, Sport.Cycling, T0);
+        Assert.Equal(681, tracker.ApplyMany(fixes.Except(backlog).ToList()).Accepted);
+        var replays = tracker.ReplayCount;
+
+        var result = tracker.ApplyMany(backlog);
+
+        Assert.Equal(replays + 1, tracker.ReplayCount);
+        Assert.Equal((120, 0), (result.Accepted, result.Rejected));
+        Assert.Equal(Snapshot(Track(Loop, Sport.Cycling, fixes)), Snapshot(tracker));
+    }
+
+    [Fact]
+    public void ApplyMany_in_order_does_not_replay()
+    {
+        var tracker = new ParticipantTracker(Loop, Sport.Cycling, T0);
+        var fixes = Ride(Loop, 8, 800);
+
+        var result = tracker.ApplyMany(fixes.Append(fixes[3]).Append(fixes[4] with { AccuracyM = 80 }).ToList());
+
+        Assert.Equal(0, tracker.ReplayCount);
+        Assert.Equal((fixes.Count, 2), (result.Accepted, result.Rejected));
+    }
+
     private static PositionFix At(GeoPoint p, DateTimeOffset time) => new(time, p.Lat, p.Lon, 5);
 }
