@@ -50,6 +50,15 @@ public sealed class EventRuntime
         }
     }
 
+    /// <summary>A snapshot of the registered participants' info, keyed by participant id.</summary>
+    public IReadOnlyDictionary<string, ParticipantInfo> Participants
+    {
+        get
+        {
+            lock (_lock) return _participants.ToDictionary(p => p.Key, p => p.Value.Info, StringComparer.Ordinal);
+        }
+    }
+
     /// <summary>Whether a participant with this id is registered.</summary>
     public bool HasParticipant(string participantId)
     {
