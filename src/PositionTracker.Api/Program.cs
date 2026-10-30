@@ -39,7 +39,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<SimulationService>
 var app = builder.Build();
 
 app.UseRateLimiter();
-app.UseCsrfHeaderCheck();
+app.UseBrowserApiHeaders();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapGet("/healthz", () => "ok");

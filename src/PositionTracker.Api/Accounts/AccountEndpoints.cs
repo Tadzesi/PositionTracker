@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Text;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http.Json;
-using FromQueryAttribute = Microsoft.AspNetCore.Mvc.FromQueryAttribute;
 using Microsoft.Extensions.Options;
 using PositionTracker.Api.Endpoints;
 using PositionTracker.Api.Persistence;
@@ -13,33 +12,41 @@ namespace PositionTracker.Api.Accounts;
 
 /// <summary>
 /// Organizer accounts (JSON, camelCase; every error body <c>{"code", "message": {"sk", "en"}}</c>, see
-/// <see cref="AccountErrors"/>):
+/// <see cref="AccountErrors"/>). Every POST needs <c>X-Requested-With: PositionTracker</c> and
+/// <c>Content-Type: application/json</c> (<see cref="BrowserApiHeaders"/>: 400 <c>csrf_failed</c> / 415
+/// <c>unsupported_media_type</c>, checked before anything else).
 /// <list type="bullet">
 /// <item><c>POST /api/account/signup {name, email, language}</c> → 202 <c>{"status":"accepted"}</c> whatever the
 /// state of the address (unknown, unconfirmed, confirmed), also over a rate limit; 400 <c>validation_failed</c>
 /// (+ <c>field</c>) for invalid input.</item>
 /// <item><c>POST /api/account/signin {email}</c> → the same 202.</item>
-/// <item><c>GET /api/account/confirm?token=…</c> → 200 <c>{"confirmed":true}</c> (also when reopened), 400
+/// <item><c>POST /api/account/confirm {token}</c> → 200 <c>{"confirmed":true}</c> (also when reopened), 400
 /// <c>link_expired|link_used|link_invalid</c>, 429 <c>rate_limited</c>.</item>
-/// <item><c>GET /api/account/signin/redeem?token=…</c> → sets the session cookie, 200 with the profile; the same
-/// errors.</item>
+/// <item><c>POST /api/account/signin/redeem {token}</c> → sets the session cookie (and confirms the email), 200 with
+/// the profile; the same errors.</item>
 /// <item><c>POST /api/account/signout</c> → 204; clears the cookie and ends every session of the account.</item>
 /// <item><c>GET /api/account/me</c> → 200 <c>{name, email, language, emailConfirmed, emailMode}</c>, 401
 /// <c>unauthorized</c> without a session.</item>
 /// </list>
+/// The tokens travel in the JSON body (controller ruling P9): the emailed links open front-end pages that ask the
+/// user to press a button, which POSTs the token. A GET of an API route is 405, so neither a top-level navigation
+/// (login CSRF) nor a link scanner can redeem a token.
 /// Sign-up and sign-in take at least <see cref="AccountOptions.MinResponseMilliseconds"/> (wall clock) on every
-/// path, so the timing does not reveal an account either. All answers carry <c>Cache-Control: no-store</c> and
-/// <c>Referrer-Policy: no-referrer</c>. Without a database or <c>Email:PublicBaseUrl</c> every endpoint answers 503
-/// <c>unavailable</c>.
+/// path, a database failure included (503 <c>unavailable</c>), so the timing does not reveal an account either. All
+/// answers carry <c>Cache-Control: no-store</c> and <c>Referrer-Policy: no-referrer</c>. Without a database or
+/// <c>Email:PublicBaseUrl</c> every endpoint answers 503 <c>unavailable</c>.
 /// </summary>
 public static class AccountEndpoints
 {
     public const int MaxNameLength = 200;
     private const long MaxBodyBytes = 8 * 1024;
+    private const string LogCategory = "PositionTracker.Api.Accounts.AccountEndpoints";
 
     public sealed record SignUpRequest(string? Name, string? Email, string? Language);
 
     public sealed record SignInRequest(string? Email);
+
+    public sealed record TokenRequest(string? Token);
 
     public sealed record AcceptedResponse(string Status);
 
@@ -77,54 +84,105 @@ public static class AccountEndpoints
         });
         group.MapPost("/signup", SignUpAsync);
         group.MapPost("/signin", SignInAsync);
-        group.MapGet("/confirm", ConfirmAsync);
-        group.MapGet("/signin/redeem", RedeemAsync);
+        group.MapPost("/confirm", ConfirmAsync);
+        group.MapPost("/signin/redeem", RedeemAsync);
         group.MapPost("/signout", SignOutAsync);
         group.MapGet("/me", Me).RequireAuthorization(CookieAuth.OrganizerSessionPolicy);
         return app;
     }
 
     private static async Task<IResult> SignUpAsync(HttpContext context, OrganizerService organizers, AccountRateLimiter limiter,
-        IOptions<AccountOptions> options, IOptions<JsonOptions> json)
+        IOptions<AccountOptions> options, IOptions<JsonOptions> json, ILoggerFactory loggers)
     {
         var started = Stopwatch.GetTimestamp();
         var (body, error) = await ReadAsync<SignUpRequest>(context, json);
         if (error is not null) return error;
         if (!TryName(body!.Name, out var name)) return AccountErrors.InvalidName();
-        if (!EmailAddress.TryParse(body.Email, out var email)) return AccountErrors.InvalidEmail();
+        if (!EmailAddress.TryParse(body.Email, out var email, out var normalized)) return AccountErrors.InvalidEmail();
         if (!TryLanguage(body.Language, out var language)) return AccountErrors.InvalidLanguage();
 
-        if (limiter.TryTakeRequest(context.Connection.RemoteIpAddress))
-            await organizers.SignUpAsync(name, email, language, context.RequestAborted);
-        return await AcceptedAsync(started, options, context.RequestAborted);
+        var ip = context.Connection.RemoteIpAddress;
+        return await AnswerAsync(context, started, options, loggers, "sign-up", limiter.TryTakeRequest(ip)
+            ? () => organizers.SignUpAsync(name, email, normalized, language, ip, context.RequestAborted)
+            : null);
     }
 
     private static async Task<IResult> SignInAsync(HttpContext context, OrganizerService organizers, AccountRateLimiter limiter,
-        IOptions<AccountOptions> options, IOptions<JsonOptions> json)
+        IOptions<AccountOptions> options, IOptions<JsonOptions> json, ILoggerFactory loggers)
     {
         var started = Stopwatch.GetTimestamp();
         var (body, error) = await ReadAsync<SignInRequest>(context, json);
         if (error is not null) return error;
-        if (!EmailAddress.TryParse(body!.Email, out var email)) return AccountErrors.InvalidEmail();
+        if (!EmailAddress.TryParse(body!.Email, out _, out var normalized)) return AccountErrors.InvalidEmail();
 
-        if (limiter.TryTakeRequest(context.Connection.RemoteIpAddress))
-            await organizers.RequestSignInAsync(email, context.RequestAborted);
-        return await AcceptedAsync(started, options, context.RequestAborted);
+        var ip = context.Connection.RemoteIpAddress;
+        return await AnswerAsync(context, started, options, loggers, "sign-in", limiter.TryTakeRequest(ip)
+            ? () => organizers.RequestSignInAsync(normalized, ip, context.RequestAborted)
+            : null);
     }
 
-    private static async Task<IResult> ConfirmAsync([FromQuery] string? token, HttpContext context, OrganizerService organizers,
-        AccountRateLimiter limiter)
+    /// <summary>
+    /// Runs <paramref name="work"/> (null when a limit suppressed it) and answers 202, or 503 <c>unavailable</c> when it
+    /// failed (logged with the exception type only), never before the minimum response time.
+    /// </summary>
+    private static async Task<IResult> AnswerAsync(HttpContext context, long started, IOptions<AccountOptions> options,
+        ILoggerFactory loggers, string operation, Func<Task>? work)
     {
-        if (!limiter.TryTakeRedeem(context.Connection.RemoteIpAddress)) return AccountErrors.RateLimited();
-        var status = await organizers.ConfirmEmailAsync(token ?? "", context.RequestAborted);
-        return status == LinkStatus.Ok ? Results.Ok(new ConfirmResponse(true)) : LinkError(status);
+        IResult result = Results.Json(Accepted, statusCode: StatusCodes.Status202Accepted);
+        if (work is not null)
+        {
+            try
+            {
+                await work();
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !context.RequestAborted.IsCancellationRequested)
+            {
+                loggers.CreateLogger(LogCategory).LogError("Account {Operation} failed ({ExceptionType}); answered 503.",
+                    operation, ex.GetType().Name);
+                result = AccountErrors.Unavailable();
+            }
+        }
+        var remaining = TimeSpan.FromMilliseconds(options.Value.MinResponseMilliseconds) - Stopwatch.GetElapsedTime(started);
+        // Wall-clock latency, deliberately not the injected TimeProvider (which is business time).
+        if (remaining > TimeSpan.Zero) await Task.Delay(remaining, context.RequestAborted);
+        return result;
     }
 
-    private static async Task<IResult> RedeemAsync([FromQuery] string? token, HttpContext context, OrganizerService organizers,
-        AccountRateLimiter limiter, IEmailMode mode)
+    private static async Task<IResult> ConfirmAsync(HttpContext context, OrganizerService organizers, AccountRateLimiter limiter,
+        IOptions<JsonOptions> json, ILoggerFactory loggers)
     {
+        var (body, error) = await ReadAsync<TokenRequest>(context, json);
+        if (error is not null) return error;
         if (!limiter.TryTakeRedeem(context.Connection.RemoteIpAddress)) return AccountErrors.RateLimited();
-        var (status, organizer) = await organizers.RedeemSignInAsync(token ?? "", context.RequestAborted);
+        try
+        {
+            var status = await organizers.ConfirmEmailAsync(body!.Token ?? "", context.RequestAborted);
+            return status == LinkStatus.Ok ? Results.Ok(new ConfirmResponse(true)) : LinkError(status);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !context.RequestAborted.IsCancellationRequested)
+        {
+            loggers.CreateLogger(LogCategory).LogError("Account confirmation failed ({ExceptionType}); answered 503.", ex.GetType().Name);
+            return AccountErrors.Unavailable();
+        }
+    }
+
+    private static async Task<IResult> RedeemAsync(HttpContext context, OrganizerService organizers, AccountRateLimiter limiter,
+        IEmailMode mode, IOptions<JsonOptions> json, ILoggerFactory loggers)
+    {
+        var (body, error) = await ReadAsync<TokenRequest>(context, json);
+        if (error is not null) return error;
+        if (!limiter.TryTakeRedeem(context.Connection.RemoteIpAddress)) return AccountErrors.RateLimited();
+        LinkStatus status;
+        OrganizerEntity? organizer;
+        try
+        {
+            (status, organizer) = await organizers.RedeemSignInAsync(body!.Token ?? "", context.RequestAborted);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !context.RequestAborted.IsCancellationRequested)
+        {
+            loggers.CreateLogger(LogCategory).LogError("Sign-in link redemption failed ({ExceptionType}); answered 503.", ex.GetType().Name);
+            return AccountErrors.Unavailable();
+        }
         if (status != LinkStatus.Ok) return LinkError(status);
         await CookieAuth.SignInAsync(context, organizer!);
         return Results.Ok(Profile(organizer!, mode));
@@ -151,21 +209,24 @@ public static class AccountEndpoints
         _ => AccountErrors.LinkInvalid(),
     };
 
-    /// <summary>The 202 of sign-up and sign-in, not before the minimum response time (measured from <paramref name="started"/>).</summary>
-    private static async Task<IResult> AcceptedAsync(long started, IOptions<AccountOptions> options, CancellationToken ct)
-    {
-        var remaining = TimeSpan.FromMilliseconds(options.Value.MinResponseMilliseconds) - Stopwatch.GetElapsedTime(started);
-        // Wall-clock latency, deliberately not the injected TimeProvider (which is business time).
-        if (remaining > TimeSpan.Zero) await Task.Delay(remaining, ct);
-        return Results.Json(Accepted, statusCode: StatusCodes.Status202Accepted);
-    }
-
     private static async Task<(T? Body, IResult? Error)> ReadAsync<T>(HttpContext context, IOptions<JsonOptions> json) where T : class
     {
-        var (body, tooLarge) = await JsonBody.ReadAsync<T>(context, json.Value.SerializerOptions, MaxBodyBytes);
-        if (tooLarge is not null) return (null, AccountErrors.BodyTooLarge());
+        var (body, readError) = await JsonBody.ReadAsync<T>(context, json.Value.SerializerOptions, MaxBodyBytes);
+        if (readError is not null) return (null, MapReadError(readError));
         return body is null ? (null, AccountErrors.InvalidBody()) : (body, null);
     }
+
+    /// <summary>
+    /// A body read failure in the account error shape: 413 becomes <c>BodyTooLarge</c>; any other status of the
+    /// server's <see cref="BadHttpRequestException"/> keeps its status (as <c>validation_failed</c>, field <c>body</c>).
+    /// </summary>
+    internal static IResult MapReadError(IResult readError) =>
+        (readError as IStatusCodeHttpResult)?.StatusCode switch
+        {
+            StatusCodes.Status413PayloadTooLarge => AccountErrors.BodyTooLarge(),
+            { } status => AccountErrors.InvalidBody(status),
+            null => AccountErrors.InvalidBody(),
+        };
 
     /// <summary>Trimmed, 1 to 200 characters (Unicode scalar values), no control characters or line separators.</summary>
     private static bool TryName(string? input, out string name)

@@ -40,9 +40,13 @@ public static class AccountErrors
         "Na túto akciu nemáte oprávnenie.",
         "You are not allowed to do this.");
 
-    public static IResult CsrfFailed() => Error(StatusCodes.Status403Forbidden, "csrf_failed",
-        $"Požiadavka bola z bezpečnostných dôvodov odmietnutá (chýba hlavička {CookieAuth.CsrfHeader}).",
-        $"The request was refused for security reasons (the {CookieAuth.CsrfHeader} header is missing).");
+    public static IResult CsrfFailed() => Error(StatusCodes.Status400BadRequest, "csrf_failed",
+        $"Požiadavka bola z bezpečnostných dôvodov odmietnutá (chýba hlavička {BrowserApiHeaders.HeaderName}: {BrowserApiHeaders.HeaderValue}).",
+        $"The request was refused for security reasons (the header {BrowserApiHeaders.HeaderName}: {BrowserApiHeaders.HeaderValue} is missing).");
+
+    public static IResult UnsupportedMediaType() => Error(StatusCodes.Status415UnsupportedMediaType, "unsupported_media_type",
+        "Požiadavka musí mať obsah typu application/json.",
+        "The request body must be of type application/json.");
 
     public static IResult RateLimited() => Error(StatusCodes.Status429TooManyRequests, "rate_limited",
         "Príliš veľa pokusov. Skúste to, prosím, neskôr.",
@@ -52,9 +56,10 @@ public static class AccountErrors
         "Účty organizátorov sú momentálne nedostupné.",
         "Organizer accounts are not available at the moment.");
 
-    public static IResult InvalidBody() => Validation("body",
-        "Požiadavka nemá platný formát.",
-        "The request is not valid JSON of the expected shape.");
+    public static IResult InvalidBody(int status = StatusCodes.Status400BadRequest) =>
+        Results.Json(new ApiError("validation_failed", new LocalizedText(
+            "Požiadavka nemá platný formát.",
+            "The request is not valid JSON of the expected shape."), "body"), statusCode: status);
 
     public static IResult BodyTooLarge() =>
         Results.Json(new ApiError("validation_failed", new LocalizedText(

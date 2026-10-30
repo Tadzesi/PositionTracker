@@ -41,7 +41,9 @@ public sealed class LinkTokenService(AppDbContext db, TimeProvider clock)
 
     /// <summary>
     /// Issues a token valid for <paramref name="lifetime"/> and returns the raw token (for the emailed link only).
-    /// Every older unused token of the same purpose and subject is revoked (<see cref="LinkStatus.Superseded"/>).
+    /// Every older token of the same purpose and subject, opened or not, is revoked (<see cref="LinkStatus.Superseded"/>),
+    /// except for <see cref="LinkPurpose.OrganizerSignIn"/>: sign-in links are never superseded by a newer request
+    /// (controller ruling P10); each lives 15 minutes and is single use.
     /// </summary>
     public async Task<string> IssueAsync(LinkPurpose purpose, Guid subjectId, TimeSpan lifetime, CancellationToken ct)
     {
@@ -51,9 +53,10 @@ public sealed class LinkTokenService(AppDbContext db, TimeProvider clock)
         var name = purpose.ToString();
 
         await using var own = db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(ct) : null;
-        await db.LinkTokens
-            .Where(t => t.Purpose == name && t.SubjectId == subjectId && t.UsedAt == null && t.RevokedAt == null)
-            .ExecuteUpdateAsync(s => s.SetProperty(t => t.RevokedAt, now), ct);
+        if (purpose != LinkPurpose.OrganizerSignIn)
+            await db.LinkTokens
+                .Where(t => t.Purpose == name && t.SubjectId == subjectId && t.RevokedAt == null)
+                .ExecuteUpdateAsync(s => s.SetProperty(t => t.RevokedAt, now), ct);
         db.LinkTokens.Add(new LinkTokenEntity
         {
             Id = Guid.CreateVersion7(now),
@@ -85,14 +88,17 @@ public sealed class LinkTokenService(AppDbContext db, TimeProvider clock)
         var now = clock.GetUtcNow();
         if (Classify(token, singleUse, now) is { } failed) return failed;
 
+        if (!singleUse && token.UsedAt is not null) return new LinkResult(LinkStatus.Ok, token.SubjectId); // reopened
         var marked = await db.LinkTokens
             .Where(t => t.Id == token.Id && t.RevokedAt == null && t.ExpiresAt > now && t.UsedAt == null)
             .ExecuteUpdateAsync(s => s.SetProperty(t => t.UsedAt, now), ct);
-        if (marked == 1 || !singleUse) return new LinkResult(LinkStatus.Ok, token.SubjectId);
+        if (marked == 1) return new LinkResult(LinkStatus.Ok, token.SubjectId);
 
-        // Lost a race (or the token changed meanwhile): report its state now.
+        // The conditional update lost a race (used, superseded meanwhile): report the token's real state now. A
+        // reusable token that another request just opened is still fine.
         var current = await db.LinkTokens.AsNoTracking().SingleAsync(t => t.Id == token.Id, ct);
-        return Classify(current, singleUse, now) ?? new LinkResult(LinkStatus.Used, token.SubjectId);
+        return Classify(current, singleUse, now)
+            ?? new LinkResult(singleUse ? LinkStatus.Used : LinkStatus.Ok, token.SubjectId);
     }
 
     private static LinkResult? Classify(LinkTokenEntity token, bool singleUse, DateTimeOffset now)

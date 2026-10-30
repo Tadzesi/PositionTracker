@@ -24,10 +24,7 @@ namespace PositionTracker.Api.Accounts;
 /// <see cref="EmailConfirmedOrganizerPolicy"/> (a valid session of an account whose email is confirmed). A missing
 /// session answers 401 <c>unauthorized</c>, an unconfirmed email 403 <c>email_not_confirmed</c> (JSON error bodies,
 /// never a redirect).</para>
-/// <para>CSRF: besides <c>SameSite=Lax</c>, every POST, PUT, PATCH and DELETE under <c>/api</c> that carries the session cookie must
-/// send the header <c>X-Requested-With: PositionTracker</c> (403 <c>csrf_failed</c> otherwise). A cross-site page
-/// cannot add a custom header without a CORS preflight, which this API does not allow. Chosen over antiforgery
-/// tokens: the API is JSON-only, has no server-rendered forms, and the header needs no token round trip.</para>
+/// <para>CSRF: <c>SameSite=Lax</c> plus <see cref="BrowserApiHeaders"/> (custom header and JSON content type).</para>
 /// </summary>
 public static class CookieAuth
 {
@@ -38,8 +35,6 @@ public static class CookieAuth
     public const string EmailConfirmedOrganizerPolicy = "EmailConfirmedOrganizer";
     public const string OrganizerIdClaim = "oid";
     public const string SecurityStampClaim = "stamp";
-    public const string CsrfHeader = "X-Requested-With";
-    public const string CsrfHeaderValue = "PositionTracker";
     public static readonly TimeSpan SessionLifetime = TimeSpan.FromDays(30);
 
     private static readonly object OrganizerItemKey = new();
@@ -103,29 +98,6 @@ public static class CookieAuth
         services.AddSingleton<IAuthorizationMiddlewareResultHandler, JsonAuthorizationResultHandler>();
         return services;
     }
-
-    /// <summary>
-    /// Refuses unsafe requests under <c>/api</c> that carry the session cookie without
-    /// <c>X-Requested-With: PositionTracker</c>. The check looks at the cookie's presence, not its validity, so it
-    /// cannot be bypassed by a broken session. Paths outside <c>/api</c> (the SignalR hub, whose negotiate POST is
-    /// not cookie-authenticated and whose client sends its own <c>X-Requested-With</c>) are not checked; a future
-    /// cookie-authenticated endpoint outside <c>/api</c> must be added here.
-    /// </summary>
-    public static IApplicationBuilder UseCsrfHeaderCheck(this IApplicationBuilder app) =>
-        app.Use(async (context, next) =>
-        {
-            var method = context.Request.Method;
-            var unsafeMethod = HttpMethods.IsPost(method) || HttpMethods.IsPut(method) || HttpMethods.IsPatch(method)
-                || HttpMethods.IsDelete(method);
-            if (unsafeMethod && context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase)
-                && context.Request.Cookies.ContainsKey(CookieName)
-                && !string.Equals(context.Request.Headers[CsrfHeader].ToString(), CsrfHeaderValue, StringComparison.Ordinal))
-            {
-                await AccountErrors.CsrfFailed().ExecuteAsync(context);
-                return;
-            }
-            await next(context);
-        });
 
     /// <summary>Re-reads the account for every request; a missing account or a changed stamp ends the session.</summary>
     private static async Task ValidateAsync(CookieValidatePrincipalContext context)

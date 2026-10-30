@@ -154,7 +154,8 @@ event and participant (in Plan 1 only the demo simulator issues them).
 | `Email:Smtp:{Port,UseStartTls,User,Password,TimeoutSeconds}` | SMTP connection (defaults 587, STARTTLS required, no auth, 30 s). |
 | `Email:From` / `Email:FromName` / `Email:PublicBaseUrl` | Sender and the base of emailed links; `From` and `PublicBaseUrl` are required once a host is set. `PublicBaseUrl` must be https outside Development, without query or fragment (trailing `/` removed). Port 465 needs `UseStartTls=false`; credentials over a plain connection are rejected. |
 | `Email:Outbox:{PollIntervalSeconds,BatchSize,MaxAttempts,RetryBaseSeconds,RetryMaxSeconds,RetentionDays}` | Outbox worker (defaults 5, 20, 6, 60, 3600, 7). |
-| `Accounts:{RequestsPerIpPerHour,MailsPerEmailPerHour,LinkRedeemsPerIpPerHour}` | Organizer account limits (defaults 20, 3, 60). |
+| `Accounts:{RequestsPerIpPerHour,MailsPerEmailAndIpPerHour,MailsPerEmailPerHour,GlobalMailsPerHour,LinkRedeemsPerIpPerHour}` | Organizer account limits per hour (defaults 20, 3, 10, 200, 60). |
+| `Accounts:RateLimitMaxKeys` | Keys each limiter keeps at most (default 100 000; the oldest windows are evicted beyond). |
 | `Accounts:MinResponseMilliseconds` | Sign-up and sign-in answer no sooner than this (default 400 ms), so timing does not reveal an account. |
 | `Accounts:RateLimitSalt` | Secret salt of the per-email limiter keys; empty = random per process (the counters are in memory). |
 | `Accounts:ConfirmPath` / `Accounts:SignInPath` | Front-end pages the emailed links open (defaults `account/confirm`, `account/signin`, relative to `Email:PublicBaseUrl`). |
@@ -183,30 +184,52 @@ row finishes and rows are deleted after `Email:Outbox:RetentionDays`. All user v
 
 ## Organizer accounts
 
-`/api/account/*` (`src/PositionTracker.Api/Accounts`): `POST signup {name,email,language}` and `POST signin {email}`
-always answer `202 {"status":"accepted"}` (also over a limit, also for an unknown address), never sooner than
-`Accounts:MinResponseMilliseconds`. Sign-up mails a confirmation to a new or unconfirmed account (superseding the
-previous link; name and language of an existing account stay) and a sign-in link to a confirmed one; sign-in mails a
-link to any existing account and nothing to an unknown address. At most 20 such requests per IP and 3 mails per
-address per hour; suppressed requests only increment the `positiontracker.accounts.suppressed` counter (tag
-`limit`) and a debug log line. `GET confirm?token=` (`200 {"confirmed":true}`, reopening is fine) and
-`GET signin/redeem?token=` (sets the session cookie, single use) answer `400 link_expired|link_used|link_invalid`
-(superseded, wrong purpose and unknown links are `link_invalid`) and `429 rate_limited` beyond 60 per IP and hour.
-`POST signout` (204) clears the cookie and rotates the account's security stamp, ending every session of the account.
-`GET me` returns `{name,email,language,emailConfirmed,emailMode}` or `401 unauthorized`. Errors are
-`{"code","message":{"sk","en"}}` (+ `field` for `validation_failed`).
+`/api/account/*` (`src/PositionTracker.Api/Accounts`). **Every POST needs `X-Requested-With: PositionTracker` and
+`Content-Type: application/json`** (`400 csrf_failed` / `415 unsupported_media_type`, checked by the
+`BrowserApiHeaders` middleware before any limiter or database work; the same rule covers `/api/p/*` and the organizer
+routes under `/api/events/**`, but not the device ingest `/api/events/{id}/positions|actions`).
 
-Links are 32 random bytes (base64url); only their SHA-256 is stored; confirmation 14 days, sign-in 15 minutes.
-They point to front-end pages (`Accounts:ConfirmPath`, `Accounts:SignInPath`) that call the API, so mail scanners
-that prefetch links do not burn single-use sign-in links. The session cookie `__Host-pt-session` is `HttpOnly`,
-`Secure`, `SameSite=Lax`, 30 days sliding, and holds only the organizer id and security stamp. Every POST, PUT, PATCH
-or DELETE under `/api` that carries the cookie must send `X-Requested-With: PositionTracker` (`403 csrf_failed`
-otherwise). Policies for later endpoints: `OrganizerSession`, `EmailConfirmedOrganizer` (`403 email_not_confirmed`).
+- `POST signup {name,email,language}` and `POST signin {email}` always answer `202 {"status":"accepted"}` (also over
+  a limit, also for an unknown address), never sooner than `Accounts:MinResponseMilliseconds`; a database failure is
+  `503 unavailable` after the same delay. Sign-up mails a confirmation to a new or unconfirmed account (an unconfirmed
+  account takes over the new name and language; the previous confirmation link is superseded) and a sign-in link to
+  a confirmed one (nothing changes). Sign-in mails a link to any existing account and nothing to an unknown address.
+- `POST confirm {token}` → `200 {"confirmed":true}` (reopening is fine); `POST signin/redeem {token}` → session
+  cookie, the profile, and the email counts as confirmed (the link proves the mailbox). Errors
+  `400 link_expired|link_used|link_invalid` (superseded, wrong purpose, unknown and missing tokens are `link_invalid`),
+  `429 rate_limited` beyond 60 per IP bucket and hour. GET on these routes is `405`.
+- `POST signout` (204) clears the cookie and rotates the security stamp, ending every session of the account.
+- `GET me` → `{name,email,language,emailConfirmed,emailMode}` or `401 unauthorized`.
+- Errors are `{"code","message":{"sk","en"}}` (+ `field` for `validation_failed`). Policies for later endpoints:
+  `OrganizerSession`, `EmailConfirmedOrganizer` (`403 email_not_confirmed`).
 
-Deployment notes: behind a reverse proxy the per-IP limits need the client address (configure forwarded headers
-for the trusted proxy, otherwise all users share one IP budget); keep `Microsoft.AspNetCore` logging at `Warning`
-(the hosting request log at `Information` contains query strings, i.e. link tokens); persist the data protection
-keys (`Accounts:DataProtectionKeysPath`).
+Limits (in memory, per process, salted HMAC keys, no address or IP kept): 20 sign-up/sign-in requests per IP bucket
+(IPv4 address or IPv6 /64) and hour; account mails 3 per (address, IP bucket), 10 per address and
+`Accounts:GlobalMailsPerHour` (200) in total per hour. Suppressed requests increment
+`positiontracker.accounts.suppressed` (tag `limit` = `ip|email_ip|email|global`); the global cap logs a warning.
+Addresses are unique by their normalized form: lower-case local part and the lower-case IDNA ASCII domain
+(`x@bücher.de` = `x@xn--bcher-kva.de` = `x@ＢÜＣＨＥＲ．de`); plus-addresses stay distinct; the form first entered
+is kept for display and sending.
+
+Links are 32 random bytes (base64url); only their SHA-256 is stored; confirmation 14 days (a new one supersedes the
+old one, opened or not), sign-in 15 minutes and single use (never superseded: each link lives on its own). The
+session cookie `__Host-pt-session` is `HttpOnly`, `Secure`, `SameSite=Lax`, 30 days sliding, and holds only the
+organizer id and security stamp.
+
+**Front-end handoff.** The emailed links open front-end pages `Accounts:ConfirmPath` (`/account/confirm?token=…`)
+and `Accounts:SignInPath` (`/account/signin?token=…`). These pages must not call the API on load: they show a
+button ("Potvrdiť e-mail" / "Prihlásiť sa") that POSTs `{token}` to `/api/account/confirm` or
+`/api/account/signin/redeem` with `X-Requested-With: PositionTracker` and `Content-Type: application/json`, then
+remove the token from the address bar (`history.replaceState`). Serve them with `Referrer-Policy: no-referrer` and
+keep the token out of analytics. Every other unsafe call of the front end sends the same two headers.
+
+**Deployment.**
+- **BLOCKER for Plan 5 (deployment):** behind the reverse proxy the per-IP limits see the proxy's address until
+  forwarded headers are configured for that trusted proxy only (`ForwardedHeadersOptions.KnownProxies`); without it
+  all users share one budget.
+- Persist the data protection keys (`Accounts:DataProtectionKeysPath` on a persistent volume, readable only by the
+  app); otherwise every restart or new container signs everyone out.
+- Keep `Microsoft.AspNetCore` logging at `Warning` and do not log query strings of the front-end link pages.
 
 ## Persistence and restart
 

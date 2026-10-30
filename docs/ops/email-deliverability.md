@@ -95,9 +95,12 @@ missing or malformed, when port and TLS settings do not fit, or outside Developm
   row holds the full body, link included, until the row finishes: normally seconds, at most the retry window (about
   31 minutes with the defaults; about 63 minutes if `MaxAttempts` is raised to 7). Bodies are then cleared.
   Database backups taken in that window contain live links: protect backups like the database itself.
-- **Reverse proxy logs:** the token is in the link's query string. Reverse proxy / web server access logs must not
-  record query strings for `/api/account/*`, `/api/p/*` and the front-end link pages `/account/*` (log the path only), and the front end must not pass the
-  token to analytics or in a `Referer` (use `Referrer-Policy: no-referrer` on those pages).
+- **Reverse proxy logs:** the token is in the query string of the emailed front-end link (`/account/confirm`,
+  `/account/signin`, later the participant pages). The front end POSTs it to the API in a JSON body
+  (`/api/account/confirm`, `/api/account/signin/redeem`), so API URLs carry no account token; `/api/p/{token}` (Task 7)
+  carries one in its path. Reverse proxy / web server access logs must not record query strings of the front-end link
+  pages nor the paths of `/api/p/*` (log a redacted path), and the front end must not pass the token to analytics or
+  in a `Referer` (use `Referrer-Policy: no-referrer` on those pages).
 
 ## 4. How the app sends (for reading logs)
 

@@ -2,8 +2,6 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Globalization;
 using System.Net;
-using System.Net.Http.Json;
-using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -12,7 +10,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -69,7 +66,7 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
     }
 
     [Fact]
-    public async Task Repeated_sign_up_answers_identically_and_mails_a_fresh_confirmation_or_a_sign_in_link()
+    public async Task Repeated_sign_up_answers_identically_updates_an_unconfirmed_account_and_mails_the_right_link()
     {
         await using var host = Host();
         var client = Client(host);
@@ -77,29 +74,33 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         var first = await SignUpAsync(client, "Anna", "anna@example.org", "en");
         var firstToken = Link(Assert.Single(await OutboxAsync(host))).Token;
 
-        // Unconfirmed account: a fresh confirmation in the account's language, the old link superseded, nothing changed.
-        var second = await SignUpAsync(client, "Mallory", "ANNA@example.org", "sk");
+        // Unconfirmed account (ownership not proven yet): name and language are taken over, a fresh confirmation in the
+        // new language supersedes the old link.
+        var second = await SignUpAsync(client, "Anna Nová", "ANNA@example.org", "sk");
         var mails = await OutboxAsync(host);
         Assert.Equal(2, mails.Count);
         Assert.Equal(EmailPurpose.OrganizerEmailConfirmation, mails[1].Purpose);
-        Assert.Equal("en", mails[1].Language);
+        Assert.Equal("sk", mails[1].Language);
         var secondToken = Link(mails[1]).Token;
         var organizer = Assert.Single(await OrganizersAsync(host));
-        Assert.Equal("Anna", organizer.Name);
-        Assert.Equal("en", organizer.Language);
-        await AssertErrorAsync(await client.GetAsync(ConfirmPath(firstToken)), HttpStatusCode.BadRequest, "link_invalid");
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(ConfirmPath(secondToken))).StatusCode);
+        Assert.Equal("Anna Nová", organizer.Name);
+        Assert.Equal("sk", organizer.Language);
+        await AssertErrorAsync(await ConfirmAsync(client, firstToken), HttpStatusCode.BadRequest, "link_invalid");
+        Assert.Equal(HttpStatusCode.OK, (await ConfirmAsync(client, secondToken)).StatusCode);
 
-        // Confirmed account: a sign-in link instead.
-        var third = await SignUpAsync(client, "Anna", "anna@example.org", "en");
+        // Confirmed account: a sign-in link instead, and nothing about the account changes.
+        var third = await SignUpAsync(client, "Mallory", "anna@example.org", "en");
         mails = await OutboxAsync(host);
         Assert.Equal(3, mails.Count);
         Assert.Equal(EmailPurpose.SignIn, mails[2].Purpose);
+        Assert.Equal("sk", mails[2].Language);
         Assert.Equal("signin", Link(mails[2]).Kind);
+        organizer = Assert.Single(await OrganizersAsync(host));
+        Assert.Equal("Anna Nová", organizer.Name);
+        Assert.Equal("sk", organizer.Language);
 
         // Unknown, unconfirmed and confirmed: the same answer.
         await AssertSameAnswerAsync(first, second, third);
-        Assert.Single(await OrganizersAsync(host));
     }
 
     [Fact]
@@ -109,7 +110,7 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         var client = Client(host);
         await SignUpAsync(client, "Unconfirmed", "unconfirmed@example.org", "en");
         await SignUpAsync(client, "Confirmed", "confirmed@example.org", "sk");
-        await ConfirmAsync(host, client, "confirmed@example.org");
+        await ConfirmByMailAsync(host, client, "confirmed@example.org");
         var before = (await OutboxAsync(host)).Count;
 
         var unknown = await SignInAsync(client, "nobody@example.org");
@@ -140,6 +141,30 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         Assert.Equal("Anna.Nova@Example.COM", organizer.Email);
         Assert.Equal("anna.nova@example.com", organizer.EmailNormalized);
         Assert.All(await OutboxAsync(host), m => Assert.Equal("Anna.Nova@Example.COM", m.ToAddress));
+    }
+
+    [Fact]
+    public async Task International_domain_forms_of_one_mailbox_are_one_account_and_one_budget_but_plus_addresses_are_not()
+    {
+        await using var host = Host();
+        var client = Client(host);
+
+        foreach (var address in new[]
+                 {
+                     "x@bücher.de", "x@xn--bcher-kva.de", "X@BÜCHER.de",
+                     "x@ｂüｃｈｅｒ．ｄｅ", // fullwidth letters and full stop
+                     "x@bücher。de",       // ideographic full stop
+                 })
+            Assert.Equal(HttpStatusCode.Accepted, (await SignUpAsync(client, "Xaver", address, "en")).StatusCode);
+
+        var organizer = Assert.Single(await OrganizersAsync(host));
+        Assert.Equal("x@bücher.de", organizer.Email);           // the first display form
+        Assert.Equal("x@xn--bcher-kva.de", organizer.EmailNormalized);
+        Assert.Equal(3, (await OutboxAsync(host)).Count);       // one (address, IP) budget of 3 mails
+
+        await SignUpAsync(client, "Xaver", "x+race@bücher.de", "en");
+        Assert.Equal(2, (await OrganizersAsync(host)).Count);
+        Assert.Contains(await OrganizersAsync(host), o => o.EmailNormalized == "x+race@xn--bcher-kva.de");
     }
 
     [Fact]
@@ -216,66 +241,173 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         Assert.Equal(HttpStatusCode.Accepted, (await SignUpAsync(client, "Max", Address(58), "en")).StatusCode);
         await AssertErrorAsync(await SignUpAsync(client, "Max", Address(59), "en"), HttpStatusCode.BadRequest, "validation_failed", "email");
 
-        var malformed = await client.PostAsync("/api/account/signup", new StringContent("{not json", Encoding.UTF8, "application/json"));
-        await AssertErrorAsync(malformed, HttpStatusCode.BadRequest, "validation_failed");
-        await AssertErrorAsync(await client.PostAsJsonAsync("/api/account/signin", new { email = "nope" }),
+        await AssertErrorAsync(await PostRawAsync(client, "/api/account/signup", "{not json"), HttpStatusCode.BadRequest, "validation_failed", "body");
+        await AssertErrorAsync(await PostAsync(client, "/api/account/signin", new { email = "nope" }),
             HttpStatusCode.BadRequest, "validation_failed", "email");
+        await AssertErrorAsync(await PostRawAsync(client, "/api/account/signup", new string(' ', 9000)),
+            HttpStatusCode.RequestEntityTooLarge, "validation_failed", "body");
+    }
+
+    // ----- browser headers (CSRF and cross-site simple requests) -----
+
+    [Fact]
+    public async Task Unsafe_account_requests_need_the_header_and_a_json_content_type_and_refused_ones_are_not_counted()
+    {
+        await using var host = Host();
+        var client = Client(host);
+        var body = JsonSerializer.Serialize(new { name = "Eve", email = "victim@example.org", language = "en" });
+
+        // A cross-site "simple" request: text/plain, no custom header. Refused before any limiter or database work.
+        for (var i = 0; i < 25; i++)
+            await AssertErrorAsync(await PostRawAsync(client, "/api/account/signup", body, header: false, mediaType: "text/plain"),
+                HttpStatusCode.BadRequest, "csrf_failed");
+        await AssertErrorAsync(await PostRawAsync(client, "/api/account/signin", """{"email":"victim@example.org"}""", header: false),
+            HttpStatusCode.BadRequest, "csrf_failed");
+        await AssertErrorAsync(await PostRawAsync(client, "/api/account/signup", body, header: true, mediaType: "text/plain"),
+            HttpStatusCode.UnsupportedMediaType, "unsupported_media_type");
+        await AssertErrorAsync(await PostRawAsync(client, "/api/account/signup", body, header: true, mediaType: "application/x-www-form-urlencoded"),
+            HttpStatusCode.UnsupportedMediaType, "unsupported_media_type");
+        Assert.Empty(await OrganizersAsync(host));
+
+        // The per-IP budget is untouched: 20 correct requests are all processed.
+        for (var i = 0; i < 20; i++)
+            Assert.Equal(HttpStatusCode.Accepted, (await SignUpAsync(client, "User", $"u{i}@example.org", "en")).StatusCode);
+        Assert.Equal(20, (await OrganizersAsync(host)).Count);
+    }
+
+    [Fact]
+    public async Task Links_are_redeemed_only_by_POST_and_opening_the_emailed_page_consumes_nothing()
+    {
+        await using var host = Host();
+        var client = Client(host);
+        await SignUpAsync(client, "Anna", "anna@example.org", "en");
+        await SignInAsync(client, "anna@example.org");
+        var mails = await OutboxAsync(host);
+        var confirm = Link(mails[0]).Token;
+        var signIn = Link(mails[1]).Token;
+
+        // The API routes do not answer GET (no session from a top-level navigation, no token in an API URL).
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, (await client.GetAsync("/api/account/confirm?token=" + Uri.EscapeDataString(confirm))).StatusCode);
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, (await client.GetAsync("/api/account/signin/redeem?token=" + Uri.EscapeDataString(signIn))).StatusCode);
+
+        // A mail scanner fetching the emailed front-end URLs reaches no API route.
+        foreach (var mail in mails)
+        {
+            var url = new Uri(LinkPattern.Match(mail.TextBody).Value);
+            var scanned = await client.GetAsync(url.PathAndQuery);
+            Assert.Equal(HttpStatusCode.NotFound, scanned.StatusCode);
+            Assert.Null(SessionCookie(scanned));
+        }
+
+        await AssertErrorAsync(await PostAsync(client, "/api/account/signin/redeem", new { token = signIn }, header: false),
+            HttpStatusCode.BadRequest, "csrf_failed");
+        await AssertErrorAsync(await PostAsync(client, "/api/account/confirm", new { token = confirm }, header: false),
+            HttpStatusCode.BadRequest, "csrf_failed");
+        Assert.Null(Assert.Single(await OrganizersAsync(host)).EmailConfirmedAt);
+
+        Assert.Equal(HttpStatusCode.OK, (await ConfirmAsync(client, confirm)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await RedeemAsync(client, signIn)).StatusCode);
     }
 
     // ----- rate limits -----
 
     [Fact]
-    public async Task At_most_three_mails_per_email_and_hour_are_sent_and_the_answer_stays_the_same()
+    public async Task At_most_three_mails_per_email_and_IP_and_hour_are_sent_and_the_answer_stays_the_same()
     {
         var suppressed = new List<string>();
         using var listener = SuppressionListener(suppressed);
         await using var host = Host();
         var client = Client(host);
 
-        var answers = new List<HttpResponseMessage>();
-        answers.Add(await SignUpAsync(client, "Anna", "anna@example.org", "en"));
-        answers.Add(await SignInAsync(client, "ANNA@example.org"));
-        answers.Add(await SignUpAsync(client, "Anna", "anna@example.org", "en"));
-        answers.Add(await SignUpAsync(client, "Anna", "Anna@Example.org", "en")); // 4th: over the limit
-        answers.Add(await SignInAsync(client, "anna@example.org"));               // 5th: over the limit
+        var answers = new List<HttpResponseMessage>
+        {
+            await SignUpAsync(client, "Anna", "anna@example.org", "en"),
+            await SignInAsync(client, "ANNA@example.org"),
+            await SignUpAsync(client, "Anna", "anna@example.org", "en"),
+            await SignUpAsync(client, "Anna", "Anna@Example.org", "en"), // 4th: over the limit
+            await SignInAsync(client, "anna@example.org"),               // 5th: over the limit
+        };
 
         Assert.Equal(3, (await OutboxAsync(host)).Count);
         await AssertSameAnswerAsync([.. answers]);
-        Assert.Equal(["email", "email"], suppressed);
+        Assert.Equal(["email_ip", "email_ip"], suppressed);
 
+        // Another IP still gets mail for the address; after the hour this one does again.
+        await SignInAsync(Client(host, "203.0.113.50"), "anna@example.org");
+        Assert.Equal(4, (await OutboxAsync(host)).Count);
         host.Clock.Advance(TimeSpan.FromMinutes(61));
         await SignInAsync(client, "anna@example.org");
-        Assert.Equal(4, (await OutboxAsync(host)).Count);
+        Assert.Equal(5, (await OutboxAsync(host)).Count);
     }
 
     [Fact]
-    public async Task At_most_twenty_sign_up_or_sign_in_requests_per_IP_and_hour_are_processed()
+    public async Task At_most_ten_mails_per_email_and_hour_are_sent_whatever_the_IPs()
     {
         var suppressed = new List<string>();
         using var listener = SuppressionListener(suppressed);
         await using var host = Host();
-        var a = Client(host, "198.51.100.7");
-        var b = Client(host, "203.0.113.9");
+        await SignUpAsync(Client(host, "198.51.100.1"), "Anna", "anna@example.org", "en");
 
+        for (var ip = 2; ip <= 5; ip++)
+        {
+            var client = Client(host, "198.51.100." + ip);
+            for (var i = 0; i < 3; i++) Assert.Equal(HttpStatusCode.Accepted, (await SignInAsync(client, "anna@example.org")).StatusCode);
+        }
+
+        Assert.Equal(10, (await OutboxAsync(host)).Count); // 1 + 12 requested
+        Assert.Equal(["email", "email", "email"], suppressed);
+    }
+
+    [Fact]
+    public async Task At_most_twenty_requests_per_IP_bucket_and_hour_are_processed_and_IPv6_counts_per_64()
+    {
+        var suppressed = new List<string>();
+        using var listener = SuppressionListener(suppressed);
+        await using var host = Host();
         var answers = new List<HttpResponseMessage>();
-        for (var i = 0; i < 15; i++) answers.Add(await SignUpAsync(a, "User " + i, $"user{i}@example.org", "en"));
-        for (var i = 0; i < 5; i++) answers.Add(await SignInAsync(a, $"user{i}@example.org"));
+        // 20 requests from 20 different addresses of one /64.
+        for (var i = 0; i < 15; i++)
+            answers.Add(await SignUpAsync(Client(host, $"2001:db8:1:2::{i + 1:x}"), "User " + i, $"user{i}@example.org", "en"));
+        for (var i = 0; i < 5; i++)
+            answers.Add(await SignInAsync(Client(host, $"2001:db8:1:2:abcd::{i + 1:x}"), $"user{i}@example.org"));
         Assert.Equal(15, (await OrganizersAsync(host)).Count);
         Assert.Equal(20, (await OutboxAsync(host)).Count);
 
-        answers.Add(await SignUpAsync(a, "Over", "over@example.org", "en"));   // 21st from this IP
-        answers.Add(await SignInAsync(a, "user0@example.org"));
+        answers.Add(await SignUpAsync(Client(host, "2001:db8:1:2:ffff:ffff:ffff:fffe"), "Over", "over@example.org", "en"));
+        answers.Add(await SignInAsync(Client(host, "2001:db8:1:2::99"), "user0@example.org"));
         Assert.Equal(15, (await OrganizersAsync(host)).Count);
         Assert.Equal(20, (await OutboxAsync(host)).Count);
         await AssertSameAnswerAsync([.. answers]);
         Assert.Equal(["ip", "ip"], suppressed);
 
-        // Another IP is not affected; the first one is served again after the hour.
-        Assert.Equal(HttpStatusCode.Accepted, (await SignUpAsync(b, "Other", "other@example.org", "en")).StatusCode);
+        // The next /64 is another bucket; the first one is served again after the hour.
+        Assert.Equal(HttpStatusCode.Accepted, (await SignUpAsync(Client(host, "2001:db8:1:3::1"), "Other", "other@example.org", "en")).StatusCode);
         Assert.Equal(16, (await OrganizersAsync(host)).Count);
         host.Clock.Advance(TimeSpan.FromMinutes(61));
-        await SignUpAsync(a, "Later", "later@example.org", "en");
+        await SignUpAsync(Client(host, "2001:db8:1:2::1"), "Later", "later@example.org", "en");
         Assert.Equal(17, (await OrganizersAsync(host)).Count);
+    }
+
+    [Fact]
+    public async Task The_global_hourly_mail_cap_suppresses_further_mails_with_a_warning_and_the_same_answer()
+    {
+        var suppressed = new List<string>();
+        using var listener = SuppressionListener(suppressed);
+        var logs = new CapturingLoggerProvider();
+        await using var host = Host(configure: f => f.Settings["Accounts:GlobalMailsPerHour"] = "5",
+            services: s => s.AddSingleton<ILoggerProvider>(logs));
+
+        var answers = new List<HttpResponseMessage>();
+        for (var i = 0; i < 7; i++)
+            answers.Add(await SignUpAsync(Client(host, "198.51.100." + (i + 1)), "User", $"user{i}@example.org", "en"));
+
+        Assert.Equal(5, (await OutboxAsync(host)).Count);
+        await AssertSameAnswerAsync([.. answers]);
+        Assert.Equal(["global", "global"], suppressed);
+        var text = logs.Text();
+        Assert.Contains("Warning", text);
+        Assert.Contains("global", text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("user5@", text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -300,14 +432,36 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
     }
 
     [Fact]
+    public async Task A_database_failure_answers_503_unavailable_after_the_minimum_response_time()
+    {
+        await using var host = Host(minResponseMs: 150);
+        var client = Client(host);
+        await SignUpAsync(client, "Anna", "anna@example.org", "en");
+        await using (var db = Db(host))
+            await db.Database.ExecuteSqlRawAsync("""ALTER TABLE "Organizers" RENAME TO "OrganizersGone" """);
+
+        foreach (var call in new Func<Task<HttpResponseMessage>>[]
+                 {
+                     () => SignUpAsync(client, "New", "new@example.org", "en"),
+                     () => SignInAsync(client, "anna@example.org"),
+                 })
+        {
+            var watch = Stopwatch.StartNew();
+            var response = await call();
+            Assert.True(watch.ElapsedMilliseconds >= 145, $"answered after {watch.ElapsedMilliseconds} ms");
+            await AssertErrorAsync(response, HttpStatusCode.ServiceUnavailable, "unavailable");
+        }
+    }
+
+    [Fact]
     public async Task Link_redemption_is_rate_limited_per_IP_with_rate_limited()
     {
         await using var host = Host(configure: f => f.Settings["Accounts:LinkRedeemsPerIpPerHour"] = "3");
         var client = Client(host);
 
         for (var i = 0; i < 3; i++)
-            await AssertErrorAsync(await client.GetAsync(ConfirmPath("x" + i)), HttpStatusCode.BadRequest, "link_invalid");
-        await AssertErrorAsync(await client.GetAsync(RedeemPath("y")), (HttpStatusCode)429, "rate_limited");
+            await AssertErrorAsync(await ConfirmAsync(client, "x" + i), HttpStatusCode.BadRequest, "link_invalid");
+        await AssertErrorAsync(await RedeemAsync(client, "y"), (HttpStatusCode)429, "rate_limited");
     }
 
     // ----- links -----
@@ -321,11 +475,11 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         var token = Link(Assert.Single(await OutboxAsync(host))).Token;
 
         host.Clock.Advance(TimeSpan.FromDays(14) - TimeSpan.FromSeconds(1));
-        var response = await client.GetAsync(ConfirmPath(token));
+        var response = await ConfirmAsync(client, token);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("""{"confirmed":true}""", await response.Content.ReadAsStringAsync());
         Assert.Equal(host.Clock.GetUtcNow(), Assert.Single(await OrganizersAsync(host)).EmailConfirmedAt);
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(ConfirmPath(token))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await ConfirmAsync(client, token)).StatusCode);
     }
 
     [Fact]
@@ -339,15 +493,15 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         var signIn = Link((await OutboxAsync(host))[1]).Token;
 
         host.Clock.Advance(TimeSpan.FromMinutes(15) + TimeSpan.FromSeconds(1));
-        await AssertErrorAsync(await client.GetAsync(RedeemPath(signIn)), HttpStatusCode.BadRequest, "link_expired");
+        await AssertErrorAsync(await RedeemAsync(client, signIn), HttpStatusCode.BadRequest, "link_expired");
 
         host.Clock.Advance(TimeSpan.FromDays(14));
-        await AssertErrorAsync(await client.GetAsync(ConfirmPath(confirm)), HttpStatusCode.BadRequest, "link_expired");
+        await AssertErrorAsync(await ConfirmAsync(client, confirm), HttpStatusCode.BadRequest, "link_expired");
         Assert.Null(Assert.Single(await OrganizersAsync(host)).EmailConfirmedAt);
     }
 
     [Fact]
-    public async Task Sign_in_link_is_single_use()
+    public async Task Sign_in_link_is_single_use_and_proves_the_mailbox()
     {
         await using var host = Host();
         var client = Client(host);
@@ -355,37 +509,54 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         await SignInAsync(client, "anna@example.org");
         var token = Link((await OutboxAsync(host))[1]).Token;
 
-        var first = await client.GetAsync(RedeemPath(token));
+        var first = await RedeemAsync(client, token);
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
         Assert.NotNull(SessionCookie(first));
+        Assert.Equal(host.Clock.GetUtcNow(), Assert.Single(await OrganizersAsync(host)).EmailConfirmedAt);
 
-        var second = await client.GetAsync(RedeemPath(token));
+        var second = await RedeemAsync(client, token);
         await AssertErrorAsync(second, HttpStatusCode.BadRequest, "link_used");
         Assert.Null(SessionCookie(second));
     }
 
     [Fact]
-    public async Task Wrong_purpose_superseded_unknown_and_missing_tokens_fail_with_link_invalid()
+    public async Task Concurrent_POST_redemptions_of_one_sign_in_link_give_exactly_one_session()
+    {
+        await using var host = Host();
+        var client = Client(host);
+        await SignUpAsync(client, "Anna", "anna@example.org", "en");
+        await SignInAsync(client, "anna@example.org");
+        var token = Link((await OutboxAsync(host))[1]).Token;
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => RedeemAsync(client, token)));
+
+        Assert.Single(responses, r => r.StatusCode == HttpStatusCode.OK && SessionCookie(r) is not null);
+        foreach (var response in responses.Where(r => r.StatusCode != HttpStatusCode.OK))
+            await AssertErrorAsync(response, HttpStatusCode.BadRequest, "link_used");
+    }
+
+    [Fact]
+    public async Task Wrong_purpose_unknown_and_missing_tokens_fail_with_link_invalid_and_sign_in_links_are_not_superseded()
     {
         await using var host = Host();
         var client = Client(host);
         await SignUpAsync(client, "Anna", "anna@example.org", "en");
         var confirm = Link((await OutboxAsync(host))[0]).Token;
         await SignInAsync(client, "anna@example.org");
-        var oldSignIn = Link((await OutboxAsync(host))[1]).Token;
+        var olderSignIn = Link((await OutboxAsync(host))[1]).Token;
         await SignInAsync(client, "anna@example.org");
-        var newSignIn = Link((await OutboxAsync(host))[2]).Token;
+        var newerSignIn = Link((await OutboxAsync(host))[2]).Token;
 
-        await AssertErrorAsync(await client.GetAsync(RedeemPath(confirm)), HttpStatusCode.BadRequest, "link_invalid");
-        await AssertErrorAsync(await client.GetAsync(ConfirmPath(newSignIn)), HttpStatusCode.BadRequest, "link_invalid");
-        await AssertErrorAsync(await client.GetAsync(RedeemPath(oldSignIn)), HttpStatusCode.BadRequest, "link_invalid");
-        await AssertErrorAsync(await client.GetAsync(RedeemPath("not-a-token")), HttpStatusCode.BadRequest, "link_invalid");
-        await AssertErrorAsync(await client.GetAsync("/api/account/signin/redeem"), HttpStatusCode.BadRequest, "link_invalid");
-        await AssertErrorAsync(await client.GetAsync("/api/account/confirm"), HttpStatusCode.BadRequest, "link_invalid");
+        await AssertErrorAsync(await RedeemAsync(client, confirm), HttpStatusCode.BadRequest, "link_invalid");
+        await AssertErrorAsync(await ConfirmAsync(client, newerSignIn), HttpStatusCode.BadRequest, "link_invalid");
+        await AssertErrorAsync(await RedeemAsync(client, "not-a-token"), HttpStatusCode.BadRequest, "link_invalid");
+        await AssertErrorAsync(await PostAsync(client, "/api/account/signin/redeem", new { }), HttpStatusCode.BadRequest, "link_invalid");
+        await AssertErrorAsync(await PostAsync(client, "/api/account/confirm", new { token = (string?)null }), HttpStatusCode.BadRequest, "link_invalid");
         Assert.Null(Assert.Single(await OrganizersAsync(host)).EmailConfirmedAt);
 
-        // The newest link still works (the failures above did not consume it).
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(RedeemPath(newSignIn))).StatusCode);
+        // Each sign-in link lives on its own (15 minutes, single use): a newer request does not cancel an older link.
+        Assert.Equal(HttpStatusCode.OK, (await RedeemAsync(client, olderSignIn)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await RedeemAsync(client, newerSignIn)).StatusCode);
     }
 
     [Fact]
@@ -418,7 +589,7 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
     }
 
     [Fact]
-    public async Task Issued_tokens_are_random_32_bytes_stored_only_as_hash_and_supersede_only_the_same_purpose_and_subject()
+    public async Task Issued_tokens_are_random_hashed_and_supersede_older_ones_of_the_purpose_and_subject_except_sign_in()
     {
         await using var host = Host();
         using var scope = host.Services.CreateScope();
@@ -427,30 +598,37 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         var b = Guid.NewGuid();
         var ct = CancellationToken.None;
 
-        var invite = await service.IssueAsync(LinkPurpose.ParticipantInvite, a, TimeSpan.FromDays(14), ct);
+        var invite1 = await service.IssueAsync(LinkPurpose.ParticipantInvite, a, TimeSpan.FromDays(14), ct);
         var signInA1 = await service.IssueAsync(LinkPurpose.OrganizerSignIn, a, TimeSpan.FromMinutes(15), ct);
         var signInB = await service.IssueAsync(LinkPurpose.OrganizerSignIn, b, TimeSpan.FromMinutes(15), ct);
         var signInA2 = await service.IssueAsync(LinkPurpose.OrganizerSignIn, a, TimeSpan.FromMinutes(15), ct);
+        var inviteB = await service.IssueAsync(LinkPurpose.ParticipantInvite, b, TimeSpan.FromDays(14), ct);
 
-        foreach (var raw in new[] { invite, signInA1, signInB, signInA2 })
+        foreach (var raw in new[] { invite1, signInA1, signInB, signInA2, inviteB })
         {
             Assert.Equal(43, raw.Length);
-            Assert.Equal(32, Base64UrlDecode(raw).Length);
+            Assert.Equal(32, System.Buffers.Text.Base64Url.DecodeFromChars(raw).Length);
         }
-        Assert.Equal(4, new[] { invite, signInA1, signInB, signInA2 }.Distinct().Count());
+        Assert.Equal(5, new[] { invite1, signInA1, signInB, signInA2, inviteB }.Distinct().Count());
         var stored = await LinkTokensAsync(host);
-        Assert.All(stored, t => Assert.Equal(32, t.TokenHash.Length));
-        Assert.Contains(stored, t => t.TokenHash.SequenceEqual(SHA256.HashData(Encoding.UTF8.GetBytes(invite))));
-        Assert.DoesNotContain(stored, t => t.TokenHash.SequenceEqual(Base64UrlDecode(invite)));
+        Assert.Contains(stored, t => t.TokenHash.SequenceEqual(SHA256.HashData(Encoding.UTF8.GetBytes(invite1))));
+        Assert.DoesNotContain(stored, t => t.TokenHash.SequenceEqual(System.Buffers.Text.Base64Url.DecodeFromChars(invite1)));
 
-        Assert.Equal(LinkStatus.Superseded, (await service.RedeemAsync(LinkPurpose.OrganizerSignIn, signInA1, true, ct)).Status);
-        Assert.Equal(LinkStatus.Ok, (await service.RedeemAsync(LinkPurpose.OrganizerSignIn, signInB, true, ct)).Status);
+        // Sign-in links are never superseded.
+        Assert.Equal(LinkStatus.Ok, (await service.RedeemAsync(LinkPurpose.OrganizerSignIn, signInA1, true, ct)).Status);
         Assert.Equal(LinkStatus.Ok, (await service.RedeemAsync(LinkPurpose.OrganizerSignIn, signInA2, true, ct)).Status);
-        var reopened = await service.RedeemAsync(LinkPurpose.ParticipantInvite, invite, false, ct);
-        Assert.Equal(LinkStatus.Ok, reopened.Status);
-        Assert.Equal(a, reopened.SubjectId);
-        Assert.Equal(LinkStatus.Ok, (await service.RedeemAsync(LinkPurpose.ParticipantInvite, invite, false, ct)).Status);
-        Assert.Equal(LinkStatus.Unknown, (await service.RedeemAsync(LinkPurpose.OrganizerEmailConfirm, invite, false, ct)).Status);
+        Assert.Equal(LinkStatus.Ok, (await service.RedeemAsync(LinkPurpose.OrganizerSignIn, signInB, true, ct)).Status);
+
+        // A reopened (used) invitation is still superseded by a newer one; another subject's is not.
+        var opened = await service.RedeemAsync(LinkPurpose.ParticipantInvite, invite1, false, ct);
+        Assert.Equal((LinkStatus.Ok, a), (opened.Status, opened.SubjectId));
+        Assert.Equal(LinkStatus.Ok, (await service.RedeemAsync(LinkPurpose.ParticipantInvite, invite1, false, ct)).Status);
+        var invite2 = await service.IssueAsync(LinkPurpose.ParticipantInvite, a, TimeSpan.FromDays(14), ct);
+        var superseded = await service.RedeemAsync(LinkPurpose.ParticipantInvite, invite1, false, ct);
+        Assert.Equal((LinkStatus.Superseded, a), (superseded.Status, superseded.SubjectId));
+        Assert.Equal(LinkStatus.Ok, (await service.RedeemAsync(LinkPurpose.ParticipantInvite, invite2, false, ct)).Status);
+        Assert.Equal(LinkStatus.Ok, (await service.RedeemAsync(LinkPurpose.ParticipantInvite, inviteB, false, ct)).Status);
+        Assert.Equal(LinkStatus.Unknown, (await service.RedeemAsync(LinkPurpose.OrganizerEmailConfirm, invite2, false, ct)).Status);
     }
 
     // ----- session -----
@@ -463,7 +641,7 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         await SignUpAsync(client, "Anna", "anna@example.org", "en");
         await SignInAsync(client, "anna@example.org");
 
-        var response = await client.GetAsync(RedeemPath(Link((await OutboxAsync(host))[1]).Token));
+        var response = await RedeemAsync(client, Link((await OutboxAsync(host))[1]).Token);
         var at = host.Clock.GetUtcNow();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -478,6 +656,7 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         Assert.DoesNotContain("anna", setCookie, StringComparison.OrdinalIgnoreCase);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.Equal("anna@example.org", body.RootElement.GetProperty("email").GetString());
+        Assert.True(body.RootElement.GetProperty("emailConfirmed").GetBoolean());
     }
 
     [Fact]
@@ -516,12 +695,8 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         var cookie = await SignInSessionAsync(host, client, "anna@example.org");
         var me = await MeAsync(client, cookie);
         Assert.Equal(HttpStatusCode.OK, me.StatusCode);
-        Assert.Equal("""{"name":"Anna","email":"Anna@Example.org","language":"sk","emailConfirmed":false,"emailMode":"simulated"}""",
+        Assert.Equal("""{"name":"Anna","email":"Anna@Example.org","language":"sk","emailConfirmed":true,"emailMode":"simulated"}""",
             await me.Content.ReadAsStringAsync());
-
-        await ConfirmAsync(host, client, "anna@example.org");
-        using var after = JsonDocument.Parse(await (await MeAsync(client, cookie)).Content.ReadAsStringAsync());
-        Assert.True(after.RootElement.GetProperty("emailConfirmed").GetBoolean());
     }
 
     [Fact]
@@ -533,8 +708,7 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         var cookie = await SignInSessionAsync(host, client, "anna@example.org");
         var otherDevice = await SignInSessionAsync(host, client, "anna@example.org");
 
-        var signOut = Request(HttpMethod.Post, "/api/account/signout", cookie, csrf: true);
-        var response = await client.SendAsync(signOut);
+        var response = await PostAsync(client, "/api/account/signout", new { }, cookie: cookie);
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         var cleared = Assert.Single(response.Headers.GetValues("Set-Cookie"));
@@ -544,24 +718,25 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
     }
 
     [Fact]
-    public async Task Cookie_authenticated_state_changing_requests_without_the_csrf_header_are_refused()
+    public async Task Cookie_authenticated_state_changing_requests_without_the_header_or_json_are_refused()
     {
         await using var host = Host();
         var client = Client(host);
         await SignUpAsync(client, "Anna", "anna@example.org", "en");
         var cookie = await SignInSessionAsync(host, client, "anna@example.org");
 
-        var response = await client.SendAsync(Request(HttpMethod.Post, "/api/account/signout", cookie, csrf: false));
-        await AssertErrorAsync(response, HttpStatusCode.Forbidden, "csrf_failed");
-        var wrong = Request(HttpMethod.Post, "/api/account/signout", cookie, csrf: false);
-        wrong.Headers.Add(CookieAuth.CsrfHeader, "XMLHttpRequest");
-        await AssertErrorAsync(await client.SendAsync(wrong), HttpStatusCode.Forbidden, "csrf_failed");
-        var signIn = Request(HttpMethod.Post, "/api/account/signin", cookie, csrf: false);
-        signIn.Content = JsonContent.Create(new { email = "anna@example.org" });
-        await AssertErrorAsync(await client.SendAsync(signIn), HttpStatusCode.Forbidden, "csrf_failed");
+        await AssertErrorAsync(await PostAsync(client, "/api/account/signout", new { }, cookie: cookie, header: false),
+            HttpStatusCode.BadRequest, "csrf_failed");
+        await AssertErrorAsync(await PostRawAsync(client, "/api/account/signout", "{}", header: false, cookie: cookie, headerValue: "XMLHttpRequest"),
+            HttpStatusCode.BadRequest, "csrf_failed");
+        await AssertErrorAsync(await PostRawAsync(client, "/api/account/signout", "x", cookie: cookie, mediaType: "text/plain"),
+            HttpStatusCode.UnsupportedMediaType, "unsupported_media_type");
+        // Other /api paths that receive the cookie need the header too.
+        await AssertErrorAsync(await PostRawAsync(client, "/api/demo/events", "{}", header: false, cookie: cookie),
+            HttpStatusCode.BadRequest, "csrf_failed");
 
         Assert.Equal(HttpStatusCode.OK, (await MeAsync(client, cookie)).StatusCode); // still signed in
-        Assert.Equal(HttpStatusCode.NoContent, (await client.SendAsync(Request(HttpMethod.Post, "/api/account/signout", cookie, csrf: true))).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await PostAsync(client, "/api/account/signout", new { }, cookie: cookie)).StatusCode);
     }
 
     [Fact]
@@ -584,7 +759,7 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         }
 
         Assert.Equal((true, false), await EvaluateAsync());
-        await ConfirmAsync(host, client, "anna@example.org");
+        await ConfirmByMailAsync(host, client, "anna@example.org");
         Assert.Equal((true, true), await EvaluateAsync());
         Assert.Single(CookieAuth.CreatePrincipal(organizer).Claims, c => c.Type == CookieAuth.OrganizerIdClaim);
         Assert.Equal(2, CookieAuth.CreatePrincipal(organizer).Claims.Count());
@@ -597,19 +772,18 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         await using var host = Host(configure: f =>
         {
             f.Settings["Logging:LogLevel:Default"] = "Trace";
-            f.Settings["Logging:LogLevel:Microsoft.AspNetCore"] = "Warning"; // as shipped: the request line carries the query string
+            f.Settings["Logging:LogLevel:Microsoft.AspNetCore"] = "Warning"; // as shipped
         }, services: s => s.AddSingleton<ILoggerProvider>(logs));
         var client = Client(host);
 
         await SignUpAsync(client, "Anna", "secret.person@example.org", "en");
         var confirm = Link((await OutboxAsync(host))[0]).Token;
-        await client.GetAsync(ConfirmPath(confirm));
+        await ConfirmAsync(client, confirm);
         await SignUpAsync(client, "Anna", "secret.person@example.org", "en");
-        await SignInAsync(client, "secret.person@example.org");
         await SignInAsync(client, "secret.person@example.org");
         await SignInAsync(client, "secret.person@example.org"); // over the limit: logged at debug level
         var signIn = Link((await OutboxAsync(host)).Last()).Token;
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(RedeemPath(signIn))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await RedeemAsync(client, signIn)).StatusCode);
 
         var text = logs.Text();
         Assert.Contains("rate limit", text, StringComparison.OrdinalIgnoreCase);
@@ -668,21 +842,37 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
     /// <summary>Cookie dates have whole seconds.</summary>
     private static DateTimeOffset Seconds(DateTimeOffset value) => new(value.Ticks - value.Ticks % TimeSpan.TicksPerSecond, value.Offset);
 
+    /// <summary>A JSON POST as the front end sends it (the browser header unless <paramref name="header"/> is false).</summary>
+    private static Task<HttpResponseMessage> PostAsync(HttpClient client, string path, object body, string? cookie = null, bool header = true) =>
+        PostRawAsync(client, path, JsonSerializer.Serialize(body), header, cookie: cookie);
+
+    private static Task<HttpResponseMessage> PostRawAsync(HttpClient client, string path, string body, bool header = true,
+        string mediaType = "application/json", string? cookie = null, string? headerValue = null)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = new StringContent(body, Encoding.UTF8, mediaType) };
+        if (header) request.Headers.Add(BrowserApiHeaders.HeaderName, BrowserApiHeaders.HeaderValue);
+        else if (headerValue is not null) request.Headers.Add(BrowserApiHeaders.HeaderName, headerValue);
+        if (cookie is not null) request.Headers.Add("Cookie", cookie);
+        return client.SendAsync(request);
+    }
+
     private static Task<HttpResponseMessage> SignUpAsync(HttpClient client, string name, string email, string language) =>
-        client.PostAsJsonAsync("/api/account/signup", new { name, email, language });
+        PostAsync(client, "/api/account/signup", new { name, email, language });
 
     private static Task<HttpResponseMessage> SignInAsync(HttpClient client, string email) =>
-        client.PostAsJsonAsync("/api/account/signin", new { email });
+        PostAsync(client, "/api/account/signin", new { email });
 
-    private static string ConfirmPath(string token) => "/api/account/confirm?token=" + Uri.EscapeDataString(token);
+    private static Task<HttpResponseMessage> ConfirmAsync(HttpClient client, string token) =>
+        PostAsync(client, "/api/account/confirm", new { token });
 
-    private static string RedeemPath(string token) => "/api/account/signin/redeem?token=" + Uri.EscapeDataString(token);
+    private static Task<HttpResponseMessage> RedeemAsync(HttpClient client, string token) =>
+        PostAsync(client, "/api/account/signin/redeem", new { token });
 
-    private static async Task ConfirmAsync(ApiFactory host, HttpClient client, string normalizedEmail)
+    private static async Task ConfirmByMailAsync(ApiFactory host, HttpClient client, string normalizedEmail)
     {
         var mail = (await OutboxAsync(host)).Last(m =>
             m.Purpose == EmailPurpose.OrganizerEmailConfirmation && m.ToAddress.Equals(normalizedEmail, StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(ConfirmPath(Link(mail).Token))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await ConfirmAsync(client, Link(mail).Token)).StatusCode);
     }
 
     /// <summary>Requests a sign-in link, redeems it and returns the session cookie (<c>name=value</c>).</summary>
@@ -690,7 +880,7 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
     {
         Assert.Equal(HttpStatusCode.Accepted, (await SignInAsync(client, email)).StatusCode);
         var mail = (await OutboxAsync(host)).Last(m => m.Purpose == EmailPurpose.SignIn);
-        var response = await client.GetAsync(RedeemPath(Link(mail).Token));
+        var response = await RedeemAsync(client, Link(mail).Token);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return SessionCookie(response) ?? throw new InvalidOperationException("No session cookie.");
     }
@@ -706,15 +896,11 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         return DateTimeOffset.ParseExact(part["expires=".Length..], "r", CultureInfo.InvariantCulture);
     }
 
-    private static Task<HttpResponseMessage> MeAsync(HttpClient client, string cookie) =>
-        client.SendAsync(Request(HttpMethod.Get, "/api/account/me", cookie, csrf: false));
-
-    private static HttpRequestMessage Request(HttpMethod method, string path, string cookie, bool csrf)
+    private static Task<HttpResponseMessage> MeAsync(HttpClient client, string cookie)
     {
-        var request = new HttpRequestMessage(method, path);
+        var request = new HttpRequestMessage(HttpMethod.Get, "/api/account/me");
         request.Headers.Add("Cookie", cookie);
-        if (csrf) request.Headers.Add(CookieAuth.CsrfHeader, CookieAuth.CsrfHeaderValue);
-        return request;
+        return client.SendAsync(request);
     }
 
     private static (string Kind, string Token) Link(EmailOutboxEntity mail)
@@ -745,6 +931,7 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
             "unauthorized" => "Nie ste prihlásený",
             "rate_limited" => "Príliš veľa",
             "csrf_failed" => "bezpečnostných",
+            "unavailable" => "nedostupné",
             _ => null,
         };
         if (expectedSk is not null) Assert.Contains(expectedSk, message.GetProperty("sk").GetString());
@@ -779,8 +966,6 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         listener.Start();
         return listener;
     }
-
-    private static byte[] Base64UrlDecode(string value) => System.Buffers.Text.Base64Url.DecodeFromChars(value);
 
     private static async Task<List<OrganizerEntity>> OrganizersAsync(ApiFactory host)
     {
