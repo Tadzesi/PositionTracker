@@ -227,6 +227,84 @@ public class ParticipantTrackerStateTests
     public void OffCourse_150m_for_exactly_15s_is_Live() =>
         Assert.Equal(ParticipantState.Live, StateAfter(Track(RideOffCourse(15)), 0));
 
+    private static readonly double[] BackwardDrift = { 60, 70, 80, 75, 65 };
+
+    /// <summary>Ride to 2 000 m, then stand there while GPS drifts 60-80 m behind on the course for <paramref name="count"/> fixes.</summary>
+    private static List<PositionFix> StandWithBackwardDrift(int count)
+    {
+        var fixes = Ride(2_000);
+        var t = fixes[^1].Time;
+        for (var k = 1; k <= count; k++) fixes.Add(FixAt(2_000 - BackwardDrift[k % BackwardDrift.Length], t = t.AddSeconds(5)));
+        return fixes;
+    }
+
+    [Fact]
+    public void Standing_rider_with_backward_drift_on_the_course_is_not_OffCourse_and_becomes_Stopped()
+    {
+        var fixes = StandWithBackwardDrift(37);
+        var tracker = new ParticipantTracker(Loop, Sport.Cycling, T0);
+        foreach (var f in fixes.Take(fixes.Count - 30)) tracker.Apply(f); // 35 s of drift
+        Assert.Equal(ParticipantState.Live, StateAfter(tracker, 0));
+        Assert.True(tracker.GetSnapshot(T0).OffCourseM < 100, $"OffCourseM {tracker.GetSnapshot(T0).OffCourseM}");
+
+        foreach (var f in fixes.Skip(fixes.Count - 30)) tracker.Apply(f); // 185 s of drift
+        Assert.Equal(ParticipantState.Stopped, StateAfter(tracker, 0));
+    }
+
+    [Fact]
+    public void Backward_drift_state_is_identical_for_a_late_batch()
+    {
+        var fixes = StandWithBackwardDrift(37);
+        var a = Track(fixes);
+        var b = Track(fixes.Skip(45).Concat(fixes.Take(45).Reverse()));
+
+        foreach (var now in new[] { fixes[50].Time, fixes[^1].Time, fixes[^1].Time.AddSeconds(30) })
+            Assert.Equal(a.GetSnapshot(now), b.GetSnapshot(now));
+        Assert.Equal(ParticipantState.Stopped, b.GetSnapshot(fixes[^1].Time).State);
+    }
+
+    [Theory]
+    [InlineData(10, ParticipantState.Live)]
+    [InlineData(20, ParticipantState.OffCourse)]
+    public void Off_course_debounce_starts_at_the_first_fix_beyond_the_threshold_not_at_earlier_drift(int offS, ParticipantState expected)
+    {
+        // 15 s of drift 70 m behind (refused by the plausibility check, on course for the matcher), then
+        // 120 m south of the course: the debounce runs from the first fix 120 m off.
+        var fixes = Ride(2_000);
+        var t = fixes[^1].Time;
+        for (var k = 0; k < 4; k++) fixes.Add(FixAt(1_930, t = t.AddSeconds(5)));
+        for (var s = 0; s <= offS; s += 5) fixes.Add(At(Offset(Loop.PointAt(1_930), -120), t.AddSeconds(5 + s)));
+
+        var tracker = Track(fixes);
+        Assert.True(tracker.GetSnapshot(T0).OffCourseM > 100);
+        Assert.Equal(expected, StateAfter(tracker, 0));
+    }
+
+    [Fact]
+    public void Pause_and_unpause_at_the_same_time_cancel_out()
+    {
+        var tracker = Track(RideThenCrawl(240));
+        tracker.SetPaused(SlowStart.AddSeconds(50), true);
+        tracker.SetPaused(SlowStart.AddSeconds(50), false);
+
+        var s = tracker.GetSnapshot(SlowStart.AddSeconds(240));
+        Assert.Equal(ParticipantState.Stopped, s.State);
+        Assert.Equal(TimeSpan.FromSeconds(240), s.StoppedTime);
+    }
+
+    [Fact]
+    public void Unpause_then_pause_at_the_same_time_leaves_the_participant_paused()
+    {
+        // The later call wins.
+        var tracker = Track(RideThenCrawl(240));
+        tracker.SetPaused(SlowStart.AddSeconds(50), false);
+        tracker.SetPaused(SlowStart.AddSeconds(50), true);
+
+        var s = tracker.GetSnapshot(SlowStart.AddSeconds(240));
+        Assert.Equal(ParticipantState.Live, s.State);
+        Assert.Equal(TimeSpan.FromSeconds(50), s.StoppedTime);
+    }
+
     [Fact]
     public void Reaching_total_length_is_Finished_and_stays_Finished_with_no_further_fixes_even_after_10_minutes()
     {

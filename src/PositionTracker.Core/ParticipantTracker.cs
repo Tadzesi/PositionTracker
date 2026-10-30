@@ -68,7 +68,7 @@ public sealed class ParticipantTracker
     private readonly List<PositionFix> _fixes = new(); // sorted by FixOrder
 
     // State inputs from the setters, not fixes: they survive Reset() and every replay.
-    private readonly List<(DateTimeOffset At, bool Paused)> _pauseSwitches = new(); // sorted
+    private readonly List<(DateTimeOffset At, int Call, bool Paused)> _pauseSwitches = new(); // sorted by time, then call order
     private readonly List<(DateTimeOffset Start, DateTimeOffset End)> _pauses = new(); // disjoint, sorted; open end = MaxValue
     private bool _sos;
     private DateTimeOffset? _dnfAt;
@@ -86,7 +86,7 @@ public sealed class ParticipantTracker
     private TimeSpan _stoppedTime;
     private double _maxSpeedMps;
     private DateTimeOffset? _finishTime;
-    private DateTimeOffset? _offCourseSince; // first fix of the current run of unmatched accepted fixes
+    private DateTimeOffset? _offCourseSince; // first fix of the current run of accepted fixes the matcher placed off course
 
     public ParticipantTracker(Course course, Sport sport, DateTimeOffset startTime, TrackerOptions? options = null)
     {
@@ -124,24 +124,24 @@ public sealed class ParticipantTracker
     public void SetSos(bool on) => _sos = on;
 
     /// <summary>
-    /// Records a pause switch at <paramref name="at"/>. Switches may arrive in any order; they are kept sorted
-    /// (at equal times an unpause sorts before a pause) and a pause runs from the first pause switch to the next
-    /// unpause switch. Changing the pauses replays the fixes, because paused time is neither moving nor stopped time.
+    /// Records a pause switch at <paramref name="at"/>. Switches may arrive in any order; they are kept sorted by
+    /// time, and switches with equal times by call order, so the later call wins (pause and unpause in the same
+    /// second cancel out). A pause runs from the first pause switch to the next unpause switch. Changing the pauses
+    /// replays the fixes, because paused time is neither moving nor stopped time.
     /// </summary>
     public void SetPaused(DateTimeOffset at, bool paused)
     {
-        var index = _pauseSwitches.BinarySearch((at, paused));
-        if (index >= 0) return;
-        _pauseSwitches.Insert(~index, (at, paused));
+        var index = _pauseSwitches.BinarySearch((at, _pauseSwitches.Count, paused));
+        _pauseSwitches.Insert(~index, (at, _pauseSwitches.Count, paused));
 
         _pauses.Clear();
         DateTimeOffset? start = null;
-        foreach (var (time, on) in _pauseSwitches)
+        foreach (var (time, _, on) in _pauseSwitches)
         {
             if (on) start ??= time;
             else if (start is { } s)
             {
-                _pauses.Add((s, time));
+                if (time > s) _pauses.Add((s, time));
                 start = null;
             }
         }
@@ -286,14 +286,12 @@ public sealed class ParticipantTracker
         _lastFix = _lastAccepted = fix;
         var previous = History.Last;
 
-        // A matched fix is within OffCourseM of the course, so "unmatched" covers "over the threshold".
-        _lastAcceptedMatched = Locate(fix);
-        if (!_lastAcceptedMatched)
-        {
-            _offCourseSince ??= fix.Time;
-            return;
-        }
-        _offCourseSince = null;
+        // The off-course run follows the matcher's verdict (over OffCourseM, or no candidate), not the
+        // plausibility check: GPS drift behind on the course is unmatched for progress but still on course.
+        _lastAcceptedMatched = Locate(fix, out var offCourse);
+        if (offCourse) _offCourseSince ??= fix.Time;
+        else _offCourseSince = null;
+        if (!_lastAcceptedMatched) return;
 
         History.Add(fix.Time, _totalM);
         if (_finishTime is null && _totalM >= _course.TotalLengthM) _finishTime = fix.Time;
@@ -320,9 +318,10 @@ public sealed class ParticipantTracker
     /// sport's max speed (at least the matcher default, at most one lap), so a rider is found again after a
     /// dropout. There is no separate full-lap retry: with the backtracking rule it could only find moves the
     /// widened window already covers. A match is accepted only if it is reachable in the elapsed time and
-    /// not more than <see cref="MaxRegressionM"/> behind the total.
+    /// not more than <see cref="MaxRegressionM"/> behind the total. <paramref name="offCourse"/> is the matcher's
+    /// verdict alone: no pass of the course within <c>OffCourseM</c> inside the window.
     /// </summary>
-    private bool Locate(PositionFix fix)
+    private bool Locate(PositionFix fix, out bool offCourse)
     {
         var elapsedS = Math.Max(0, (fix.Time - _lastMatchedTime).TotalSeconds);
         var reachM = Math.Min(_course.LapLengthM, Math.Max(DefaultMatcher.ForwardWindowM, elapsedS * _options.Filter.MaxSpeedMps));
@@ -330,6 +329,7 @@ public sealed class ParticipantTracker
 
         var result = CourseMatcher.Match(_course, fix.Lat, fix.Lon, _lapProgressM, window);
         if (double.IsFinite(result.OffCourseM)) _offCourseM = result.OffCourseM;
+        offCourse = !result.Matched;
         if (!TryAdvance(result, reachM)) return false;
         _lastMatchedTime = fix.Time;
         return true;
