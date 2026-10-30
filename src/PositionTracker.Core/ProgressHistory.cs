@@ -83,16 +83,13 @@ public sealed class ProgressHistory
     }
 
     /// <summary>
-    /// Start of the trailing run of slow intervals: the end time of the newest interval between consecutive
-    /// points whose average speed is at least <paramref name="minSpeedMps"/>, or the first point if there is
-    /// none; <c>null</c> for an empty history.
+    /// Time of the first point whose distance is at least <paramref name="distanceM"/>, not interpolated;
+    /// <c>null</c> when no point reaches it.
     /// </summary>
-    internal DateTimeOffset? SlowSince(double minSpeedMps)
+    internal DateTimeOffset? FirstPointAtOrAbove(double distanceM)
     {
-        for (var i = _times.Count - 1; i > 0; i--)
-            if ((_distances[i] - _distances[i - 1]) / (_times[i] - _times[i - 1]).TotalSeconds >= minSpeedMps)
-                return _times[i];
-        return _times.Count == 0 ? null : _times[0];
+        if (_times.Count == 0 || !(_distances[^1] >= distanceM)) return null;
+        return _times[FirstIndexAtOrAbove(distanceM)];
     }
 
     internal void Clear()

@@ -391,6 +391,105 @@ public class EventRuntimeTests
         Assert.Equal(new[] { new Alarm(AlarmKind.Stopped, T0.AddSeconds(400)) }, stopped.Alarms);
     }
 
+    private static readonly double[] JitterM = { 0, 2, -3, 4, -2, 3, -4, 1 };
+
+    /// <summary>Standing at <paramref name="totalM"/> every 5 s with a ±2 to 4 m along-track jitter pattern.</summary>
+    private static IEnumerable<PositionFix> JitterStand(double totalM, int fromS, int toS)
+    {
+        for (var s = fromS; s <= toS; s += 5) yield return FixAt(totalM + JitterM[s / 5 % JitterM.Length], T0.AddSeconds(s));
+    }
+
+    private static Alarm StoppedAlarmAt(EventRuntime runtime, FakeTimeProvider clock, int atS)
+    {
+        clock.SetUtcNow(T0.AddSeconds(atS));
+        var view = View(runtime, "a");
+        Assert.Equal(ParticipantState.Stopped, view.State);
+        return Assert.Single(view.Alarms);
+    }
+
+    [Fact]
+    public void Stopped_since_survives_forward_drift_of_a_standing_receiver()
+    {
+        var (runtime, clock) = Create("a");
+        var fixes = Ride(8, 100).Concat(Stand(800, 105, 520))
+            .Select(f => f.Time == T0.AddSeconds(300) ? FixAt(802, f.Time)
+                : f.Time == T0.AddSeconds(500) ? FixAt(803.5, f.Time) : f)
+            .ToList();
+        runtime.Ingest("a", Batch(fixes.Where(f => f.Time <= T0.AddSeconds(400))));
+        var first = StoppedAlarmAt(runtime, clock, 400);
+
+        runtime.Ingest("a", Batch(fixes.Where(f => f.Time > T0.AddSeconds(400))));
+        var second = StoppedAlarmAt(runtime, clock, 520);
+
+        Assert.Equal(first, second);
+        Assert.Equal(AlarmKind.Stopped, second.Kind);
+        Assert.InRange(second.Since, T0.AddSeconds(95), T0.AddSeconds(105));
+        Assert.Equal(TimeSpan.FromSeconds(420), clock.GetUtcNow() - second.Since);
+    }
+
+    [Fact]
+    public void Stopped_since_is_stable_over_ten_minutes_of_jitter()
+    {
+        var (runtime, clock) = Create("a");
+        runtime.Ingest("a", Batch(Ride(8, 100).Concat(JitterStand(800, 105, 700))));
+
+        var alarms = new[] { 300, 360, 420, 480, 540, 600, 660, 700 }.Select(t => StoppedAlarmAt(runtime, clock, t)).Distinct().ToList();
+
+        Assert.Equal(new[] { new Alarm(AlarmKind.Stopped, T0.AddSeconds(100)) }, alarms);
+    }
+
+    [Fact]
+    public void Riding_on_and_stopping_again_gives_a_new_later_Stopped_since()
+    {
+        var (runtime, clock) = Create("a");
+        runtime.Ingest("a", Batch(Ride(8, 100).Concat(JitterStand(800, 105, 395))));
+        var first = StoppedAlarmAt(runtime, clock, 395);
+
+        runtime.Ingest("a", Batch(RideOn(800, 400, 460).Concat(JitterStand(1_280, 465, 800)))); // 1 280 m at T0 + 460 s
+        var second = StoppedAlarmAt(runtime, clock, 800);
+
+        Assert.Equal(T0.AddSeconds(100), first.Since);
+        Assert.InRange(second.Since, T0.AddSeconds(455), T0.AddSeconds(465));
+    }
+
+    [Fact]
+    public void Late_batch_with_jitter_gives_the_same_Stopped_since_as_ordered_input()
+    {
+        var fixes = Ride(8, 100).Concat(JitterStand(800, 105, 700)).ToList();
+
+        var (ordered, orderedClock) = Create("a");
+        ordered.Ingest("a", Batch(fixes.Take(70)));
+        ordered.Ingest("a", Batch(fixes.Skip(70)));
+        var (late, lateClock) = Create("a");
+        late.Ingest("a", Batch(fixes.Skip(70)));
+        late.Ingest("a", Batch(fixes.Take(70)));
+
+        var expected = StoppedAlarmAt(ordered, orderedClock, 700);
+        Assert.Equal(expected, StoppedAlarmAt(late, lateClock, 700));
+        Assert.Equal(T0.AddSeconds(100), expected.Since);
+        Assert.Equal(Json(ordered.BuildLiveView()), Json(late.BuildLiveView()));
+    }
+
+    [Fact]
+    public void Pause_inside_a_stop_restarts_Stopped_since_at_the_resume_and_keeps_it_stable()
+    {
+        var (runtime, clock) = Create("a");
+        runtime.Ingest("a", Batch(Ride(8, 100).Concat(JitterStand(800, 105, 400))));
+        Assert.Equal(T0.AddSeconds(100), StoppedAlarmAt(runtime, clock, 400).Since);
+        runtime.Act("a", ParticipantAction.Pause);
+
+        runtime.Ingest("a", Batch(JitterStand(800, 405, 500)));
+        clock.SetUtcNow(T0.AddSeconds(450));
+        Assert.Empty(View(runtime, "a").Alarms); // no Stopped alarm while paused
+        clock.SetUtcNow(T0.AddSeconds(500));
+        runtime.Act("a", ParticipantAction.Resume);
+
+        runtime.Ingest("a", Batch(JitterStand(800, 505, 800)));
+        var alarms = new[] { 520, 640, 800 }.Select(t => StoppedAlarmAt(runtime, clock, t)).Distinct().ToList();
+
+        Assert.Equal(new[] { new Alarm(AlarmKind.Stopped, T0.AddSeconds(500)) }, alarms);
+    }
+
     [Fact]
     public void Parallel_ingest_on_different_participants_does_not_corrupt_state()
     {

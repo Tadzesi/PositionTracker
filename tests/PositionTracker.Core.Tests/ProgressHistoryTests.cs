@@ -5,6 +5,23 @@ public class ProgressHistoryTests
     private static readonly DateTimeOffset T0 = new(2026, 10, 30, 9, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public void FirstPointAtOrAbove_returns_the_first_point_reaching_the_distance_without_interpolation()
+    {
+        var h = new ProgressHistory();
+        Assert.Null(h.FirstPointAtOrAbove(0));
+        h.Add(T0, 0);
+        h.Add(T0.AddSeconds(10), 100);
+        h.Add(T0.AddSeconds(20), 100);
+        h.Add(T0.AddSeconds(30), 104);
+
+        Assert.Equal(T0, h.FirstPointAtOrAbove(0));
+        Assert.Equal(T0.AddSeconds(10), h.FirstPointAtOrAbove(50));
+        Assert.Equal(T0.AddSeconds(10), h.FirstPointAtOrAbove(100));
+        Assert.Equal(T0.AddSeconds(30), h.FirstPointAtOrAbove(101));
+        Assert.Null(h.FirstPointAtOrAbove(105));
+    }
+
+    [Fact]
     public void TimeAt_interpolates_between_points()
     {
         var h = new ProgressHistory();

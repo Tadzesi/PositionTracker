@@ -21,9 +21,10 @@ public enum ParticipantState { NotStarted, Live, Delayed, Offline, Stopped, OffC
 public sealed record SegmentCompletion(int Lap, int SegmentIndex, TimeSpan Time);
 
 /// <param name="StoppedSince">
-/// Set while the stopped condition holds (even when a higher-priority state is shown): the end of the newest
-/// matched interval at or above the stopped speed (the same per-interval rule as the moving/stopped time), or
-/// the first matched fix; moved forward to the end of a pause that ended later, since a pause suppresses Stopped.
+/// Set while the stopped condition holds (even when a higher-priority state is shown): the first matched fix
+/// within a 15 m tolerance of the current total (GPS drift of a standing receiver stays inside it), no later than
+/// the start of the stopped window; moved forward to the end of a pause that ended later, since a pause
+/// suppresses Stopped.
 /// </param>
 /// <param name="OffCourseSince">
 /// Set while the debounced off-course condition holds (even when a higher-priority state is shown): the first
@@ -72,6 +73,13 @@ public sealed class ParticipantTracker
     /// the whole lap, whereas a real lap between two accepted fixes is implausible.
     /// </summary>
     private const double MaxBacktrackM = 500;
+    /// <summary>
+    /// A stop starts at the first matched fix within this distance below the current total. The total is a
+    /// high-water mark, so GPS drift of a standing receiver only raises it by the largest forward excursion
+    /// (typically under 10 m), not by the sum of the jitter; 15 m absorbs that while a rider moving off again
+    /// leaves it within seconds. It is well inside the 50 m the stopped rule allows over 3 minutes.
+    /// </summary>
+    private const double StoppedToleranceM = 15;
     /// <summary>Absorbs floating-point error at the edges of the matcher window.</summary>
     private const double WindowToleranceM = 1;
     private static readonly MatcherOptions DefaultMatcher = new();
@@ -246,7 +254,7 @@ public sealed class ParticipantTracker
         var lapProgress = _lapCounter < 1 ? 0 : _lapCounter > _course.Laps ? _course.LapLengthM : _lapProgressM;
 
         var shown = _lastFix;
-        DateTimeOffset? stoppedSince = last is not null && IsStoppedAt(last, now) ? StoppedSince(now) : null;
+        DateTimeOffset? stoppedSince = last is not null && IsStoppedAt(last, now) ? StoppedSince(last, now) : null;
         DateTimeOffset? offCourseSince = last is not null && IsOffCourse(last) ? _offCourseSince : null;
         return new ParticipantSnapshot(
             shown?.Time, shown?.Lat, shown?.Lon, shown?.AccuracyM,
@@ -285,12 +293,18 @@ public sealed class ParticipantTracker
     private bool IsStoppedAt(PositionFix last, DateTimeOffset now) => !IsPausedAt(now) && IsStopped(last.Time);
 
     /// <summary>
-    /// Start of the current stop: the end of the newest matched interval at or above the stopped speed (the rule
-    /// of the moving/stopped accounting), or the end of a later pause that ended by <paramref name="now"/>.
+    /// Start of the current stop, valid while the stopped condition holds: the first matched fix within
+    /// <see cref="StoppedToleranceM"/> of the current total, capped at the start of the stopped window (a slow
+    /// crawl drifts out of the tolerance, but the whole window was already slow). A pause that ended after that
+    /// and by <paramref name="now"/> moves it to the pause end, because Stopped is not shown while paused. A pure
+    /// function of the history, the pauses and <paramref name="now"/>, so replays give the same value.
     /// </summary>
-    private DateTimeOffset? StoppedSince(DateTimeOffset now)
+    private DateTimeOffset StoppedSince(PositionFix last, DateTimeOffset now)
     {
-        var since = History.SlowSince(_options.StoppedSpeedMps);
+        var windowStart = UnpausedWindowStart(last.Time, _options.StoppedAfter);
+        var since = History.FirstPointAtOrAbove(_totalM - StoppedToleranceM) is { } first && first < windowStart
+            ? first
+            : windowStart;
         foreach (var (_, end) in _pauses)
             if (end <= now && end > since) since = end;
         return since;
