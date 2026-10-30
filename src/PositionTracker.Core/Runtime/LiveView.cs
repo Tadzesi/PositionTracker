@@ -14,6 +14,14 @@ public sealed record SegmentResult(int Lap, int SegmentIndex, TimeSpan Time, Seg
 /// serialized, the organizer sees the live <paramref name="Lat"/>/<paramref name="Lon"/>.
 /// </param>
 /// <param name="FinishLon">See <paramref name="FinishLat"/>.</param>
+/// <param name="LapsInferred">
+/// Organizer flag: laps were counted after a signal gap from the expected advance, not observed, so the lap count
+/// may be off by a lap (<see cref="ParticipantSnapshot.LapsInferred"/>). Not part of the spectator view.
+/// </param>
+/// <param name="LastRaceFixTime">
+/// The newest accepted fix at or after the start (<c>null</c> while there is only warm-up); not serialized, it lets
+/// the spectator projection hide the warm-up position.
+/// </param>
 public sealed record ParticipantView(
     string ParticipantId, string Bib, string DisplayName, string Category, int? Rank, int Lap,
     double TotalDistanceM, double LapProgressM, double? Lat, double? Lon,
@@ -21,7 +29,8 @@ public sealed record ParticipantView(
     ParticipantState State, TimeSpan? GapToLeader, TimeSpan? GapToAhead, EtaEstimate? Eta,
     IReadOnlyList<SegmentResult> Segments,
     double? BatteryPct, double? GpsAccuracyM, int QueueLength, TimeSpan? LastSignalAgo, IReadOnlyList<Alarm> Alarms,
-    [property: JsonIgnore] double? FinishLat = null, [property: JsonIgnore] double? FinishLon = null);
+    [property: JsonIgnore] double? FinishLat = null, [property: JsonIgnore] double? FinishLon = null,
+    bool LapsInferred = false, [property: JsonIgnore] DateTimeOffset? LastRaceFixTime = null);
 
 /// <param name="CountLive">Participants in state Live, Stopped, OffCourse or Sos.</param>
 public sealed record LiveView(

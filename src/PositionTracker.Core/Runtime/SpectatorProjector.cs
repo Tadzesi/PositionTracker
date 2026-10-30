@@ -64,12 +64,14 @@ public static class SpectatorProjector
         new(value.Ticks - value.Ticks % TimeSpan.TicksPerSecond + (value.Ticks % TimeSpan.TicksPerSecond >= TimeSpan.TicksPerSecond / 2 ? TimeSpan.TicksPerSecond : 0), value.Offset);
 
     /// <summary>
-    /// The position spectators see, only inside the race window: none before the start (warm-up) and none for a
-    /// DNF participant (a person who left the race is not tracked publicly); a finisher stays frozen at the
-    /// position of the finish (<see cref="ParticipantView.FinishLat"/>), never the cool-down or the way home.
+    /// The position spectators see, only inside the race window: none before the first race fix (warm-up, also while
+    /// an SOS outranks NotStarted, see <see cref="ParticipantView.LastRaceFixTime"/>) and none for a DNF participant
+    /// (a person who left the race is not tracked publicly); a finisher stays frozen at the position of the finish
+    /// (<see cref="ParticipantView.FinishLat"/>), never the cool-down or the way home.
     /// </summary>
     private static (double? Lat, double? Lon) SpectatorPosition(ParticipantView p) => p.State switch
     {
+        _ when p.LastRaceFixTime is null => (null, null),
         ParticipantState.NotStarted or ParticipantState.Dnf => (null, null),
         ParticipantState.Finished => (p.FinishLat, p.FinishLon),
         _ => (p.Lat, p.Lon),

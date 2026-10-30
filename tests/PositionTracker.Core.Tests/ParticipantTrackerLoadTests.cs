@@ -97,6 +97,31 @@ public class ParticipantTrackerLoadTests
     }
 
     [Fact]
+    public void Repeated_identical_SetPaused_calls_do_not_grow_the_pause_list()
+    {
+        var tracker = new ParticipantTracker(Loop, Sport.Cycling, T0);
+        tracker.ApplyMany(Enumerable.Range(0, 60).Select(i => FixAt(40 * i, T0.AddSeconds(5 * i))).ToList());
+
+        tracker.SetPaused(T0.AddSeconds(100), true);
+        for (var i = 0; i < 50; i++)
+        {
+            tracker.SetPaused(T0.AddSeconds(100), true);     // the same call again
+            tracker.SetPaused(T0.AddSeconds(101 + i), true); // a device repeating "pause" while paused
+        }
+        Assert.Equal(1, tracker.PauseSwitchCount);
+
+        tracker.SetPaused(T0.AddSeconds(250), false);
+        for (var i = 0; i < 50; i++) tracker.SetPaused(T0.AddSeconds(251 + i), false);
+        Assert.Equal(2, tracker.PauseSwitchCount);
+
+        var reference = new ParticipantTracker(Loop, Sport.Cycling, T0);
+        reference.ApplyMany(Enumerable.Range(0, 60).Select(i => FixAt(40 * i, T0.AddSeconds(5 * i))).ToList());
+        reference.SetPaused(T0.AddSeconds(100), true);
+        reference.SetPaused(T0.AddSeconds(250), false);
+        Assert.Equal(reference.GetSnapshot(T0.AddSeconds(400)), tracker.GetSnapshot(T0.AddSeconds(400)));
+    }
+
+    [Fact]
     public void Repeating_sos_or_dnf_does_not_replay()
     {
         var tracker = new ParticipantTracker(Loop, Sport.Cycling, T0);

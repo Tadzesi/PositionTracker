@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.Time.Testing;
 using PositionTracker.Core.Runtime;
 using PositionTracker.Core.Simulation;
@@ -102,6 +103,90 @@ public class LapRecoveryTests
         var end = fixes[^1].Time;
         Assert.Equal(ParticipantState.Finished, ordered.GetSnapshot(end).State);
         Assert.Equal(ordered.GetSnapshot(end), late.GetSnapshot(end));
+    }
+
+    [Fact]
+    public void Laps_inferred_flag_is_set_after_a_gap_that_chose_whole_laps_and_cleared_when_not_needed()
+    {
+        var course = ShortLoop(2_000, 5);
+        var full = RideWithGap(course, 8, 0, 5); // no gap at all
+        var withGap = RideWithGap(course, 8, 300, 540);
+        var end = full[^1].Time;
+
+        Assert.False(Track(course, Sport.Cycling, full).GetSnapshot(end).LapsInferred);
+
+        var tracker = Track(course, Sport.Cycling, withGap);
+        var afterGap = tracker.GetSnapshot(end);
+        Assert.True(afterGap.LapsInferred);
+        Assert.Equal(ParticipantState.Finished, afterGap.State);
+
+        // The fixes of the gap arrive late: the laps are observed, so the flag is cleared on the replay and the
+        // snapshot equals the one of the complete ride.
+        tracker.ApplyMany(full.Except(withGap).ToList());
+        var filled = tracker.GetSnapshot(end);
+        Assert.False(filled.LapsInferred);
+        Assert.Equal(Track(course, Sport.Cycling, full).GetSnapshot(end), filled);
+    }
+
+    /// <summary>
+    /// 2 km x 5, cyclist at 8 m/s, fixes every 5 s to 7 600 m (950 s), then no fixes for 4 minutes while the rider
+    /// rides 30 s, stands 180 s and rides 30 s: the gap ends at 8 080 m, but the expected advance (1 920 m) picks
+    /// the extra lap, which puts the rider past the finish.
+    /// </summary>
+    private static List<PositionFix> FalseLapAtTheFinish(Course course)
+    {
+        var fixes = new List<PositionFix>();
+        for (var s = 0; s <= 950; s += 5) fixes.Add(FixAt(course, 8.0 * s, T0.AddSeconds(s)));
+        fixes.Add(FixAt(course, 8_080, T0.AddSeconds(1_190)));
+        return fixes;
+    }
+
+    [Fact]
+    public void Finished_from_an_inferred_lap_waits_for_a_confirming_fix_and_stays_not_finished_until_one_arrives()
+    {
+        var course = ShortLoop(2_000, 5);
+        var settings = new EventSettings("evt-inferred", "Inferred", Sport.Cycling, T0, TimeSpan.FromSeconds(30), false,
+            TrackerOptions.Defaults(Sport.Cycling));
+        var clock = new FakeTimeProvider(T0);
+        var runtime = new EventRuntime(settings, course, clock);
+        runtime.AddParticipant(new ParticipantInfo("r", "1", "Rider", null, "Open", true, false));
+        var fixes = FalseLapAtTheFinish(course);
+        foreach (var chunk in fixes.Chunk(6))
+        {
+            clock.SetUtcNow(chunk[^1].Time);
+            runtime.Ingest("r", new PositionBatch(chunk, null));
+        }
+
+        var pending = runtime.BuildLiveView().Participants.Single();
+        Assert.True(pending.LapsInferred);
+        Assert.Equal(course.TotalLengthM, pending.TotalDistanceM); // the organizer sees the inferred distance
+        Assert.Equal(ParticipantState.Live, pending.State);
+        clock.Advance(TimeSpan.FromMinutes(10)); // silence: the alarm chain applies, not Finished
+        Assert.Equal(ParticipantState.Offline, runtime.BuildLiveView().Participants.Single().State);
+
+        // The flag is organizer-only.
+        var spectator = SpectatorProjector.Project(runtime.BuildLiveView(), runtime.Participants);
+        Assert.DoesNotContain("lapsInferred", JsonSerializer.Serialize(spectator, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        Assert.Contains("lapsInferred", JsonSerializer.Serialize(runtime.BuildLiveView(), new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+
+        // The same fixes delivered late and out of order give the identical snapshot, flag and pending finish included.
+        var ordered = Track(course, Sport.Cycling, fixes);
+        var late = new ParticipantTracker(course, Sport.Cycling, T0);
+        late.ApplyMany(fixes.Skip(100).ToList());
+        late.ApplyMany(fixes.Take(100).Reverse().ToList());
+        var at = T0.AddSeconds(1_190);
+        Assert.Null(ordered.GetSnapshot(at).FinishTime);
+        Assert.Equal(ordered.GetSnapshot(at), late.GetSnapshot(at));
+
+        // A race fix after the one that reached the finish confirms it; Finished then outranks the silence.
+        runtime.Ingest("r", new PositionBatch([FixAt(course, 8_120, T0.AddSeconds(1_195))], null));
+        var finished = runtime.BuildLiveView().Participants.Single();
+        Assert.Equal(ParticipantState.Finished, finished.State);
+        Assert.True(finished.LapsInferred);
+        Assert.DoesNotContain(finished.Alarms, a => a.Kind == AlarmKind.Offline);
+        Assert.Null(late.GetSnapshot(at).FinishTime);
+        late.Apply(FixAt(course, 8_120, T0.AddSeconds(1_195)));
+        Assert.NotNull(late.GetSnapshot(at).FinishTime);
     }
 
     [Fact]

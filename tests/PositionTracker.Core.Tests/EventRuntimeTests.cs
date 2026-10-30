@@ -79,6 +79,49 @@ public class EventRuntimeTests
     }
 
     [Fact]
+    public void UpdateParticipant_changes_the_spectator_display_name_and_bumps_ParticipantsVersion()
+    {
+        var (runtime, _) = Create("a");
+        Send(runtime, "a", Batch(Ride(8, 30)));
+        var before = runtime.ParticipantsVersion;
+        Assert.Equal("Name a", SpectatorProjector.Project(runtime.BuildLiveView(), runtime.Participants).Participants.Single().DisplayName);
+
+        runtime.UpdateParticipant(new ParticipantInfo("a", "B-a", "Name a", "Rocket", "Open", true, false));
+
+        Assert.True(runtime.ParticipantsVersion > before);
+        Assert.Equal("Rocket", runtime.Participants["a"].Nickname);
+        Assert.Equal("Rocket", SpectatorProjector.Project(runtime.BuildLiveView(), runtime.Participants).Participants.Single().DisplayName);
+        Assert.InRange(View(runtime, "a").TotalDistanceM, 235, 245); // the tracker is kept
+
+        // Withdrawn consent hides the name again.
+        runtime.UpdateParticipant(new ParticipantInfo("a", "B-a", "Name a", "Rocket", "Open", false, false));
+        Assert.Equal("#B-a", SpectatorProjector.Project(runtime.BuildLiveView(), runtime.Participants).Participants.Single().DisplayName);
+
+        var version = runtime.ParticipantsVersion;
+        Assert.Throws<KeyNotFoundException>(() =>
+            runtime.UpdateParticipant(new ParticipantInfo("nobody", "9", "Nobody", null, "Open", true, false)));
+        Assert.Equal(version, runtime.ParticipantsVersion);
+    }
+
+    [Theory]
+    [InlineData(4, false)]
+    [InlineData(5, true)]
+    [InlineData(300, true)]
+    [InlineData(301, false)]
+    public void EventSettings_Create_accepts_spectator_delays_from_5_to_300_seconds(int delayS, bool valid)
+    {
+        EventSettings Make() => EventSettings.Create("evt-x", "Ride", Sport.Running, T0, TimeSpan.FromSeconds(delayS), false);
+
+        if (!valid)
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(Make);
+            return;
+        }
+        Assert.Equal(new EventSettings("evt-x", "Ride", Sport.Running, T0, TimeSpan.FromSeconds(delayS), false,
+            TrackerOptions.Defaults(Sport.Running)), Make());
+    }
+
+    [Fact]
     public void Unknown_participant_throws_KeyNotFoundException()
     {
         var (runtime, _) = Create("a");

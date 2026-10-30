@@ -19,8 +19,10 @@ namespace PositionTracker.Api.Endpoints;
 /// <see cref="MaxFixesPerBatch"/> fixes or a body over <see cref="MaxBodyBytes"/> 413. Fixes with invalid coordinates or poor accuracy are not errors;
 /// they are counted as rejected. Each token may make <see cref="RequestsPerMinute"/> requests per fixed
 /// one-minute window (429 with <c>Retry-After</c> beyond); unauthenticated requests share a window per remote IP.
-/// On top of that each token may submit <see cref="FixRateLimiter.FixesPerMinute"/> fixes per minute; the excess
-/// of a batch (its last fixes) is counted as rejected and the answer is still 202.
+/// On top of that each token may submit <see cref="FixRateLimiter.FixesPerMinute"/> fixes per minute. The budget is
+/// decided per batch, all or nothing: a batch that does not fit into the rest of the current window is refused with
+/// 429 and <c>Retry-After</c> (seconds until the window ends, when the whole batch fits) and nothing of it, neither
+/// fixes nor status, is applied; the client resends the same batch after that time.
 /// </summary>
 public static class IngestEndpoints
 {
@@ -41,11 +43,8 @@ public static class IngestEndpoints
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             options.OnRejected = (context, _) =>
             {
-                var retryAfter = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var wait)
-                    ? wait
-                    : RateLimitWindow;
-                context.HttpContext.Response.Headers.RetryAfter =
-                    Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
+                SetRetryAfter(context.HttpContext,
+                    context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var wait) ? wait : RateLimitWindow);
                 return ValueTask.CompletedTask;
             };
             options.AddPolicy(RateLimitPolicy, context =>
@@ -88,11 +87,22 @@ public static class IngestEndpoints
         var status = request.Status is { } s
             ? new DeviceStatus(s.Battery is >= 0 and <= 100 ? s.Battery : null, s.Charging, s.Queue, s.Foreground)
             : null;
-        var granted = fixLimiter.Take(caller.TokenHash, fixes.Count);
-        var batch = new PositionBatch(fixes.Take(granted).Select(f => new PositionFix(f.T, f.Lat, f.Lon, f.Acc)).ToList(), status);
-        var result = runtime.Ingest(caller.ParticipantId, batch);
-        return Results.Accepted(value: result with { Rejected = result.Rejected + fixes.Count - granted });
+        // All or nothing: a batch over the fix budget is refused before anything (fixes or status) is applied.
+        if (!fixLimiter.TryTake(caller.TokenHash, fixes.Count, out var retryAfter))
+        {
+            SetRetryAfter(context, retryAfter);
+            return Results.Problem(
+                $"At most {FixRateLimiter.FixesPerMinute} fixes per minute; resend this batch after Retry-After.",
+                statusCode: StatusCodes.Status429TooManyRequests);
+        }
+        var batch = new PositionBatch(fixes.Select(f => new PositionFix(f.T, f.Lat, f.Lon, f.Acc)).ToList(), status);
+        return Results.Accepted(value: runtime.Ingest(caller.ParticipantId, batch));
     }
+
+    /// <summary>Sets <c>Retry-After</c> in whole seconds, rounded up and at least 1.</summary>
+    private static void SetRetryAfter(HttpContext context, TimeSpan wait) =>
+        context.Response.Headers.RetryAfter =
+            Math.Max(1, (int)Math.Ceiling(wait.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
 
     private static async Task<IResult> PostAction(
         string eventId, HttpContext context, EventRegistry registry, IOptions<JsonOptions> json)

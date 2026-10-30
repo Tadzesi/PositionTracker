@@ -22,7 +22,8 @@ public class SpectatorProjectorTests
         new EtaEstimate(T0.AddHours(1), T0.AddMinutes(50), T0.AddMinutes(70), false),
         [new SegmentResult(0, 0, TimeSpan.FromMinutes(5), SegmentColour.Purple)],
         17, 6.5, 34, TimeSpan.FromSeconds(2),
-        [new Alarm(AlarmKind.LowBattery, T0), new Alarm(AlarmKind.Sos, T0)]);
+        [new Alarm(AlarmKind.LowBattery, T0), new Alarm(AlarmKind.Sos, T0)],
+        LapsInferred: true, LastRaceFixTime: T0);
 
     private static LiveView View(params ParticipantView[] rows) => new(T0, "evt-1", rows, rows.Length, 0, 0, 0);
 
@@ -117,7 +118,7 @@ public class SpectatorProjectorTests
         using var doc = JsonDocument.Parse(json);
         var names = PropertyNames(doc.RootElement).ToList();
         Assert.Contains("displayName", names);
-        foreach (var forbidden in new[] { "battery", "gpsAccuracy", "queue", "alarms", "ascent", "descent", "grade" })
+        foreach (var forbidden in new[] { "battery", "gpsAccuracy", "queue", "alarms", "ascent", "descent", "grade", "lapsInferred" })
             Assert.DoesNotContain(names, n => n.Contains(forbidden, StringComparison.OrdinalIgnoreCase));
     }
 
@@ -136,6 +137,31 @@ public class SpectatorProjectorTests
 
         Assert.Equal("Rocket", projected.Participants.Single(p => p.ParticipantId == "a").DisplayName);
         Assert.Equal("#12", projected.Participants.Single(p => p.ParticipantId == "b").DisplayName);
+    }
+
+    [Fact]
+    public void Sos_before_the_first_race_fix_does_not_expose_the_warm_up_position_to_spectators()
+    {
+        var clock = new FakeTimeProvider(T0.AddMinutes(-5));
+        var settings = new EventSettings("evt-1", "Ride", Sport.Cycling, T0, TimeSpan.FromSeconds(30), false,
+            TrackerOptions.Defaults(Sport.Cycling));
+        var course = Course.Create(TestCourses.Loop(), 1);
+        var runtime = new EventRuntime(settings, course, clock);
+        runtime.AddParticipant(Info("a", "11", "Adult Rider"));
+        var warmUp = course.PointAt(300);
+        runtime.Ingest("a", new PositionBatch([new PositionFix(T0.AddMinutes(-5), warmUp.Lat, warmUp.Lon, 5)], null));
+        clock.SetUtcNow(T0.AddMinutes(1));
+        runtime.Act("a", ParticipantAction.Sos);
+
+        var organizer = Assert.Single(runtime.BuildLiveView().Participants);
+        Assert.Equal(ParticipantState.Sos, organizer.State);
+        Assert.NotNull(organizer.Lat); // the organizer still sees the warm-up position
+
+        var projected = SpectatorProjector.Project(runtime.BuildLiveView(), runtime.Participants);
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(projected, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        var row = doc.RootElement.GetProperty("participants")[0];
+        Assert.Equal(JsonValueKind.Null, row.GetProperty("lat").ValueKind);
+        Assert.Equal(JsonValueKind.Null, row.GetProperty("lon").ValueKind);
     }
 
     private static IEnumerable<string> PropertyNames(JsonElement element) => element.ValueKind switch

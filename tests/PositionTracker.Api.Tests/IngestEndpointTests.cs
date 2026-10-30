@@ -40,8 +40,10 @@ public class IngestEndpointTests(ApiFactory factory) : IClassFixture<ApiFactory>
         return (doc.RootElement.GetProperty("accepted").GetInt32(), doc.RootElement.GetProperty("rejected").GetInt32());
     }
 
-    private ParticipantView View(string participantId) =>
-        factory.Event.BuildLiveView().Participants.Single(p => p.ParticipantId == participantId);
+    private ParticipantView View(string participantId) => View(factory, participantId);
+
+    private static ParticipantView View(ApiFactory f, string participantId) =>
+        f.Event.BuildLiveView().Participants.Single(p => p.ParticipantId == participantId);
 
     [Fact]
     public async Task Missing_authorization_header_returns_401_with_bearer_challenge()
@@ -345,27 +347,75 @@ public class IngestEndpointTests(ApiFactory factory) : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task Fixes_over_600_per_minute_and_token_are_counted_as_rejected_with_202()
+    public async Task Batch_over_the_600_fixes_per_minute_budget_returns_429_applies_nothing_and_other_tokens_are_unaffected()
     {
         using var f = new ApiFactory();
         f.Clock.SetUtcNow(ApiFactory.T0.AddMinutes(20)); // every fix below lies in the past
         using var client1 = f.CreateClient(f.Token1);
         using var client2 = f.CreateClient(f.Token2);
-        object Batch(int from) => new { fixes = Enumerable.Range(from, 500).Select(i => Fix(f, i * 5.0, i)).ToArray() };
+        object Batch(int from) => new
+        {
+            fixes = Enumerable.Range(from, 500).Select(i => Fix(f, i * 5.0, i)).ToArray(),
+            status = new { battery = 5, queue = 500, foreground = true },
+        };
 
         var first = await client1.PostAsJsonAsync(PositionsUrl, Batch(0));
-        var second = await client1.PostAsJsonAsync(PositionsUrl, Batch(500));
-        var other = await client2.PostAsJsonAsync(PositionsUrl, Batch(0));
-
         Assert.Equal(HttpStatusCode.Accepted, first.StatusCode);
         Assert.Equal((500, 0), await ReadResult(first));
-        Assert.Equal(HttpStatusCode.Accepted, second.StatusCode);
-        Assert.Equal((100, 400), await ReadResult(second));
+        var before = View(f, ApiFactory.Participant1);
+
+        var second = await client1.PostAsJsonAsync(PositionsUrl, Batch(500));
+        Assert.Equal(HttpStatusCode.TooManyRequests, second.StatusCode);
+        Assert.Equal(TimeSpan.FromSeconds(60), second.Headers.RetryAfter?.Delta);
+        var after = View(f, ApiFactory.Participant1);
+        Assert.Equal(before.TotalDistanceM, after.TotalDistanceM); // all or nothing: no fix of the batch applied
+        Assert.Equal(before.LastSignalAgo, after.LastSignalAgo);
+
+        var other = await client2.PostAsJsonAsync(PositionsUrl, Batch(0));
         Assert.Equal((500, 0), await ReadResult(other));
 
-        f.Clock.Advance(TimeSpan.FromMinutes(1)); // a new window
-        var third = await client1.PostAsJsonAsync(PositionsUrl, new { fixes = new[] { Fix(f, 5_000, 1_000) } });
-        Assert.Equal((1, 0), await ReadResult(third));
+        f.Clock.Advance(TimeSpan.FromSeconds(60)); // honour Retry-After: a new window takes the whole batch
+        var retried = await client1.PostAsJsonAsync(PositionsUrl, Batch(500));
+        Assert.Equal(HttpStatusCode.Accepted, retried.StatusCode);
+        Assert.Equal((500, 0), await ReadResult(retried));
+    }
+
+    [Fact]
+    public async Task Fix_budget_overflow_returns_429_with_Retry_After_instead_of_silently_dropping_newest_fixes()
+    {
+        // A 70-minute outage at one fix per 5 s leaves 840 queued fixes; the phone sends up to 500 per request and
+        // waits as told by Retry-After.
+        using var f = new ApiFactory();
+        var back = ApiFactory.T0.AddMinutes(71);
+        f.Clock.SetUtcNow(back);
+        using var client = f.CreateClient(f.Token1);
+        var queue = Enumerable.Range(0, 840).Select(i => Fix(f, 60 + i * 14.0, 60 + 5 * i)).ToList();
+
+        var accepted = 0;
+        var throttled = 0;
+        while (queue.Count > 0)
+        {
+            var batch = queue.Take(IngestEndpoints.MaxFixesPerBatch).ToArray();
+            var response = await client.PostAsJsonAsync(PositionsUrl, new { fixes = batch });
+            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                Assert.True(++throttled <= 3, "the client is throttled forever");
+                var wait = response.Headers.RetryAfter?.Delta;
+                Assert.NotNull(wait);
+                Assert.InRange(wait.Value.TotalSeconds, 1, 60);
+                f.Clock.Advance(wait.Value);
+                continue;
+            }
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+            var (ok, rejected) = await ReadResult(response);
+            Assert.Equal((batch.Length, 0), (ok, rejected));
+            accepted += ok;
+            queue.RemoveRange(0, batch.Length);
+        }
+
+        Assert.Equal(840, accepted);
+        Assert.Equal(1, throttled);
+        Assert.InRange(View(f, ApiFactory.Participant1).TotalDistanceM, 60 + 839 * 14.0 - 20, 60 + 839 * 14.0 + 20);
     }
 
     [Fact]

@@ -63,7 +63,24 @@ public sealed class EventRuntime
     }
 
     /// <summary>
-    /// Increases whenever the participant infos change (any <see cref="AddParticipant"/>); read without the lock,
+    /// Replaces the info of the participant with <c>info.Id</c> (name, nickname, consent, ...); the tracker and its
+    /// state are kept. Bumps <see cref="ParticipantsVersion"/>, so the cached spectator projection follows on its
+    /// next refresh. Throws <see cref="KeyNotFoundException"/> for an unknown id.
+    /// </summary>
+    public void UpdateParticipant(ParticipantInfo info)
+    {
+        ArgumentNullException.ThrowIfNull(info);
+        lock (_lock)
+        {
+            var entry = Find(info.Id);
+            entry.Info = info;
+            Interlocked.Increment(ref _participantsVersion);
+        }
+    }
+
+    /// <summary>
+    /// Increases whenever the participant infos change (any <see cref="AddParticipant"/> or
+    /// <see cref="UpdateParticipant"/>); read without the lock,
     /// so callers can cache data derived from <see cref="Participants"/>. Read it before <see cref="Participants"/>
     /// so a concurrent change is seen as stale, never missed.
     /// </summary>
@@ -205,7 +222,7 @@ public sealed class EventRuntime
             entry.Status?.BatteryPct, s.LastAccuracyM, entry.Status?.QueueLength ?? 0,
             s.LastFixTime is { } last ? (now > last ? now - last : TimeSpan.Zero) : null,
             Alarms(entry, s, now),
-            s.FinishLat, s.FinishLon);
+            s.FinishLat, s.FinishLon, s.LapsInferred, s.LastRaceFixTime);
     }
 
     private List<Alarm> Alarms(Entry entry, ParticipantSnapshot s, DateTimeOffset now)
@@ -239,7 +256,7 @@ public sealed class EventRuntime
 
     private sealed class Entry(ParticipantInfo info, ParticipantTracker tracker)
     {
-        public ParticipantInfo Info { get; } = info;
+        public ParticipantInfo Info { get; set; } = info;
         public ParticipantTracker Tracker { get; } = tracker;
         /// <summary>Latest segment time per (lap, segment); new or changed completions replace by key.</summary>
         public Dictionary<(int Lap, int SegmentIndex), TimeSpan> Completions { get; } = new();

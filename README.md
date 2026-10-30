@@ -102,8 +102,11 @@ event and participant (in Plan 1 only the demo simulator issues them).
   token (with `WWW-Authenticate: Bearer`), `403` token of another event, `404` unknown event or participant,
   `413` body over 256 KB or more than 500 fixes, `429` over 60 requests per minute and token (with
   `Retry-After`).
-- At most 600 fixes per minute and token are ingested; the excess of a batch is counted as rejected and the
-  answer is still 202.
+- Fix budget: at most 600 fixes per minute (fixed one-minute window) and token. A batch is decided all or
+  nothing: one that does not fit into the rest of the window is refused with `429` and `Retry-After` (seconds
+  until the window ends) and nothing of it, neither fixes nor `status`, is applied. The client keeps the batch
+  and resends it after `Retry-After`; since a batch holds at most 500 fixes, it always fits a fresh window. A
+  70-minute backlog (840 fixes at 5 s) therefore goes through in two windows.
 
 `POST /api/events/{eventId}/actions` with `{"action": "sos" | "sosCleared" | "pause" | "resume" | "dnf"}`:
 `204`, same authentication and status codes.
@@ -130,7 +133,14 @@ lose signal (fixes queued) from 30 to 34 min.
 - Alarm acknowledgement must be keyed on (participantId, Kind), not on `Since`.
 - Any future change of participant info (consent, nickname, ...) MUST bump `EventRuntime.ParticipantsVersion`:
   the spectator projection is cached on it, so a missed bump is a privacy leak.
-- `SpectatorDelay` must be validated (lower and upper bound) at event creation.
+- Non-simulated events must be created with `EventSettings.Create`, which accepts a `SpectatorDelay` from 5 s to
+  300 s (`ArgumentOutOfRangeException` otherwise); the unvalidated primary constructor is for tests and the demo
+  simulator.
+- Participant info changes go through `EventRuntime.UpdateParticipant`, which bumps `ParticipantsVersion`.
+- After a signal gap on a short loop the lap count may be inferred from the expected advance; the organizer view
+  then shows `lapsInferred: true` (not visible to spectators). A finish reached by the fix that added such a lap is
+  shown as Finished only after a later fix confirms it; until then the organizer sees the inferred distance and the
+  normal state chain (Live, Offline, ...). The flag does not detect a lap that was wrongly not added.
 - `HasParticipant` check-then-act in the ingest endpoint assumes participants are never removed.
 - The client must drop a batch on HTTP 400.
 - Configuration must be read via options (`IOptions<T>`), not ad hoc.
