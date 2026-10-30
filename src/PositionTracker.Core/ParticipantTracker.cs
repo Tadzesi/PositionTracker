@@ -30,12 +30,16 @@ public sealed record SegmentCompletion(int Lap, int SegmentIndex, TimeSpan Time)
 /// Set while the debounced off-course condition holds (even when a higher-priority state is shown): the first
 /// fix of the current off-course run, not the moment the debounce elapsed.
 /// </param>
+/// <param name="LastRaceFixTime">Time of the newest accepted fix at or after the start (warm-up excluded).</param>
+/// <param name="FinishLat">Position of the last accepted fix at or before <c>FinishTime</c>; <c>null</c> until finished.</param>
+/// <param name="FinishLon">See <paramref name="FinishLat"/>.</param>
 public sealed record ParticipantSnapshot(
     DateTimeOffset? LastFixTime, double? LastLat, double? LastLon, double? LastAccuracyM,
     double TotalDistanceM, int Lap, double LapProgressM, double OffCourseM,
     double SpeedMps, double MovingSpeedMps, double AvgSpeedMps, double MaxSpeedMps, double? PaceSecPerKm,
     TimeSpan MovingTime, TimeSpan StoppedTime, double AscentM, double DescentM, double GradePercent,
-    ParticipantState State, DateTimeOffset? FinishTime, DateTimeOffset? StoppedSince, DateTimeOffset? OffCourseSince);
+    ParticipantState State, DateTimeOffset? FinishTime, DateTimeOffset? StoppedSince, DateTimeOffset? OffCourseSince,
+    DateTimeOffset? LastRaceFixTime = null, double? FinishLat = null, double? FinishLon = null);
 
 /// <param name="Accepted">Whether the fix was new and passed the filter (see <see cref="ParticipantTracker.ApplyMany"/>).</param>
 public sealed record ApplyResult(ParticipantSnapshot Snapshot, IReadOnlyList<SegmentCompletion> Completed, bool Accepted);
@@ -126,6 +130,7 @@ public sealed class ParticipantTracker
     private TimeSpan _stoppedTime;
     private double _maxSpeedMps;
     private DateTimeOffset? _finishTime;
+    private PositionFix? _finishFix;      // last accepted fix at or before _finishTime
     private DateTimeOffset? _offCourseSince; // first fix of the current run of accepted fixes the matcher placed off course
 
     public ParticipantTracker(Course course, Sport sport, DateTimeOffset startTime, TrackerOptions? options = null)
@@ -314,7 +319,8 @@ public sealed class ParticipantTracker
             _movingTime, _stoppedTime,
             _course.AscentUpTo(_totalM), _course.DescentUpTo(_totalM), _course.GradePercentAt(lapProgress),
             StateAt(now),
-            _finishTime, stoppedSince, offCourseSince);
+            _finishTime, stoppedSince, offCourseSince,
+            last?.Time, _finishFix?.Lat, _finishFix?.Lon);
     }
 
     /// <summary>
@@ -440,6 +446,7 @@ public sealed class ParticipantTracker
         _stoppedTime = TimeSpan.Zero;
         _maxSpeedMps = 0;
         _finishTime = null;
+        _finishFix = null;
         _offCourseSince = null;
         History.Clear();
     }
@@ -456,6 +463,7 @@ public sealed class ParticipantTracker
         }
         if (PositionFilter.Evaluate(fix, _lastAccepted, _options.Filter) != FilterDecision.Accept) return false;
         var previousMatched = _lastAcceptedMatched;
+        var previousAccepted = _lastAccepted;
         _lastFix = _lastAccepted = fix;
         var previous = History.Last;
 
@@ -467,7 +475,11 @@ public sealed class ParticipantTracker
         if (!_lastAcceptedMatched) return true;
 
         History.Add(fix.Time, _totalM);
-        if (_finishTime is null && _totalM >= _course.TotalLengthM) _finishTime = fix.Time;
+        if (_finishTime is null && _totalM >= _course.TotalLengthM)
+        {
+            _finishTime = fix.Time;
+            _finishFix = fix.Time <= _finishTime || previousAccepted is null ? fix : previousAccepted;
+        }
 
         // Only between consecutive matched fixes; the filter rejects equal timestamps, so dt > 0.
         // The interval is classified by its whole progress speed; only its unpaused part is counted.

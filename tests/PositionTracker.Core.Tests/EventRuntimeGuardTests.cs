@@ -110,4 +110,72 @@ public class EventRuntimeGuardTests
         Assert.Equal(new IngestResult(1, 0), warmUp);
         Assert.Equal(TimeSpan.FromMinutes(1), View(runtime, "a").LastSignalAgo);
     }
+
+    // ---- I3: DNF in the ranking ----
+
+    [Fact]
+    public void Dnf_participant_far_ahead_is_last_and_others_are_not_gapped_to_him()
+    {
+        var (runtime, clock) = Create("dnf", "a", "b");
+        Send(runtime, clock, "dnf", Ride(10, 0, 900));
+        Send(runtime, clock, "a", Ride(8, 0, 900));
+        Send(runtime, clock, "b", Ride(6, 0, 900));
+        clock.SetUtcNow(T0.AddSeconds(900));
+        runtime.Act("dnf", ParticipantAction.Dnf);
+
+        var view = runtime.BuildLiveView();
+
+        Assert.Equal(new[] { "a", "b", "dnf" }, view.Participants.Select(p => p.ParticipantId));
+        Assert.Equal(new int?[] { 1, 2, 3 }, view.Participants.Select(p => p.Rank));
+        Assert.Equal(TimeSpan.Zero, view.Participants[0].GapToLeader);
+        Assert.InRange(view.Participants[1].GapToLeader!.Value.TotalSeconds, 220, 230); // 5 400 m: a at 675 s, b at 900 s
+        Assert.Null(view.Participants[2].GapToLeader);
+        Assert.Null(view.Participants[2].GapToAhead);
+    }
+
+    // ---- I4: spectator position outside the race window ----
+
+    [Fact]
+    public void Spectator_json_hides_warm_up_and_dnf_positions_and_freezes_the_finisher_at_the_finish()
+    {
+        var course = Course.Create(TestCourses.Loop(2_000, 25), 1);
+        var clock = new FakeTimeProvider(T0.AddSeconds(-200));
+        var runtime = new EventRuntime(Settings with { EventId = "evt-pos" }, course, clock);
+        foreach (var id in new[] { "warm", "fin", "dnf" })
+            runtime.AddParticipant(new ParticipantInfo(id, id, "Name " + id, null, "Open", true, false));
+        PositionFix On(double totalM, int s)
+        {
+            var p = course.PointAt(totalM % course.LapLengthM);
+            return new PositionFix(T0.AddSeconds(s), p.Lat, p.Lon, 5);
+        }
+
+        runtime.Ingest("warm", new PositionBatch(Enumerable.Range(0, 10).Select(k => On(500 + 5 * k, -300 + 10 * k)).ToList(), null));
+        clock.SetUtcNow(T0.AddSeconds(100));
+        runtime.Ingest("dnf", new PositionBatch(Enumerable.Range(0, 21).Select(k => On(40 * k, 5 * k)).ToList(), null));
+        runtime.Act("dnf", ParticipantAction.Dnf);
+        clock.SetUtcNow(T0.AddSeconds(275));
+        var ride = Enumerable.Range(0, 56).Select(k => On(Math.Min(8 * 5 * k, 2_000) + Math.Max(0, 8 * 5 * k - 2_000), 5 * k)).ToList();
+        runtime.Ingest("fin", new PositionBatch(ride, null));
+        runtime.Ingest("dnf", new PositionBatch(Enumerable.Range(21, 35).Select(k => On(40 * k, 5 * k)).ToList(), null));
+
+        var view = runtime.BuildLiveView();
+        var json = JsonSerializer.Serialize(SpectatorProjector.Project(view, runtime.Participants), JsonSerializerOptions.Web);
+        using var doc = JsonDocument.Parse(json);
+        var rows = doc.RootElement.GetProperty("participants").EnumerateArray()
+            .ToDictionary(r => r.GetProperty("participantId").GetString()!, r => r.Clone());
+
+        var finish = ride.Single(f => f.Time == T0.AddSeconds(250));
+        Assert.Equal(ParticipantState.Finished, view.Participants.Single(p => p.ParticipantId == "fin").State);
+        Assert.Equal(finish.Lat, rows["fin"].GetProperty("lat").GetDouble(), 5);
+        Assert.Equal(finish.Lon, rows["fin"].GetProperty("lon").GetDouble(), 5);
+        Assert.Equal(JsonValueKind.Null, rows["warm"].GetProperty("lat").ValueKind);
+        Assert.Equal(JsonValueKind.Null, rows["warm"].GetProperty("lon").ValueKind);
+        Assert.Equal(JsonValueKind.Null, rows["dnf"].GetProperty("lat").ValueKind);
+        Assert.Equal(JsonValueKind.Null, rows["dnf"].GetProperty("lon").ValueKind);
+
+        // The organizer view keeps the live positions.
+        Assert.Equal(ride[^1].Lat, view.Participants.Single(p => p.ParticipantId == "fin").Lat);
+        Assert.NotNull(view.Participants.Single(p => p.ParticipantId == "warm").Lat);
+        Assert.NotNull(view.Participants.Single(p => p.ParticipantId == "dnf").Lat);
+    }
 }

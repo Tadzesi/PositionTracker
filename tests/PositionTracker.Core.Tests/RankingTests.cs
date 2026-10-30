@@ -91,4 +91,41 @@ public class RankingTests
     {
         Assert.Empty(Ranking.Rank(Array.Empty<RankInput>()));
     }
+
+    [Fact]
+    public void Dnf_rider_in_front_is_ranked_last_and_is_never_the_leader_or_the_one_ahead()
+    {
+        var dnf = Rider("a-dnf", 10, 9_000) with { Dnf = true };
+        var first = Rider("b-first", 8, 3_000);
+        var second = Rider("c-second", 6, 2_000);
+
+        var ranked = Ranking.Rank(new[] { dnf, second, first });
+
+        Assert.Equal(new[] { "b-first", "c-second", "a-dnf" }, ranked.Select(r => r.ParticipantId));
+        Assert.Equal(new[] { 1, 2, 3 }, ranked.Select(r => r.Rank));
+        Assert.Equal(TimeSpan.Zero, ranked[0].GapToLeader);
+        var expected = second.LastFixTime!.Value - first.History.TimeAt(2_000)!.Value;
+        Assert.Equal(expected, ranked[1].GapToLeader);
+        Assert.Equal(expected, ranked[1].GapToAhead);
+        Assert.Null(ranked[2].GapToLeader);
+        Assert.Null(ranked[2].GapToAhead);
+    }
+
+    [Fact]
+    public void Dnf_riders_come_after_riders_without_fixes_ordered_by_distance_and_finishers_stay_first()
+    {
+        var finisher = Rider("z-finisher", 10, 5_000, finish: T0.AddSeconds(500));
+        var riding = Rider("y-riding", 8, 3_000);
+        var idle = new RankInput("x-idle", 0, null, null, new ProgressHistory());
+        var dnfNear = Rider("a-dnf-near", 5, 1_000) with { Dnf = true };
+        var dnfFar = Rider("b-dnf-far", 9, 4_500) with { Dnf = true };
+        var dnfFinished = Rider("c-dnf-finished", 11, 5_000, finish: T0.AddSeconds(455)) with { Dnf = true };
+
+        var ranked = Ranking.Rank(new[] { dnfNear, idle, dnfFinished, riding, dnfFar, finisher });
+
+        Assert.Equal(new[] { "z-finisher", "y-riding", "x-idle", "c-dnf-finished", "b-dnf-far", "a-dnf-near" },
+            ranked.Select(r => r.ParticipantId));
+        Assert.All(ranked.Skip(3), r => Assert.Null(r.GapToLeader));
+        Assert.All(ranked.Skip(3), r => Assert.Null(r.GapToAhead));
+    }
 }

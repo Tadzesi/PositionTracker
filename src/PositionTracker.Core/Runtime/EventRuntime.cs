@@ -160,7 +160,8 @@ public sealed class EventRuntime
             var snapshots = _participants.ToDictionary(p => p.Key, p => p.Value.Tracker.GetSnapshot(now), StringComparer.Ordinal);
             var ranking = Ranking.Rank(_participants.Values
                 .Select(e => new RankInput(e.Info.Id, snapshots[e.Info.Id].TotalDistanceM,
-                    snapshots[e.Info.Id].LastFixTime, snapshots[e.Info.Id].FinishTime, e.Tracker.History))
+                    snapshots[e.Info.Id].LastFixTime, snapshots[e.Info.Id].FinishTime, e.Tracker.History,
+                    snapshots[e.Info.Id].State == ParticipantState.Dnf))
                 .ToList());
 
             var views = ranking
@@ -199,7 +200,8 @@ public sealed class EventRuntime
             segments,
             entry.Status?.BatteryPct, s.LastAccuracyM, entry.Status?.QueueLength ?? 0,
             s.LastFixTime is { } last ? (now > last ? now - last : TimeSpan.Zero) : null,
-            Alarms(entry, s, now));
+            Alarms(entry, s, now),
+            s.FinishLat, s.FinishLon);
     }
 
     private List<Alarm> Alarms(Entry entry, ParticipantSnapshot s, DateTimeOffset now)

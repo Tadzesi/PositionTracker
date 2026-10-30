@@ -18,7 +18,8 @@ public static class SpectatorProjector
     /// <summary>
     /// Projects every row of <paramref name="view"/>, keeping its order. The display name comes from
     /// <paramref name="participants"/>, never from the organizer row: see <see cref="DisplayName"/>. The state is
-    /// reduced by <see cref="SpectatorState"/> so alarms (SOS, stopped, off course) are never visible.
+    /// reduced by <see cref="SpectatorState"/> so alarms (SOS, stopped, off course) are never visible, and the
+    /// position by <see cref="SpectatorPosition"/>.
     /// </summary>
     public static SpectatorView Project(LiveView view, IReadOnlyDictionary<string, ParticipantInfo> participants)
     {
@@ -27,11 +28,24 @@ public static class SpectatorProjector
         return new SpectatorView(view.At, view.EventId, view.Participants
             .Select(p => new SpectatorParticipantView(
                 p.ParticipantId, p.Bib, DisplayName(participants.GetValueOrDefault(p.ParticipantId), p.Bib),
-                p.Category, p.Rank, p.Lap, p.TotalDistanceM, p.Lat, p.Lon, p.SpeedMps, p.PaceSecPerKm,
+                p.Category, p.Rank, p.Lap, p.TotalDistanceM,
+                SpectatorPosition(p).Lat, SpectatorPosition(p).Lon, p.SpeedMps, p.PaceSecPerKm,
                 SpectatorState(p.State),
                 p.GapToLeader, p.GapToAhead, p.Eta, p.Segments))
             .ToList());
     }
+
+    /// <summary>
+    /// The position spectators see, only inside the race window: none before the start (warm-up) and none for a
+    /// DNF participant (a person who left the race is not tracked publicly); a finisher stays frozen at the
+    /// position of the finish (<see cref="ParticipantView.FinishLat"/>), never the cool-down or the way home.
+    /// </summary>
+    private static (double? Lat, double? Lon) SpectatorPosition(ParticipantView p) => p.State switch
+    {
+        ParticipantState.NotStarted or ParticipantState.Dnf => (null, null),
+        ParticipantState.Finished => (p.FinishLat, p.FinishLon),
+        _ => (p.Lat, p.Lon),
+    };
 
     /// <summary>
     /// The state spectators see: the alarm states <see cref="ParticipantState.Sos"/>,
