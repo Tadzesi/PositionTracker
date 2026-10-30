@@ -14,7 +14,8 @@ public class EtaEstimatorTests
 
     private static ParticipantSnapshot Snap(double totalM, double speedMps, double gradePercent = 0, TimeSpan? moving = null) =>
         new(Now, null, null, null, totalM, 0, 0, 0, speedMps, speedMps, speedMps, speedMps, null,
-            moving ?? TimeSpan.FromMinutes(30), TimeSpan.Zero, 0, 0, gradePercent, ParticipantState.Live, null, null, null);
+            moving ?? TimeSpan.FromMinutes(30), TimeSpan.Zero, 0, 0, gradePercent, ParticipantState.Live, null, null, null,
+            EtaSpeedMps: speedMps, EtaWindowFromM: totalM);
 
     [Fact]
     public void Flat_course_expected_is_remaining_distance_over_speed_with_ordered_spread()
@@ -130,5 +131,63 @@ public class EtaEstimatorTests
         Assert.Equal(1.5, GradeModel.SpeedFactor(Sport.Running, -40));
         Assert.Equal(1.0, GradeModel.SpeedFactor(Sport.Running, 0));
         Assert.Equal(0.7, GradeModel.SpeedFactor(Sport.Cycling, 5), 10);
+    }
+
+    /// <summary>Flat to 6 000 m of the lap, then 10 % up to 6 500 m, then flat again at 50 m.</summary>
+    private static Course FootOfClimb() => Course.Create(
+        TestCourses.Loop(12_500, 25, d => d < 6_000 ? 0 : d < 6_500 ? (d - 6_000) * 0.10 : 50), 1);
+
+    [Fact]
+    public void Flat_speed_comes_from_the_grade_of_the_window_not_from_the_grade_at_the_rider()
+    {
+        // 8 m/s over the last 7 minutes on the flat; the rider now stands at the foot of a 10 % climb, where the
+        // smoothed grade is already steep. The flat speed must stay about 8 m/s, so the time up to 6 500 m is close
+        // to the course's own grades at 8 m/s flat speed (the raw profile alone would give 500 m / (8 x 0.4) =
+        // 156 s; smoothing starts the ramp about 125 m earlier and moves part of it past 6 500 m). Using the grade
+        // at the rider instead inflates the flat speed by 1 / 0.7 and gives about 95 s.
+        var course = FootOfClimb();
+        var snap = Snap(6_000, 8, gradePercent: course.GradePercentAt(6_000)) with { EtaWindowFromM = 6_000 - 8 * 420 };
+        var reference = Enumerable.Range(0, 5)
+            .Sum(i => 100 / (8 * GradeModel.SpeedFactor(Sport.Cycling, course.GradePercentAt(6_050 + 100 * i))));
+
+        var eta = EtaEstimator.Estimate(course, Sport.Cycling, snap, Now, targetTotalDistanceM: 6_500)!;
+
+        Assert.True(course.GradePercentAt(6_000) > 3, $"grade {course.GradePercentAt(6_000)}");
+        Assert.InRange(reference, 130, 160);
+        Assert.InRange((eta.Expected - Now).TotalSeconds, reference * 0.95, reference * 1.01);
+    }
+
+    [Theory]
+    [InlineData(0.30)]
+    [InlineData(-0.30)]
+    public void Clamped_grade_factors_give_the_measured_speed_on_a_constant_grade(double slope)
+    {
+        // On a constant grade the factor of the window equals the factor ahead, clamped or not, so the remaining
+        // 2 000 m take 2 000 / 8 = 250 s.
+        var course = Climbing(slope);
+        var snap = Snap(4_000, 8, gradePercent: slope * 100) with { EtaWindowFromM = 4_000 - 8 * 420 };
+
+        var eta = EtaEstimator.Estimate(course, Sport.Cycling, snap, Now, targetTotalDistanceM: 6_000)!;
+
+        Assert.InRange((eta.Expected - Now).TotalSeconds, 245, 255);
+    }
+
+    [Fact]
+    public void Expected_time_is_counted_from_the_last_fix_not_from_now()
+    {
+        var eta = EtaEstimator.Estimate(Flat(), Sport.Cycling, Snap(10_000, 8), Now.AddMinutes(4))!;
+
+        Assert.Equal((Flat().TotalLengthM - 10_000) / 8.0, (eta.Expected - Now).TotalSeconds, 0.5);
+    }
+
+    [Theory]
+    [InlineData(ParticipantState.Delayed, true)]
+    [InlineData(ParticipantState.Offline, true)]
+    [InlineData(ParticipantState.Live, false)]
+    public void Approximate_while_delayed_or_offline(ParticipantState state, bool approximate)
+    {
+        var eta = EtaEstimator.Estimate(Flat(), Sport.Cycling, Snap(10_000, 8) with { State = state }, Now)!;
+
+        Assert.Equal(approximate, eta.Approximate);
     }
 }

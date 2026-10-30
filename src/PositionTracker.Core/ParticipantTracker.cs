@@ -33,13 +33,20 @@ public sealed record SegmentCompletion(int Lap, int SegmentIndex, TimeSpan Time)
 /// <param name="LastRaceFixTime">Time of the newest accepted fix at or after the start (warm-up excluded).</param>
 /// <param name="FinishLat">Position of the last accepted fix at or before <c>FinishTime</c>; <c>null</c> until finished.</param>
 /// <param name="FinishLon">See <paramref name="FinishLat"/>.</param>
+/// <param name="EtaSpeedMps">
+/// Moving speed over the last <see cref="ParticipantTracker.EtaSpeedWindow"/> up to the newest accepted fix:
+/// moving intervals only, paused time excluded, so a short stop does not lower it (see ProgressHistory).
+/// <c>MovingSpeedMps</c> stays the 60 s display speed.
+/// </param>
+/// <param name="EtaWindowFromM">Total distance at the start of that window, for the window's average grade.</param>
 public sealed record ParticipantSnapshot(
     DateTimeOffset? LastFixTime, double? LastLat, double? LastLon, double? LastAccuracyM,
     double TotalDistanceM, int Lap, double LapProgressM, double OffCourseM,
     double SpeedMps, double MovingSpeedMps, double AvgSpeedMps, double MaxSpeedMps, double? PaceSecPerKm,
     TimeSpan MovingTime, TimeSpan StoppedTime, double AscentM, double DescentM, double GradePercent,
     ParticipantState State, DateTimeOffset? FinishTime, DateTimeOffset? StoppedSince, DateTimeOffset? OffCourseSince,
-    DateTimeOffset? LastRaceFixTime = null, double? FinishLat = null, double? FinishLon = null);
+    DateTimeOffset? LastRaceFixTime = null, double? FinishLat = null, double? FinishLon = null,
+    double EtaSpeedMps = 0, double EtaWindowFromM = 0);
 
 /// <param name="Accepted">Whether the fix was new and passed the filter (see <see cref="ParticipantTracker.ApplyMany"/>).</param>
 public sealed record ApplyResult(ParticipantSnapshot Snapshot, IReadOnlyList<SegmentCompletion> Completed, bool Accepted);
@@ -304,6 +311,9 @@ public sealed class ParticipantTracker
         var movingSpeed = last is null ? 0 : SpeedAt(last.Time, _options.MovingSpeedWindow);
         double? pace = movingSpeed > 0 && movingSpeed >= _options.StoppedSpeedMps ? 1000 / movingSpeed : null;
         var avgSpeed = _movingTime > TimeSpan.Zero ? _totalM / _movingTime.TotalSeconds : 0;
+        var (etaSpeed, etaFromM) = last is null
+            ? (0, 0)
+            : History.MovingSpeed(last.Time, EtaSpeedWindow, _options.StoppedSpeedMps, PausedWithin);
 
         // Report the position on the course, clamped to the race: lap 1 behind the line, the last lap past the finish.
         var lap = Math.Clamp(_lapCounter, 1, _course.Laps);
@@ -320,7 +330,8 @@ public sealed class ParticipantTracker
             _course.AscentUpTo(_totalM), _course.DescentUpTo(_totalM), _course.GradePercentAt(lapProgress),
             StateAt(now),
             _finishTime, stoppedSince, offCourseSince,
-            last?.Time, _finishFix?.Lat, _finishFix?.Lon);
+            last?.Time, _finishFix?.Lat, _finishFix?.Lon,
+            Math.Min(etaSpeed, _options.Filter.MaxSpeedMps), etaFromM);
     }
 
     /// <summary>

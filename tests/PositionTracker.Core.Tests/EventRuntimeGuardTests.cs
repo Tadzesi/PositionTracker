@@ -178,4 +178,41 @@ public class EventRuntimeGuardTests
         Assert.NotNull(view.Participants.Single(p => p.ParticipantId == "warm").Lat);
         Assert.NotNull(view.Participants.Single(p => p.ParticipantId == "dnf").Lat);
     }
+
+    // ---- I6: ETA ----
+
+    [Fact]
+    public void A_one_minute_stop_does_not_null_the_eta()
+    {
+        var (runtime, clock) = Create("a");
+        Send(runtime, clock, "a", Ride(8, 0, 600));
+        Send(runtime, clock, "a", Enumerable.Range(1, 12).Select(k => FixAt(4_800, T0.AddSeconds(600 + 5 * k))).ToList());
+
+        var eta = View(runtime, "a").Eta;
+
+        Assert.NotNull(eta);
+        var expected = T0.AddSeconds(660 + (Loop.TotalLengthM - 4_800) / 8);
+        Assert.InRange(eta!.Expected, expected.AddSeconds(-30), expected.AddSeconds(30));
+    }
+
+    [Fact]
+    public void Eta_does_not_move_during_an_outage_and_is_approximate_while_delayed_or_offline()
+    {
+        var (runtime, clock) = Create("a");
+        Send(runtime, clock, "a", Ride(8, 0, 600));
+        var live = View(runtime, "a").Eta!;
+
+        clock.SetUtcNow(T0.AddSeconds(630));
+        var delayed = View(runtime, "a");
+        clock.SetUtcNow(T0.AddSeconds(840));
+        var offline = View(runtime, "a");
+
+        Assert.False(live.Approximate);
+        Assert.Equal(ParticipantState.Delayed, delayed.State);
+        Assert.Equal(ParticipantState.Offline, offline.State);
+        Assert.Equal(live.Expected, delayed.Eta!.Expected);
+        Assert.Equal(live.Expected, offline.Eta!.Expected);
+        Assert.True(delayed.Eta.Approximate);
+        Assert.True(offline.Eta.Approximate);
+    }
 }
