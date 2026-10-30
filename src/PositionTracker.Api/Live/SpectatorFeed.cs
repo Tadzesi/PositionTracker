@@ -9,9 +9,10 @@ namespace PositionTracker.Api.Live;
 /// instance, so an event removed and registered again under the same id starts empty. The projected
 /// <see cref="SpectatorView"/> is cached per (buffered view instance, <see cref="EventRuntime.ParticipantsVersion"/>),
 /// so repeated <c>/public</c> requests and the broadcaster reuse one instance and do not take the runtime's lock.
-/// Thread-safe.
+/// The delay is measured on the runtime's own <see cref="EventRuntime.Clock"/>, the clock its views are stamped
+/// with (accelerated for simulated events). Thread-safe.
 /// </summary>
-public sealed class SpectatorFeed(TimeProvider clock)
+public sealed class SpectatorFeed
 {
     private readonly ConcurrentDictionary<string, Entry> _buffers = new(StringComparer.Ordinal);
     private int _projections;
@@ -39,7 +40,7 @@ public sealed class SpectatorFeed(TimeProvider clock)
         ArgumentNullException.ThrowIfNull(runtime);
         if (!_buffers.TryGetValue(runtime.Settings.EventId, out var entry) || !ReferenceEquals(entry.Runtime, runtime))
             return null;
-        if (entry.Buffer.GetCurrent(clock.GetUtcNow()) is not { } view) return null;
+        if (entry.Buffer.GetCurrent(runtime.Clock.GetUtcNow()) is not { } view) return null;
 
         var version = runtime.ParticipantsVersion;
         if (Volatile.Read(ref entry.Cached) is { } cached

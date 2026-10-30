@@ -31,10 +31,10 @@ public static class LiveEndpoints
         return registry.Get(eventId) is { } runtime ? Results.Ok(runtime.BuildLiveView()) : Results.NotFound();
     }
 
-    private static IResult GetPublic(string eventId, EventRegistry registry, SpectatorFeed feed, TimeProvider clock)
+    private static IResult GetPublic(string eventId, EventRegistry registry, SpectatorFeed feed)
     {
         if (registry.Get(eventId) is not { } runtime) return Results.NotFound();
         return Results.Ok(feed.GetCurrent(runtime)
-            ?? new SpectatorView(clock.GetUtcNow() - runtime.Settings.SpectatorDelay, eventId, []));
+            ?? new SpectatorView(runtime.Clock.GetUtcNow() - runtime.Settings.SpectatorDelay, eventId, []));
     }
 }

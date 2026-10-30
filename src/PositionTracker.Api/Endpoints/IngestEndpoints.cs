@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Globalization;
 using System.Threading.RateLimiting;
-using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Options;
 using PositionTracker.Api.Auth;
@@ -74,7 +73,7 @@ public static class IngestEndpoints
     {
         if (Authorize(context, eventId, registry, out var caller, out var runtime) is { } denied) return denied;
 
-        var (request, tooLarge) = await ReadBody<IngestRequest>(context, json.Value.SerializerOptions);
+        var (request, tooLarge) = await JsonBody.ReadAsync<IngestRequest>(context, json.Value.SerializerOptions, MaxBodyBytes);
         if (tooLarge is not null) return tooLarge;
         if (request?.Fixes is not { } fixes || fixes.Any(f => f is null))
             return BadRequest("Expected {\"fixes\":[{\"t\",\"lat\",\"lon\",\"acc\"}],\"status\":{...}}.");
@@ -93,7 +92,7 @@ public static class IngestEndpoints
     {
         if (Authorize(context, eventId, registry, out var caller, out var runtime) is { } denied) return denied;
 
-        var (request, tooLarge) = await ReadBody<ActionRequest>(context, json.Value.SerializerOptions);
+        var (request, tooLarge) = await JsonBody.ReadAsync<ActionRequest>(context, json.Value.SerializerOptions, MaxBodyBytes);
         if (tooLarge is not null) return tooLarge;
         if (request is null || !Enum.IsDefined(request.Action))
             return BadRequest("Expected {\"action\":\"sos|sosCleared|pause|resume|dnf\"}.");
@@ -139,37 +138,6 @@ public static class IngestEndpoints
         context.Items[CallerKey] = caller;
         return caller;
     }
-
-    /// <summary>
-    /// Deserializes the body, capped at <see cref="MaxBodyBytes"/>. Returns a 413 result as <c>Error</c> when the
-    /// body is too large: by <c>Content-Length</c> before reading, otherwise while reading, both through the
-    /// server's <see cref="IHttpMaxRequestBodySizeFeature"/> (Kestrel) and a counting stream (any server).
-    /// Returns a <c>null</c> body for malformed JSON.
-    /// </summary>
-    private static async Task<(T? Body, IResult? Error)> ReadBody<T>(HttpContext context, JsonSerializerOptions options)
-        where T : class
-    {
-        if (context.Request.ContentLength > MaxBodyBytes) return (null, BodyTooLarge());
-        if (context.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
-            limit.MaxRequestBodySize = MaxBodyBytes;
-        try
-        {
-            var body = new MaxLengthReadStream(context.Request.Body, MaxBodyBytes);
-            return (await JsonSerializer.DeserializeAsync<T>(body, options, context.RequestAborted), null);
-        }
-        catch (JsonException)
-        {
-            return (null, null);
-        }
-        catch (BadHttpRequestException ex)
-        {
-            return (null, Results.Problem(ex.Message, statusCode: ex.StatusCode));
-        }
-    }
-
-    private static IResult BodyTooLarge() =>
-        Results.Problem($"The request body must not exceed {MaxBodyBytes} bytes.",
-            statusCode: StatusCodes.Status413PayloadTooLarge);
 
     private static IResult BadRequest(string detail) =>
         Results.Problem(detail, statusCode: StatusCodes.Status400BadRequest);

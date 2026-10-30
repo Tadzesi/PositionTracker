@@ -38,6 +38,12 @@ public sealed class EventRuntime
 
     public Course Course { get; }
 
+    /// <summary>
+    /// The event's clock: the time its views and states are evaluated at. For a simulated event it runs
+    /// accelerated, so anything comparing against <see cref="LiveView.At"/> (such as the spectator delay) must use it.
+    /// </summary>
+    public TimeProvider Clock => _clock;
+
     /// <summary>Registers a participant; throws <see cref="ArgumentException"/> if the id is already taken.</summary>
     public void AddParticipant(ParticipantInfo info)
     {

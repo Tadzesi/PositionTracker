@@ -4,6 +4,7 @@ using PositionTracker.Api.Auth;
 using PositionTracker.Api.Endpoints;
 using PositionTracker.Api.Events;
 using PositionTracker.Api.Live;
+using PositionTracker.Api.Simulation;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,6 +26,8 @@ builder.Services.AddSignalR()
 builder.Services.AddSingleton<SpectatorFeed>();
 builder.Services.AddSingleton<LiveBroadcaster>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<LiveBroadcaster>());
+builder.Services.AddSingleton<SimulationService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<SimulationService>());
 
 var app = builder.Build();
 
@@ -32,6 +35,7 @@ app.UseRateLimiter();
 app.MapGet("/healthz", () => "ok");
 app.MapIngestEndpoints();
 app.MapLiveEndpoints();
+app.MapDemoEndpoints();
 app.MapHub<LiveHub>(LiveHub.Path);
 
 app.Run();
