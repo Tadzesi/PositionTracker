@@ -27,7 +27,8 @@ public sealed record ParticipantSnapshot(
     TimeSpan MovingTime, TimeSpan StoppedTime, double AscentM, double DescentM, double GradePercent,
     ParticipantState State, DateTimeOffset? FinishTime);
 
-public sealed record ApplyResult(ParticipantSnapshot Snapshot, IReadOnlyList<SegmentCompletion> Completed);
+/// <param name="Accepted">Whether the fix was new and passed the filter when it arrived (see <see cref="ParticipantTracker.Apply"/>).</param>
+public sealed record ApplyResult(ParticipantSnapshot Snapshot, IReadOnlyList<SegmentCompletion> Completed, bool Accepted);
 
 /// <summary>
 /// Turns one participant's fixes into course progress and motion statistics.
@@ -107,10 +108,14 @@ public sealed class ParticipantTracker
     /// resends of a stored fix leave the state unchanged. <c>Completed</c> holds the segment completions that
     /// are new or whose time changed with this fix (a late fix can move an interpolated crossing), each
     /// <c>(Lap, SegmentIndex)</c> at most once, in course order; consumers record them idempotently.
+    /// <c>Accepted</c> is true when the fix was newly stored and passed the filter in the fold right after it
+    /// was added; malformed fixes, accuracy failures, exact resends and speed or duplicate rejections are false.
+    /// A later fix can change the filter verdict of an earlier one on replay; that is not reported again.
     /// </summary>
     public ApplyResult Apply(PositionFix fix)
     {
         ArgumentNullException.ThrowIfNull(fix);
+        var accepted = false;
         if (IsStorable(fix))
         {
             var index = _fixes.BinarySearch(fix, FixOrder.Instance);
@@ -118,11 +123,10 @@ public sealed class ParticipantTracker
             {
                 index = ~index;
                 _fixes.Insert(index, fix);
-                if (index == _fixes.Count - 1) Step(fix);
-                else Replay();
+                accepted = index == _fixes.Count - 1 ? Step(fix) : Replay(fix);
             }
         }
-        return new ApplyResult(GetSnapshot(_lastAccepted?.Time ?? _startTime), ChangedCompletions());
+        return new ApplyResult(GetSnapshot(_lastAccepted?.Time ?? _startTime), ChangedCompletions(), accepted);
     }
 
     /// <summary>
@@ -286,10 +290,14 @@ public sealed class ParticipantTracker
         && (fix.AccuracyM is null || double.IsFinite(fix.AccuracyM.Value))
         && PositionFilter.Evaluate(fix, null, _options.Filter) == FilterDecision.Accept;
 
-    private void Replay()
+    /// <summary>Refolds all stored fixes; returns whether <paramref name="watched"/> passed the filter.</summary>
+    private bool Replay(PositionFix? watched = null)
     {
         Reset();
-        foreach (var fix in _fixes) Step(fix);
+        var accepted = false;
+        foreach (var fix in _fixes)
+            if (Step(fix) && ReferenceEquals(fix, watched)) accepted = true;
+        return accepted;
     }
 
     private void Reset()
@@ -310,17 +318,17 @@ public sealed class ParticipantTracker
         History.Clear();
     }
 
-    /// <summary>Folds the next fix in time order into the state.</summary>
-    private void Step(PositionFix fix)
+    /// <summary>Folds the next fix in time order into the state; returns false when the filter rejects it.</summary>
+    private bool Step(PositionFix fix)
     {
         // Warm-up before the start: shown as the last fix, but never filtered against, matched or counted,
         // so the first fix after the start is matched from progress 0 as if the warm-up never happened.
         if (fix.Time < _startTime)
         {
             _lastFix = fix;
-            return;
+            return true;
         }
-        if (PositionFilter.Evaluate(fix, _lastAccepted, _options.Filter) != FilterDecision.Accept) return;
+        if (PositionFilter.Evaluate(fix, _lastAccepted, _options.Filter) != FilterDecision.Accept) return false;
         var previousMatched = _lastAcceptedMatched;
         _lastFix = _lastAccepted = fix;
         var previous = History.Last;
@@ -330,7 +338,7 @@ public sealed class ParticipantTracker
         _lastAcceptedMatched = Locate(fix, out var offCourse);
         if (offCourse) _offCourseSince ??= fix.Time;
         else _offCourseSince = null;
-        if (!_lastAcceptedMatched) return;
+        if (!_lastAcceptedMatched) return true;
 
         History.Add(fix.Time, _totalM);
         if (_finishTime is null && _totalM >= _course.TotalLengthM) _finishTime = fix.Time;
@@ -345,6 +353,7 @@ public sealed class ParticipantTracker
             else _stoppedTime += counted;
         }
         _maxSpeedMps = Math.Max(_maxSpeedMps, SpeedAt(fix.Time, _options.SpeedWindow));
+        return true;
     }
 
     /// <summary>Windowed progress speed, capped at the sport's plausible maximum.</summary>

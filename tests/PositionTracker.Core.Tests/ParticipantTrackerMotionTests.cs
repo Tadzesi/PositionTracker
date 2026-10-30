@@ -497,5 +497,20 @@ public class ParticipantTrackerMotionTests
         Assert.Equal(s, Snapshot(Track(Loop, Sport.Cycling, race.Concat(warmUp))));
     }
 
+    [Fact]
+    public void Apply_reports_whether_the_fix_was_accepted()
+    {
+        var tracker = new ParticipantTracker(Loop, Sport.Cycling, T0);
+        var ride = Ride(Loop, 8, 400);
+
+        Assert.True(tracker.Apply(ride[0]).Accepted);
+        Assert.True(tracker.Apply(ride[2]).Accepted);
+        Assert.True(tracker.Apply(ride[1]).Accepted);                              // late, accepted on replay
+        Assert.False(tracker.Apply(ride[1]).Accepted);                             // exact resend
+        Assert.False(tracker.Apply(ride[3] with { AccuracyM = 80 }).Accepted);     // accuracy
+        Assert.False(tracker.Apply(FixAt(Loop, 5_000, ride[3].Time)).Accepted);    // impossible speed
+        Assert.False(tracker.Apply(ride[2] with { Lat = ride[2].Lat + 1e-5 }).Accepted); // same time as a stored fix
+    }
+
     private static PositionFix At(GeoPoint p, DateTimeOffset time) => new(time, p.Lat, p.Lon, 5);
 }
