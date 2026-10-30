@@ -36,13 +36,15 @@ public class VirtualRiderTests
     [Fact]
     public void Noise_free_flat_ride_finishes_at_total_length_in_expected_time()
     {
+        // The last fix lies RollOutM past the finish line (on this closed loop: that far into the next lap).
         var course = FlatLoop();
         var fixes = VirtualRider.Generate(course, Sport.Running, Profile(), Start, Step).ToList();
         var last = fixes[^1].Fix;
-        var end = course.PointAt(course.LapLengthM);
+        var end = course.PointAt(VirtualRider.RollOutM);
         Assert.True(GeoMath.DistanceM(last.Lat, last.Lon, end.Lat, end.Lon) < 1);
         var elapsed = (last.Time - Start).TotalSeconds;
-        Assert.InRange(elapsed, course.TotalLengthM / 5.0 - 5, course.TotalLengthM / 5.0 + 5);
+        var expected = (course.TotalLengthM + VirtualRider.RollOutM) / 5.0;
+        Assert.InRange(elapsed, expected - 5, expected + 5);
     }
 
     [Fact]
@@ -99,5 +101,48 @@ public class VirtualRiderTests
             Assert.True(double.IsFinite(f.Fix.Lat) && double.IsFinite(f.Fix.Lon));
             Assert.True(f.Fix.AccuracyM >= 3);
         });
+    }
+
+    [Fact]
+    public void Null_dropouts_throw_when_generate_is_called_not_when_enumerated()
+    {
+        var profile = Profile() with { Dropouts = null! };
+
+        Assert.Throws<ArgumentNullException>(() => VirtualRider.Generate(FlatLoop(), Sport.Running, profile, Start, Step));
+    }
+
+    [Fact]
+    public void Multi_lap_ride_runs_all_laps_and_the_tracker_follows_it_to_the_finish()
+    {
+        var course = Course.Create(DemoCourses.Loop(3_000, 25), 4);
+        var fixes = VirtualRider.Generate(course, Sport.Running, Profile(9, 3, 0.05), Start, Step).ToList();
+
+        var tracker = new ParticipantTracker(course, Sport.Running, Start);
+        tracker.ApplyMany(fixes.Select(f => f.Fix).ToList());
+        var s = tracker.GetSnapshot(fixes[^1].Fix.Time);
+
+        Assert.InRange((fixes[^1].Fix.Time - Start).TotalSeconds, 12_000 / 5.0 * 0.95, 12_000 / 5.0 * 1.05);
+        Assert.Equal(ParticipantState.Finished, s.State);
+        Assert.Equal(4, s.Lap);
+        Assert.Equal(course.TotalLengthM, s.TotalDistanceM);
+    }
+
+    [Fact]
+    public void Graded_course_slows_the_rider_on_the_climb_and_speeds_it_up_on_the_descent()
+    {
+        // 4 km loop: 2 km at +4 %, 2 km at -4 %. Running factors: 0.88 up, 1.12 down.
+        var course = Course.Create(DemoCourses.Loop(4_000, 25, d => d < 2_000 ? 0.04 * d : 80 - 0.04 * (d - 2_000)), 1);
+        var fixes = VirtualRider.Generate(course, Sport.Running, Profile(), Start, Step).ToList();
+        var tracker = new ParticipantTracker(course, Sport.Running, Start);
+        var at = new Dictionary<int, double>();
+        foreach (var f in fixes) at[(int)(f.Fix.Time - Start).TotalSeconds] = tracker.Apply(f.Fix).Snapshot.TotalDistanceM;
+
+        var upSpeed = (at[300] - at[100]) / 200;
+        var downSpeed = (at[700] - at[500]) / 200;
+
+        Assert.InRange(upSpeed, 5 * 0.88 * 0.95, 5 * 0.88 * 1.05);
+        Assert.InRange(downSpeed, 5 * 1.12 * 0.95, 5 * 1.12 * 1.05);
+        var total = (fixes[^1].Fix.Time - Start).TotalSeconds;
+        Assert.InRange(total, 2_000 / (5 * 0.88) + 2_000 / (5 * 1.12) - 15, 2_000 / (5 * 0.88) + 2_000 / (5 * 1.12) + 15);
     }
 }

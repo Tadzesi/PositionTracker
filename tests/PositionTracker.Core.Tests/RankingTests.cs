@@ -128,4 +128,22 @@ public class RankingTests
         Assert.All(ranked.Skip(3), r => Assert.Null(r.GapToLeader));
         Assert.All(ranked.Skip(3), r => Assert.Null(r.GapToAhead));
     }
+
+    [Fact]
+    public void Two_finishers_are_ordered_by_finish_time_and_gapped_by_finish_times()
+    {
+        // Both histories end at the finish; the second crossed 1.5 s later.
+        var first = Rider("b-first", 10, 5_000, finish: T0.AddSeconds(500));
+        var second = Rider("a-second", 10, 5_000, finish: T0.AddSeconds(501.5));
+        var secondHistory = new ProgressHistory();
+        secondHistory.Add(T0, 0);
+        secondHistory.Add(T0.AddSeconds(501.5), 5_000);
+        second = second with { History = secondHistory, LastFixTime = T0.AddSeconds(501.5) };
+
+        var ranked = Ranking.Rank(new[] { second, first });
+
+        Assert.Equal(new[] { "b-first", "a-second" }, ranked.Select(r => r.ParticipantId));
+        Assert.Equal(TimeSpan.FromSeconds(1.5), ranked[1].GapToLeader);
+        Assert.Equal(TimeSpan.FromSeconds(1.5), ranked[1].GapToAhead);
+    }
 }

@@ -124,4 +124,17 @@ public class SegmentBoardTests
 
         Assert.Throws<KeyNotFoundException>(() => board.ColourOf("a", 1, 0));
     }
+
+    [Fact]
+    public void Two_participants_tied_for_the_fastest_time_are_both_purple()
+    {
+        var board = new SegmentBoard();
+        board.Record("a", 1, 0, S(100));
+        board.Record("b", 1, 0, S(100));
+        board.Record("c", 1, 0, S(101));
+
+        Assert.Equal(SegmentColour.Purple, board.ColourOf("a", 1, 0));
+        Assert.Equal(SegmentColour.Purple, board.ColourOf("b", 1, 0));
+        Assert.Equal(SegmentColour.Green, board.ColourOf("c", 1, 0));
+    }
 }

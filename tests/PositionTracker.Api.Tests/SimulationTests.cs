@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using PositionTracker.Api.Live;
 using PositionTracker.Api.Simulation;
 using PositionTracker.Core;
@@ -529,5 +530,77 @@ public class SimulationTests
         // Rounded distances keep the order of the rows that are still riding.
         var riding = spectator.Participants.Where(p => p.State != ParticipantState.Finished && p.Rank is not null).ToList();
         Assert.True(riding.Zip(riding.Skip(1)).All(x => x.First.TotalDistanceM >= x.Second.TotalDistanceM));
+    }
+
+    [Fact]
+    public void Multi_lap_simulation_on_a_graded_gpx_course_finishes_everyone_with_consecutive_ranks()
+    {
+        // 3 km loop, 3 laps, rolling 30 m hills; uploaded as GPX with elevation.
+        var points = DemoCourses.Loop(3_000, 25, d => 300 + 30 * Math.Sin(2 * Math.PI * d / 1_500));
+        var gpx = "<?xml version=\"1.0\"?><gpx version=\"1.1\" xmlns=\"http://www.topografix.com/GPX/1/1\"><trk><trkseg>"
+            + string.Concat(points.Select(p => string.Create(CultureInfo.InvariantCulture,
+                $"<trkpt lat=\"{p.Lat:R}\" lon=\"{p.Lon:R}\"><ele>{p.Ele:R}</ele></trkpt>")))
+            + "</trkseg></trk></gpx>";
+        using var factory = new ApiFactory();
+        var sim = Simulation(factory);
+        var started = sim.Start(new DemoRequest(Participants: 8, TimeScale: 50, Laps: 3,
+            GpxBase64: Convert.ToBase64String(Encoding.UTF8.GetBytes(gpx))));
+        var runtime = factory.Registry.Get(started.EventId)!;
+        Assert.True(runtime.Course.HasElevation);
+        Assert.True(runtime.Course.AscentPerLapM > 50);
+
+        StepRange(sim, started.EventId, TimeSpan.Zero, TimeSpan.FromMinutes(45), TimeSpan.FromMinutes(1), _ =>
+        {
+            var ranks = runtime.BuildLiveView().Participants.Select(p => p.Rank).ToList();
+            Assert.Equal(Enumerable.Range(1, 8).Select(r => (int?)r), ranks);
+        });
+
+        var view = runtime.BuildLiveView();
+        Assert.All(view.Participants, p => Assert.Equal(ParticipantState.Finished, p.State));
+        Assert.All(view.Participants, p => Assert.Equal(runtime.Course.TotalLengthM, p.TotalDistanceM));
+        Assert.All(view.Participants, p => Assert.Equal(runtime.Course.SegmentCount * 3, p.Segments.Count)); // no checkpoint fits a 3 km lap
+        // Faster base speeds finish first: the default profiles rise in speed with the participant index.
+        Assert.Equal(view.Participants.Select(p => p.ParticipantId).OrderByDescending(id => id, StringComparer.Ordinal),
+            view.Participants.Select(p => p.ParticipantId));
+        Assert.True(view.Participants.Skip(1).All(p => p.GapToLeader > TimeSpan.Zero));
+    }
+
+    private sealed class ListLogger : ILogger<SimulationService>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = new();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => Entries.Add((logLevel, formatter(state, exception)));
+    }
+
+    [Fact]
+    public void A_permanently_failing_simulation_logs_once_a_minute_and_is_finished_after_20_failures()
+    {
+        using var factory = new ApiFactory();
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(ApiFactory.T0);
+        var logger = new ListLogger();
+        var sim = new SimulationService(factory.Registry, factory.Tokens, clock, logger);
+        var attempts = 0;
+        sim.StartWithProfiles(new DemoRequest(Participants: 1, TimeScale: 1),
+            [new VirtualRiderProfile("sim-001", 8, 0, 0, 1, [], null, null, null)]);
+        sim.AdvanceHook = _ =>
+        {
+            attempts++;
+            throw new InvalidOperationException("simulated permanent failure");
+        };
+
+        for (var i = 0; i < 30; i++)
+        {
+            clock.Advance(TimeSpan.FromSeconds(10));
+            sim.AdvanceAll();
+        }
+
+        Assert.Equal(SimulationService.MaxConsecutiveFailures, attempts);
+        Assert.True(Assert.Single(sim.List()).Finished);
+        var errors = logger.Entries.Where(e => e.Level >= LogLevel.Error).ToList();
+        // Failures at 10 s .. 200 s: logged at 10, 70, 130 and 190 s, plus the final "giving up" entry.
+        Assert.Equal(5, errors.Count);
+        Assert.Contains("20", errors[^1].Message);
     }
 }

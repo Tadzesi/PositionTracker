@@ -543,4 +543,17 @@ public class ParticipantTrackerMotionTests
     }
 
     private static PositionFix At(GeoPoint p, DateTimeOffset time) => new(time, p.Lat, p.Lon, 5);
+
+    [Fact]
+    public void One_apply_crossing_several_boundaries_emits_each_completion_once_in_order()
+    {
+        // A 5-minute gap carries the rider from 2 800 m past CP1 (3 000 m), CP2 (8 000 m) and the line (12 500 m).
+        var tracker = new ParticipantTracker(CheckpointLoop, Sport.Cycling, T0);
+        foreach (var f in Ride(CheckpointLoop, 8, 2_800)) tracker.Apply(f);
+
+        var completed = tracker.Apply(FixAt(CheckpointLoop, 12_800, T0.AddSeconds(1_600))).Completed;
+
+        Assert.Equal(new[] { (1, 0), (1, 1), (1, 2) }, completed.Select(c => (c.Lap, c.SegmentIndex)));
+        Assert.All(completed, c => Assert.True(c.Time > TimeSpan.Zero));
+    }
 }

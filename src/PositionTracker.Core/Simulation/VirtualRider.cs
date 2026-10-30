@@ -8,18 +8,25 @@ public sealed record VirtualRiderProfile(
 /// <summary>A fix plus the moment it reaches the server (later than its own time when queued during a dropout).</summary>
 public sealed record GeneratedFix(PositionFix Fix, DateTimeOffset DeliverAt);
 
-/// <summary>Deterministic fake GPS fixes for the demo simulator; a pure function of its inputs.</summary>
+/// <summary>
+/// Deterministic fake GPS fixes for the demo simulator; a pure function of its inputs. The rider rides on
+/// <see cref="RollOutM"/> past the finish line (as a real rider does), so GPS noise on the last fix cannot leave
+/// the matched position just short of the line.
+/// </summary>
 public static class VirtualRider
 {
     private const double MetresPerDegLat = 111_195;
     private const double OffCourseOffsetM = 150;
     private const double MinSpeedMps = 0.5;
+    /// <summary>Distance ridden past the finish line before the fixes stop.</summary>
+    public const double RollOutM = 30;
 
     public static IEnumerable<GeneratedFix> Generate(Course course, Sport sport, VirtualRiderProfile profile,
         DateTimeOffset start, TimeSpan step)
     {
         ArgumentNullException.ThrowIfNull(course);
         ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(profile.Dropouts, nameof(profile));
         if (step <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(step), "Step must be positive.");
         return GenerateCore(course, sport, profile, start, step);
     }
@@ -39,15 +46,15 @@ public static class VirtualRider
         for (var k = 0; ; k++)
         {
             var elapsed = TimeSpan.FromTicks(step.Ticks * k);
-            var finished = dist >= total;
-            if (finished) dist = total;
-            var lapDist = finished ? course.LapLengthM : dist % course.LapLengthM;
+            var finished = dist >= total + RollOutM;
+            if (finished) dist = total + RollOutM;
+            var lapDist = course.IsClosed ? dist % course.LapLengthM : Math.Min(dist, course.LapLengthM);
 
             // Fixed number of random draws per step keeps the sequence independent of branches.
             var jitter = (rng.NextDouble() * 2 - 1) * jitterAmp;
             var (gx, gy) = Gaussian2(rng);
 
-            var p = course.PointAt(lapDist);
+            var p = PositionAt(course, dist, lapDist);
             double eastM = gx * sigma, northM = gy * sigma;
             if (profile.OffCourseAt is { } offAt && profile.OffCourseFor is { } offFor
                 && elapsed >= offAt && elapsed < offAt + offFor)
@@ -82,6 +89,16 @@ public static class VirtualRider
             if (!double.IsFinite(speed) || speed < MinSpeedMps) speed = MinSpeedMps;
             dist += speed * stepS;
         }
+    }
+
+    /// <summary>The point at <paramref name="dist"/>; past the end of an open course, straight on along its last 10 m.</summary>
+    private static GeoPoint PositionAt(Course course, double dist, double lapDist)
+    {
+        if (course.IsClosed || dist <= course.LapLengthM) return course.PointAt(lapDist);
+        var end = course.PointAt(course.LapLengthM);
+        var before = course.PointAt(Math.Max(0, course.LapLengthM - 10));
+        var f = (dist - course.LapLengthM) / Math.Max(1e-9, GeoMath.DistanceM(before, end));
+        return new GeoPoint(end.Lat + (end.Lat - before.Lat) * f, end.Lon + (end.Lon - before.Lon) * f, end.Ele);
     }
 
     private static DateTimeOffset DeliverAtFor(VirtualRiderProfile profile, DateTimeOffset start, TimeSpan elapsed, DateTimeOffset time)

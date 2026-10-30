@@ -34,6 +34,11 @@ public sealed class DemoRequestException(int statusCode, string message) : Excep
 /// running simulation each <see cref="TickInterval"/> on the injected <see cref="TimeProvider"/> to its scaled
 /// time (real elapsed x time scale); <see cref="Step"/> drives a simulation manually instead. Either way the
 /// event's clock is pinned to the time fixes were last delivered for. Thread-safe.
+/// <para>The simulator calls <see cref="EventRuntime.Ingest"/> in process instead of posting to the HTTP ingest
+/// endpoint (accepted by controller ruling 11): the endpoint allows 60 requests per minute and token, which a
+/// simulation at a time scale of 20 or more exceeds, and after authentication the endpoint calls exactly this
+/// method. Body limits, authentication, the per-token fix budget and rate limiting are therefore not exercised by
+/// the demo; the issued tokens still work against the real endpoint.</para>
 /// </summary>
 public sealed class SimulationService(
     EventRegistry registry, TokenService tokens, TimeProvider clock, ILogger<SimulationService> logger) : BackgroundService
@@ -43,6 +48,10 @@ public sealed class SimulationService(
     public const int MaxLaps = 10;
     public const int MaxSimulatedEvents = 3;
     public const int MaxGpxBytes = 1024 * 1024;
+    /// <summary>A simulation failing this many times in a row is given up (marked finished).</summary>
+    public const int MaxConsecutiveFailures = 20;
+    /// <summary>Failures of one simulation are logged at most once per this interval (the first one always).</summary>
+    public static readonly TimeSpan FailureLogInterval = TimeSpan.FromMinutes(1);
 
     public static readonly TimeSpan TickInterval = TimeSpan.FromMilliseconds(500);
     /// <summary>Time between two generated fixes of a rider (the phone's send interval).</summary>
@@ -184,9 +193,15 @@ public sealed class SimulationService(
         Find(eventId)?.Riders.SingleOrDefault(r => r.Profile.Id == participantId)?.Token
         ?? throw new KeyNotFoundException($"Unknown simulated participant '{participantId}'.");
 
+    /// <summary>Test hook: runs at the start of every advance of a simulation (lets tests inject a failure).</summary>
+    internal Action<EventRuntime>? AdvanceHook { get; set; }
+
     /// <summary>
     /// Advances every running, unfinished simulation not driven by <see cref="Step"/> to its clock's
-    /// <see cref="ScaledTimeProvider.ScaledElapsed"/>; a failure is logged per event and the others still advance.
+    /// <see cref="ScaledTimeProvider.ScaledElapsed"/>; a failure affects only its own event. Failures are logged
+    /// the first time and then at most once per <see cref="FailureLogInterval"/> of the injected clock; after
+    /// <see cref="MaxConsecutiveFailures"/> in a row the event is marked finished (it stays registered and
+    /// viewable, but is no longer fed). A successful advance resets the count.
     /// </summary>
     public void AdvanceAll()
     {
@@ -194,19 +209,43 @@ public sealed class SimulationService(
         lock (_lock) all = _simulations.Values.ToList();
         foreach (var simulation in all)
         {
-            try
+            lock (simulation)
             {
-                lock (simulation)
+                if (simulation.Stopped || simulation.Finished || simulation.Manual) continue;
+                try
                 {
-                    if (simulation.Stopped || simulation.Finished || simulation.Manual) continue;
                     var elapsed = simulation.Clock.ScaledElapsed;
-                    if (elapsed > simulation.DeliveredUntil) Advance(simulation, elapsed);
+                    if (elapsed > simulation.DeliveredUntil)
+                    {
+                        AdvanceHook?.Invoke(simulation.Runtime);
+                        Advance(simulation, elapsed);
+                    }
+                    simulation.ConsecutiveFailures = 0;
+                }
+                catch (Exception ex)
+                {
+                    OnFailure(simulation, ex);
                 }
             }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Simulation step failed for event {EventId}.", simulation.Runtime.Settings.EventId);
-            }
+        }
+    }
+
+    private void OnFailure(Simulation simulation, Exception ex)
+    {
+        var eventId = simulation.Runtime.Settings.EventId;
+        var now = clock.GetUtcNow();
+        simulation.ConsecutiveFailures++;
+        if (simulation.LastFailureLogged is not { } logged || now - logged >= FailureLogInterval)
+        {
+            simulation.LastFailureLogged = now;
+            logger.LogError(ex, "Simulation step failed for event {EventId} ({Failures} in a row).",
+                eventId, simulation.ConsecutiveFailures);
+        }
+        if (simulation.ConsecutiveFailures >= MaxConsecutiveFailures)
+        {
+            simulation.Finished = true;
+            logger.LogError("Simulation of event {EventId} failed {Failures} times in a row and is no longer fed.",
+                eventId, simulation.ConsecutiveFailures);
         }
     }
 
@@ -364,6 +403,8 @@ public sealed class SimulationService(
         public bool Stopped { get; set; }
         /// <summary>Driven by <see cref="SimulationService.Step"/>; the background loop skips it.</summary>
         public bool Manual { get; set; }
+        public int ConsecutiveFailures { get; set; }
+        public DateTimeOffset? LastFailureLogged { get; set; }
     }
 
     /// <summary>
