@@ -12,7 +12,12 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using PositionTracker.Api.Accounts;
 using PositionTracker.Api.Auth;
 using PositionTracker.Api.Email;
+using PositionTracker.Api.Events;
 using PositionTracker.Api.Persistence;
+using PositionTracker.Api.Registration;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using PositionTracker.Core;
 using PositionTracker.Core.Simulation;
 using PositionTracker.Data;
@@ -522,7 +527,8 @@ public sealed class RegistrationTests(PostgresFixture postgres) : IClassFixture<
         using (var json = JsonDocument.Parse(body))
         {
             Assert.True(json.RootElement.GetProperty("deviceTokenIssued").GetBoolean());
-            Assert.Equal(["deviceTokenIssued", "emailMode"], json.RootElement.EnumerateObject().Select(p => p.Name).Order());
+            Assert.True(json.RootElement.GetProperty("mailQueued").GetBoolean());
+            Assert.Equal(["deviceTokenIssued", "emailMode", "mailQueued"], json.RootElement.EnumerateObject().Select(p => p.Name).Order());
         }
         Assert.DoesNotContain(deviceToken, body);
         await using (var scope = host.Services.CreateAsyncScope())
@@ -664,6 +670,318 @@ public sealed class RegistrationTests(PostgresFixture postgres) : IClassFixture<
         Assert.Equal("a@example.org", (await db.Participants.SingleAsync()).Email);
         Assert.Single(await db.Outbox.Where(m => m.Purpose == EmailPurpose.Invitation).ToListAsync());
     }
+
+    // ----- fix round 1 -----
+
+    [Fact]
+    public async Task Reissue_over_the_mail_budget_still_revokes_the_device_token_and_says_no_mail_was_queued()
+    {
+        await using var host = Host(settings: s => s["Registration:InvitationsPerOrganizerPerHour"] = "1");
+        var org = await SessionAsync(host, "org@example.org");
+        var ev = await SeedEventAsync(host, org.OrganizerId, EventState.Ready);
+        var pid = await ParticipantIdAsync(await CreateAsync(org, ev, "rider@example.org")); // the only unit
+        string deviceToken;
+        await using (var scope = host.Services.CreateAsyncScope())
+            deviceToken = await scope.ServiceProvider.GetRequiredService<ITokenService>().IssueAsync(ev.ToString("D"), pid.ToString("D"), default);
+
+        var response = await org.PostAsync($"{Participants(ev)}/{pid}/reissue-token", new { });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using (var json = await JsonAsync(response))
+        {
+            Assert.True(json.RootElement.GetProperty("deviceTokenIssued").GetBoolean());
+            Assert.False(json.RootElement.GetProperty("mailQueued").GetBoolean());
+        }
+        await using (var scope = host.Services.CreateAsyncScope())
+            Assert.Null(await scope.ServiceProvider.GetRequiredService<ITokenService>().ResolveAsync(deviceToken, default));
+        await using var db = Db(host);
+        Assert.Single(await db.Outbox.Where(m => m.ParticipantId == pid).ToListAsync()); // no second mail
+    }
+
+    [Fact]
+    public async Task The_global_hourly_invitation_cap_refuses_every_organizer_and_its_hits_show_in_the_ops_view()
+    {
+        await using var host = Host(settings: s => s["Registration:InvitationsGlobalPerHour"] = "2");
+        var a = await SessionAsync(host, "a-org@example.org");
+        var b = await SessionAsync(host, "b-org@example.org");
+        var evA = await SeedEventAsync(host, a.OrganizerId, EventState.Draft);
+        var evB = await SeedEventAsync(host, b.OrganizerId, EventState.Draft);
+        Assert.Equal(HttpStatusCode.Created, (await CreateAsync(a, evA, "1@example.org")).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await CreateAsync(b, evB, "2@example.org")).StatusCode);
+
+        await AssertErrorAsync(await CreateAsync(b, evB, "3@example.org"), HttpStatusCode.TooManyRequests, "rate_limited");
+        await AssertErrorAsync(await CreateAsync(a, evA, "4@example.org"), HttpStatusCode.TooManyRequests, "rate_limited");
+
+        var ops = Client(host);
+        ops.DefaultRequestHeaders.Add(OrganizerOptions.ApiKeyHeader, host.OrganizerKey);
+        using var json = JsonDocument.Parse(await ops.GetStringAsync("/api/ops/email-mode"));
+        var hits = json.RootElement.GetProperty("invitationLimitHits");
+        Assert.Equal(2, hits.GetProperty("global").GetInt32());
+        Assert.Equal(2, hits.GetProperty("total").GetInt32());
+        Assert.Equal(0, hits.GetProperty("perOrganizer").GetInt32());
+        Assert.Equal(0, json.RootElement.GetProperty("limitHitsLast24h").GetInt32()); // account limits unchanged
+
+        host.Clock.Advance(TimeSpan.FromHours(1));
+        Assert.Equal(HttpStatusCode.Created, (await CreateAsync(a, evA, "4@example.org")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Invitations_to_one_address_are_capped_per_day()
+    {
+        await using var host = Host(settings: s =>
+        {
+            s["Registration:InvitationsPerAddressPerDay"] = "2";
+            s["Registration:InvitationsPerAddressPerHour"] = "5";
+        });
+        var org = await SessionAsync(host, "org@example.org");
+        var ev = await SeedEventAsync(host, org.OrganizerId, EventState.Draft);
+        var pid = await ParticipantIdAsync(await CreateAsync(org, ev, "victim@example.org"));
+        host.Clock.Advance(TimeSpan.FromHours(2));
+        Assert.Equal(HttpStatusCode.Accepted, (await org.PostAsync($"{Participants(ev)}/{pid}/resend", new { })).StatusCode);
+        host.Clock.Advance(TimeSpan.FromHours(2));
+
+        await AssertErrorAsync(await org.PostAsync($"{Participants(ev)}/{pid}/resend", new { }), HttpStatusCode.TooManyRequests, "rate_limited");
+
+        host.Clock.Advance(TimeSpan.FromHours(21));
+        Assert.Equal(HttpStatusCode.Accepted, (await org.PostAsync($"{Participants(ev)}/{pid}/resend", new { })).StatusCode);
+    }
+
+    [Fact]
+    public void The_invitation_defaults_leave_headroom_below_the_mailbox_quota_and_refunds_restore_the_budgets()
+    {
+        var defaults = new RegistrationOptions();
+        Assert.Equal(100, defaults.InvitationsPerOrganizerPerHour);
+        Assert.Equal(300, defaults.InvitationsGlobalPerHour);
+        Assert.Equal(5, defaults.InvitationsPerAddressPerHour);
+        Assert.Equal(10, defaults.InvitationsPerAddressPerDay);
+
+        var limiter = new InvitationLimiter(Options.Create(new RegistrationOptions { InvitationsGlobalPerHour = 1 }),
+            new FakeTimeProvider(ApiFactory.T0), NullLogger<InvitationLimiter>.Instance);
+        var org = Guid.NewGuid();
+        Assert.True(limiter.TryTake(org, "a@example.org"));
+        Assert.False(limiter.TryTake(org, "b@example.org"));
+        limiter.Refund(org, "a@example.org");
+        Assert.True(limiter.TryTake(org, "b@example.org"));
+        Assert.Equal(1, limiter.LimitHitsLast24h().Global);
+    }
+
+    [Fact]
+    public async Task Deleting_the_only_confirmed_participant_during_go_live_waits_for_it_and_never_leaves_a_runtime_without_its_row()
+    {
+        var hooks = new EventServiceHooks();
+        await using var host = Host(services: s => s.AddSingleton(hooks));
+        var org = await SessionAsync(host, "org@example.org");
+        var ev = await SeedEventAsync(host, org.OrganizerId, EventState.Ready, Gpx(DemoCourses.Loop()));
+        var only = await SeedParticipantAsync(host, ev, ParticipantStatus.Confirmed, "Only Rider");
+        Task<HttpResponseMessage>? delete = null;
+        var completedDuringLive = false;
+        hooks.BeforeGoLiveRead = async eventId =>
+        {
+            if (eventId != ev || delete is not null) return;
+            delete = org.SendAsync(HttpMethod.Delete, $"{Participants(ev)}/{only}", Json("{}"));
+            await Task.WhenAny(delete, Task.Delay(1500));
+            completedDuringLive = delete.IsCompleted;
+        };
+
+        var live = await org.PostAsync($"/api/events/{ev}/state", new { state = "live" });
+
+        Assert.NotNull(delete);
+        var deleted = await delete!;
+        Assert.False(completedDuringLive, "The delete was not serialized with go-live.");
+        Assert.Equal(HttpStatusCode.OK, live.StatusCode);
+        await AssertErrorAsync(deleted, HttpStatusCode.Conflict, "event_live");
+        await using var db = Db(host);
+        var runtime = host.Registry.Get(ev.ToString("D"))!;
+        Assert.NotEmpty(runtime.Participants);
+        foreach (var id in runtime.Participants.Keys)
+            Assert.True(await db.Participants.AnyAsync(p => p.Id == Guid.Parse(id)));
+    }
+
+    [Fact]
+    public async Task Removing_participants_before_a_concurrent_go_live_leaves_the_event_ready()
+    {
+        var hooks = new EventServiceHooks();
+        await using var host = Host(services: s => s.AddSingleton(hooks));
+        var org = await SessionAsync(host, "org@example.org");
+        var ev = await SeedEventAsync(host, org.OrganizerId, EventState.Ready, Gpx(DemoCourses.Loop()));
+        var only = await SeedParticipantAsync(host, ev, ParticipantStatus.Confirmed, "Only Rider");
+        // The delete commits between the state request's first read and its row lock.
+        hooks.BeforeStateAttempt = async (eventId, attempt) =>
+        {
+            if (eventId != ev || attempt != 1) return;
+            Assert.Equal(HttpStatusCode.NoContent, (await org.SendAsync(HttpMethod.Delete, $"{Participants(ev)}/{only}", Json("{}"))).StatusCode);
+        };
+
+        await AssertErrorAsync(await org.PostAsync($"/api/events/{ev}/state", new { state = "live" }), HttpStatusCode.Conflict, "no_confirmed_participants");
+        Assert.Null(host.Registry.Get(ev.ToString("D")));
+    }
+
+    [Fact]
+    public async Task The_confirmation_deadline_is_set_validated_shown_and_cleared_and_locked_once_live()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "org@example.org");
+        var ev = await SeedEventAsync(host, org.OrganizerId, EventState.Draft);
+        var deadline = Utc(host.Clock.GetUtcNow().AddHours(12));
+
+        var set = await org.PutAsync($"/api/events/{ev}/confirmation-deadline", new { confirmationDeadline = deadline });
+
+        Assert.Equal(HttpStatusCode.OK, set.StatusCode);
+        using (var view = await JsonAsync(set)) Assert.Equal(deadline, view.RootElement.GetProperty("confirmationDeadline").GetString());
+        using (var manage = await JsonAsync(await org.GetAsync($"/api/events/{ev}/manage")))
+            Assert.Equal(deadline, manage.RootElement.GetProperty("confirmationDeadline").GetString());
+        await AssertErrorAsync(await org.PutAsync($"/api/events/{ev}/confirmation-deadline", new { confirmationDeadline = Utc(host.Clock.GetUtcNow().AddMinutes(-1)) }),
+            HttpStatusCode.BadRequest, "validation_failed", "confirmationDeadline");
+        await AssertErrorAsync(await org.PutAsync($"/api/events/{ev}/confirmation-deadline", new { confirmationDeadline = Utc(Start.AddMinutes(1)) }),
+            HttpStatusCode.BadRequest, "validation_failed", "confirmationDeadline");
+        await AssertErrorAsync(await org.PutAsync($"/api/events/{ev}/confirmation-deadline", new { confirmationDeadline = "tomorrow" }),
+            HttpStatusCode.BadRequest, "validation_failed", "confirmationDeadline");
+
+        using (var cleared = await JsonAsync(await org.PutAsync($"/api/events/{ev}/confirmation-deadline", new { confirmationDeadline = (string?)null })))
+            Assert.Equal(JsonValueKind.Null, cleared.RootElement.GetProperty("confirmationDeadline").ValueKind);
+        await using (var db = Db(host)) Assert.Null((await db.Events.SingleAsync(e => e.Id == ev)).ConfirmationDeadline);
+
+        var live = await SeedEventAsync(host, org.OrganizerId, EventState.Live);
+        await AssertErrorAsync(await org.PutAsync($"/api/events/{live}/confirmation-deadline", new { confirmationDeadline = deadline }),
+            HttpStatusCode.Conflict, "event_locked");
+        var other = await SessionAsync(host, "other@example.org");
+        await AssertErrorAsync(await other.PutAsync($"/api/events/{ev}/confirmation-deadline", new { confirmationDeadline = deadline }),
+            HttpStatusCode.NotFound, "not_found");
+    }
+
+    [Fact]
+    public async Task With_a_deadline_remind_is_refused_before_it_and_reaches_every_invited_participant_once_after_it()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "org@example.org");
+        var ev = await SeedEventAsync(host, org.OrganizerId, EventState.Ready);
+        Assert.Equal(HttpStatusCode.OK, (await org.PutAsync($"/api/events/{ev}/confirmation-deadline",
+            new { confirmationDeadline = Utc(host.Clock.GetUtcNow().AddHours(2)) })).StatusCode);
+        await CreateAsync(org, ev, "a@example.org");
+        await CreateAsync(org, ev, "b@example.org");
+
+        await AssertErrorAsync(await org.PostAsync($"{Participants(ev)}/remind", new { }), HttpStatusCode.Conflict, "remind_too_early");
+
+        host.Clock.Advance(TimeSpan.FromHours(3)); // past the deadline, the links are only 3 h old
+        using (var json = await JsonAsync(await org.PostAsync($"{Participants(ev)}/remind", new { })))
+            Assert.Equal(2, json.RootElement.GetProperty("sent").GetInt32());
+        using (var again = await JsonAsync(await org.PostAsync($"{Participants(ev)}/remind", new { })))
+            Assert.Equal(0, again.RootElement.GetProperty("sent").GetInt32());
+    }
+
+    [Fact]
+    public async Task Remind_reports_participants_left_out_by_a_limit()
+    {
+        await using var host = Host(settings: s => s["Registration:InvitationsGlobalPerHour"] = "3");
+        var org = await SessionAsync(host, "org@example.org");
+        var ev = await SeedEventAsync(host, org.OrganizerId, EventState.Ready);
+        for (var i = 0; i < 3; i++) await CreateAsync(org, ev, $"r{i}@example.org");
+        host.Clock.Advance(TimeSpan.FromHours(1));
+        await CreateAsync(org, ev, "r3@example.org");
+        host.Clock.Advance(TimeSpan.FromHours(25));
+
+        using var json = await JsonAsync(await org.PostAsync($"{Participants(ev)}/remind", new { }));
+
+        Assert.Equal(3, json.RootElement.GetProperty("sent").GetInt32());
+        Assert.Equal(1, json.RootElement.GetProperty("limited").GetInt32());
+    }
+
+    [Fact]
+    public async Task An_empty_bib_means_automatic_on_create_and_unchanged_on_edit()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "org@example.org");
+        var ev = await SeedEventAsync(host, org.OrganizerId, EventState.Draft);
+
+        Assert.Equal("1", await CreateBibAsync(org, ev, "a@example.org", bib: ""));
+        Assert.Equal("2", await CreateBibAsync(org, ev, "b@example.org", bib: "  "));
+        var pid = await ParticipantIdAsync(await CreateAsync(org, ev, "c@example.org", bib: "7"));
+        using var edited = await JsonAsync(await org.PutAsync($"{Participants(ev)}/{pid}", new { bib = "", name = "Renamed" }));
+        Assert.Equal("7", edited.RootElement.GetProperty("bib").GetString());
+    }
+
+    [Fact]
+    public async Task Resend_and_reissue_refuse_declined_participants_and_finished_events_refuse_edits_and_mail()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "org@example.org");
+        var ev = await SeedEventAsync(host, org.OrganizerId, EventState.Ready);
+        var declined = await SeedParticipantAsync(host, ev, ParticipantStatus.Declined, "No Thanks");
+        await AssertErrorAsync(await org.PostAsync($"{Participants(ev)}/{declined}/resend", new { }), HttpStatusCode.Conflict, "participant_declined");
+        await AssertErrorAsync(await org.PostAsync($"{Participants(ev)}/{declined}/reissue-token", new { }), HttpStatusCode.Conflict, "participant_declined");
+
+        var finished = await SeedEventAsync(host, org.OrganizerId, EventState.Finished);
+        var done = await SeedParticipantAsync(host, finished, ParticipantStatus.Confirmed, "Done");
+        await AssertErrorAsync(await org.PutAsync($"{Participants(finished)}/{done}", new { name = "x" }), HttpStatusCode.Conflict, "event_finished");
+        await AssertErrorAsync(await org.PostAsync($"{Participants(finished)}/{done}/resend", new { }), HttpStatusCode.Conflict, "event_finished");
+        await AssertErrorAsync(await org.PostAsync($"{Participants(finished)}/{done}/reissue-token", new { }), HttpStatusCode.Conflict, "event_finished");
+        await AssertErrorAsync(await org.PostAsync($"{Participants(finished)}/remind", new { }), HttpStatusCode.Conflict, "event_finished");
+        await using var db = Db(host);
+        Assert.Empty(await db.Outbox.Where(m => m.Purpose == EmailPurpose.Invitation).ToListAsync());
+    }
+
+    [Fact]
+    public async Task Concurrent_creates_get_distinct_bibs_and_only_one_of_the_same_address_wins()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "org@example.org");
+        var ev = await SeedEventAsync(host, org.OrganizerId, EventState.Draft);
+
+        var distinct = await Task.WhenAll(Enumerable.Range(0, 8).Select(i => CreateAsync(org, ev, $"p{i}@example.org")));
+        var same = await Task.WhenAll(Enumerable.Range(0, 5).Select(_ => CreateAsync(org, ev, "same@example.org")));
+
+        Assert.All(distinct, r => Assert.Equal(HttpStatusCode.Created, r.StatusCode));
+        Assert.Single(same, r => r.StatusCode == HttpStatusCode.Created);
+        foreach (var r in same.Where(r => r.StatusCode != HttpStatusCode.Created))
+            await AssertErrorAsync(r, HttpStatusCode.Conflict, "email_duplicate", "email");
+        await using var db = Db(host);
+        var bibs = await db.Participants.Select(p => p.Bib).ToListAsync();
+        Assert.Equal(Enumerable.Range(1, 9).Select(i => i.ToString(CultureInfo.InvariantCulture)).Order(), bibs.Order());
+    }
+
+    [Fact]
+    public async Task An_internationalized_domain_and_its_ASCII_form_are_the_same_address()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "org@example.org");
+        var ev = await SeedEventAsync(host, org.OrganizerId, EventState.Draft);
+        Assert.Equal(HttpStatusCode.Created, (await CreateAsync(org, ev, "x@bücher.de")).StatusCode);
+
+        await AssertErrorAsync(await CreateAsync(org, ev, "x@xn--bcher-kva.de"), HttpStatusCode.Conflict, "email_duplicate", "email");
+        await AssertErrorAsync(await CreateAsync(org, ev, "X@BÜCHER.de"), HttpStatusCode.Conflict, "email_duplicate", "email");
+        await using var db = Db(host);
+        Assert.Equal("x@xn--bcher-kva.de", (await db.Outbox.SingleAsync(m => m.Purpose == EmailPurpose.Invitation)).ToAddress);
+    }
+
+    [Fact]
+    public async Task Fields_outside_the_contract_in_the_body_are_ignored()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "org@example.org");
+        var ev = await SeedEventAsync(host, org.OrganizerId, EventState.Draft);
+        var forged = Guid.NewGuid();
+
+        var response = await org.PostAsync(Participants(ev), new
+        {
+            name = "Jana", email = "jana@example.org", gender = "female", language = "sk",
+            participantId = forged, id = forged, status = "Confirmed", isMinor = true, showNameToSpectators = true, eventId = Guid.NewGuid(),
+        });
+        var pid = await ParticipantIdAsync(response);
+        Assert.Equal(HttpStatusCode.OK, (await org.PutAsync($"{Participants(ev)}/{pid}", new { status = "Confirmed", isMinor = true, emailNormalized = "x@y.z" })).StatusCode);
+
+        Assert.NotEqual(forged, pid);
+        await using var db = Db(host);
+        var p = await db.Participants.SingleAsync();
+        Assert.Equal(pid, p.Id);
+        Assert.Equal(ev, p.EventId);
+        Assert.Equal(ParticipantStatus.Invited, p.Status);
+        Assert.False(p.IsMinor);
+        Assert.False(p.ShowNameToSpectators);
+        Assert.Equal("jana@example.org", p.EmailNormalized);
+    }
+
+    private static string Utc(DateTimeOffset time) =>
+        time.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'", CultureInfo.InvariantCulture);
 
     // ----- helpers -----
 

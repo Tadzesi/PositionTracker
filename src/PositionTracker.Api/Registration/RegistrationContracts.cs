@@ -35,8 +35,12 @@ public sealed record ParticipantList(string EmailMode, EventState EventState, St
 
 public sealed record MailQueued(string EmailMode);
 
-/// <summary>The answer of a re-issue: never a token (the participant gets the new link by email).</summary>
-public sealed record TokenReissued(bool DeviceTokenIssued, string EmailMode);
+/// <summary>
+/// The answer of a re-issue: never a token (the participant gets the new link by email). The old device token is
+/// revoked in every case; <c>MailQueued</c> is false when an invitation limit kept the new link from being mailed
+/// (resend later).
+/// </summary>
+public sealed record TokenReissued(bool DeviceTokenIssued, bool MailQueued, string EmailMode);
 
 /// <param name="Limited">Due participants not reminded because an hourly invitation limit was reached.</param>
 public sealed record Reminded(int Sent, int Limited, string EmailMode);
@@ -64,7 +68,14 @@ public static class RegistrationErrors
     public static readonly EventError EventFinished = new(StatusCodes.Status409Conflict, "event_finished",
         "Podujatie už skončilo; registrácie už nemožno meniť.", "The event has finished; registrations can no longer be changed.");
 
-    public static readonly EventError RateLimited = new(StatusCodes.Status429TooManyRequests, "rate_limited",
+    public static readonly EventError ParticipantDeclined = new(StatusCodes.Status409Conflict, "participant_declined",
+        "Účastník účasť odmietol; pozvánku ani nový odkaz mu už neposielame.",
+        "The participant has declined; no invitation or new link is sent to them.");
+
+    public static readonly EventError RemindTooEarly = new(StatusCodes.Status409Conflict, "remind_too_early",
+        "Pripomienku možno poslať až po termíne potvrdenia.", "A reminder can only be sent after the confirmation deadline.");
+
+    public static readonly EventError RateLimited =new(StatusCodes.Status429TooManyRequests, "rate_limited",
         "Bol dosiahnutý hodinový limit pozvánok. Skúste to, prosím, neskôr.",
         "The hourly limit of invitation emails has been reached. Please try again later.");
 

@@ -160,12 +160,24 @@ public sealed record LimitHits(int Global, int PerEmail, int PerEmailAndIp, int 
     public int Total => Global + PerEmail + PerEmailAndIp + PerIp + PerPrefix;
 }
 
-/// <summary>Hourly counts of limit hits in a ring of 24 slots on the injected clock.</summary>
-internal sealed class LimitHitLog(TimeProvider clock)
+/// <summary>Hourly counts of limit hits per kind in a ring of 24 slots on the injected clock.</summary>
+internal sealed class LimitHitLog
 {
-    private static readonly string[] Kinds = ["global", "email", "email_ip", "ip", "prefix"];
+    private static readonly string[] AccountKinds = ["global", "email", "email_ip", "ip", "prefix"];
+    private readonly string[] Kinds;
+    private readonly TimeProvider clock;
     private readonly long[] _hours = new long[24];
-    private readonly int[,] _counts = new int[24, Kinds.Length];
+    private readonly int[,] _counts;
+
+    /// <summary>The account limits' kinds.</summary>
+    public LimitHitLog(TimeProvider clock) : this(clock, AccountKinds) { }
+
+    public LimitHitLog(TimeProvider clock, string[] kinds)
+    {
+        this.clock = clock;
+        Kinds = kinds;
+        _counts = new int[24, kinds.Length];
+    }
 
     public void Add(string kind)
     {
@@ -186,6 +198,13 @@ internal sealed class LimitHitLog(TimeProvider clock)
 
     public LimitHits Last24h()
     {
+        var sums = Sums();
+        return new LimitHits(sums[0], sums[1], sums[2], sums[3], sums[4]);
+    }
+
+    /// <summary>The sums of the last 24 hours per kind, in the order of the kinds.</summary>
+    public int[] Sums()
+    {
         var hour = clock.GetUtcNow().UtcTicks / TimeSpan.TicksPerHour;
         var sums = new int[Kinds.Length];
         lock (_counts)
@@ -196,20 +215,20 @@ internal sealed class LimitHitLog(TimeProvider clock)
                 for (var k = 0; k < Kinds.Length; k++) sums[k] += _counts[slot, k];
             }
         }
-        return new LimitHits(sums[0], sums[1], sums[2], sums[3], sums[4]);
+        return sums;
     }
 }
 
 /// <summary>
-/// A fixed one-hour window per key, starting at the key's first use, on the injected clock. At most
+/// A fixed window per key (one hour unless given), starting at the key's first use, on the injected clock. At most
 /// <c>maxKeys</c> keys are kept: ended windows are swept at most every few minutes (time-based, so the cost is
 /// amortised), and when the dictionary is still full the oldest tenth of the windows is evicted at once (an evicted key
 /// starts a fresh window: under a flood of distinct keys a single key's count may be reset early, the price of bounded
 /// memory).
 /// </summary>
-internal sealed class HourlyCounter(TimeProvider clock, int limit, int maxKeys)
+internal sealed class HourlyCounter(TimeProvider clock, int limit, int maxKeys, TimeSpan? window = null)
 {
-    private static readonly TimeSpan Window = TimeSpan.FromHours(1);
+    private readonly TimeSpan Window = window ?? TimeSpan.FromHours(1);
     private static readonly TimeSpan SweepInterval = TimeSpan.FromMinutes(5);
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
     private DateTimeOffset _nextSweep = DateTimeOffset.MinValue;
@@ -260,6 +279,14 @@ internal sealed class HourlyCounter(TimeProvider clock, int limit, int maxKeys)
             }
         }
         return true;
+    }
+
+    /// <summary>Gives back one taken unit of the key's current window (an action that took it did not happen).</summary>
+    public void Give(string key)
+    {
+        lock (_entries)
+            if (_entries.TryGetValue(key, out var entry) && entry.Count > 0 && clock.GetUtcNow() < entry.Start + Window)
+                entry.Count--;
     }
 
     private bool CanTakeLocked(string key, DateTimeOffset now, out Entry? entry)

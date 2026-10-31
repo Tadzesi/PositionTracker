@@ -116,6 +116,10 @@ public static class EventErrors
         "Štart vlny musí byť v UTC (ISO 8601 so „Z“), najskôr pri štarte podujatia a najneskôr 24 hodín po ňom.",
         "A wave must start in UTC (ISO 8601 with \"Z\"), not before the event start and at most 24 hours after it.", field);
 
+    public static EventError InvalidDeadline(string field) => new(StatusCodes.Status400BadRequest, "validation_failed",
+        "Termín potvrdenia musí byť v UTC (ISO 8601 so „Z“), v budúcnosti a najneskôr pri štarte podujatia.",
+        "The confirmation deadline must be in UTC (ISO 8601 with \"Z\"), in the future and not after the event start.", field);
+
     public static EventError TooMany(string field, int max) => new(StatusCodes.Status400BadRequest, "validation_failed",
         $"Najviac {max} položiek.", $"At most {max} entries.", field);
 

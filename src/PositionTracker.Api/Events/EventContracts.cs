@@ -19,6 +19,9 @@ public sealed record WaveRequest(string? Name, string? StartTime);
 
 public sealed record StateRequest(string? State);
 
+/// <summary>Null (or absent) clears the deadline.</summary>
+public sealed record ConfirmationDeadlineRequest(string? ConfirmationDeadline);
+
 // Responses.
 
 public sealed record CreatedEvent(string EventId);
@@ -51,7 +54,8 @@ public sealed record EventManageView(
     IReadOnlyList<CategoryView> Categories, IReadOnlyList<WaveView> Waves, ParticipantCounts Participants,
     bool Running, string EmailMode,
     [property: JsonConverter(typeof(UtcTimestampConverter))] DateTimeOffset CreatedAt,
-    [property: JsonConverter(typeof(NullableUtcTimestampConverter))] DateTimeOffset? EndedAt);
+    [property: JsonConverter(typeof(NullableUtcTimestampConverter))] DateTimeOffset? EndedAt,
+    [property: JsonConverter(typeof(NullableUtcTimestampConverter))] DateTimeOffset? ConfirmationDeadline);
 
 /// <summary>A value or the error that prevented it.</summary>
 public readonly record struct EventResult<T>(T? Value, EventError? Error)

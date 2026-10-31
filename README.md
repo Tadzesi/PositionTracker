@@ -161,7 +161,7 @@ event and participant (in Plan 1 only the demo simulator issues them).
 | `Accounts:RateLimitSalt` | Secret salt of the per-email limiter keys; empty = random per process (the counters are in memory). |
 | `Accounts:ConfirmPath` / `Accounts:SignInPath` | Front-end pages the emailed links open (defaults `account/confirm`, `account/signin`, relative to `Email:PublicBaseUrl`). |
 | `Accounts:DataProtectionKeysPath` | Directory of the keys that encrypt session cookies. Set a persistent volume in a container, or every restart signs everyone out. |
-| `Registration:{MaxParticipantsPerEvent,InvitationsPerOrganizerPerHour,InvitationsPerAddressPerHour,RemindMinAgeHours,InvitePath}` | Participant registration: at most 2 000 participants per event; invitation mails per organizer (500) and per recipient address (5) per hour (in memory, per process); reminders only for links older than 24 h; the invitation link opens `{Email:PublicBaseUrl}/p?token=…`. |
+| `Registration:{MaxParticipantsPerEvent,InvitationsGlobalPerHour,InvitationsPerOrganizerPerHour,InvitationsPerAddressPerHour,InvitationsPerAddressPerDay,RemindMinAgeHours,InvitePath}` | Participant registration: at most 2 000 participants per event; invitation mails 300 per hour in total (below the mailbox quota, with room for the 200 account mails), 100 per organizer per hour, 5 per recipient address per hour and 10 per day (in memory, per process); without a confirmation deadline reminders only for links older than 24 h; the invitation link opens `{Email:PublicBaseUrl}/p?token=…`. |
 
 Email credentials, real host names and addresses are never committed; `appsettings*.json` keep empty values.
 Supply them with `dotnet user-secrets` (the API project has a `UserSecretsId`, shared with `tools/SendTestMail`),
@@ -307,26 +307,37 @@ unavailable` without or on a failing database. Status values are `Invited`, `Con
   never stripped; unicode and emoji kept), `email` one plain address (display form kept, uniqueness on the normalized
   form: `409 email_duplicate`), `gender` `female|male`, `category`/`wave` by name (ignoring case, `400` if unknown),
   `bib` 1–16 ASCII letters/digits/hyphens (upper-cased; taken: `409 bib_taken`); without `bib` the highest numeric
-  bib + 1. Writes lock the event row, so bibs, duplicates and the cap are decided serially. `409 participant_limit`
-  over `Registration:MaxParticipantsPerEvent`, `409 event_finished` on a finished event. A participant registered
+  bib + 1 (also for an empty `bib`). Writes lock the event row, so bibs, duplicates and the cap are decided serially. `409 participant_limit`
+  over `Registration:MaxParticipantsPerEvent`, `409 event_finished` on a finished event. Going live locks the same
+  row, so a participant change and `state: live` never interleave. A participant registered
   while the event is live joins the runtime only when they confirm (Task 7).
 - `GET ?status=&category=&q=` → `{emailMode, eventState, counts:{all, confirmed, invited, declined, emailFailed},
   participants:[{participantId, bib, name, nickname, nicknameHidden, email, gender, language, category, wave, status,
   isMinor, createdAt}]}`; counts cover the whole event; `q` searches name, email, bib and nickname.
 - `PUT /{pid} {name?, email?, gender?, language?, category?, wave?, bib?, nickname?, hideNickname?}`: absent keeps a
-  value, `""` clears category, wave and nickname. A new address supersedes the old link, withdraws unsent
+  value, `""` clears category, wave and nickname (an empty `bib` keeps the bib). A new address supersedes the old link, withdraws unsent
   invitations, mails a new one and turns `EmailFailed` into `Invited`; a new display form of the same address sends
   nothing. Edits of a participant in a running runtime update it (`UpdateParticipant`; a hidden nickname is not
   shown). Answer: the participant + `emailMode`.
 - `DELETE /{pid}` → `204` in `draft`/`ready` (unsent invitations and links go too); `409 event_live` (use DNF) and
   `409 event_finished`.
 - `POST /{pid}/resend` → `202 {emailMode}` (new link, `EmailFailed` → `Invited`); `POST /{pid}/reissue-token` →
-  `200 {deviceTokenIssued:true, emailMode}`: revokes the device token in the database at once and mails a new link
-  (the participant gets a new device token after consent); the answer never holds a token.
-  `POST /remind` → `202 {sent, limited, emailMode}`: a new link to every `Invited` participant whose link is older
-  than `Registration:RemindMinAgeHours`.
-- Abuse limits: every invitation mail takes one unit of the hourly budget per organizer and per recipient address;
-  over either, `429 rate_limited` and nothing changes (`remind` skips the rest and counts them as `limited`). A late
+  `200 {deviceTokenIssued:true, mailQueued, emailMode}`: always revokes the device token in the database at once and
+  mails a new link (the participant gets a new device token after consent); over an invitation limit the revocation
+  still commits and `mailQueued` is false (resend later). The answer never holds a token. Both are
+  `409 participant_declined` for a declined participant.
+  `POST /remind` → `202 {sent, limited, emailMode}`. With a confirmation deadline: `409 remind_too_early` before it,
+  afterwards a new link once to every `Invited` participant whose link predates the deadline; without one: every
+  `Invited` participant whose link is older than `Registration:RemindMinAgeHours`. Runs in chunks of 50 per
+  transaction.
+- `PUT /api/events/{id}/confirmation-deadline {confirmationDeadline: "…Z" | null}` (draft/ready; `409 event_locked`
+  once live) sets or clears the deadline (UTC, in the future, not after the start; else `400 validation_failed`);
+  the manage view shows `confirmationDeadline`.
+- Abuse limits: every invitation mail takes one unit of the global hourly budget, the organizer's hourly budget and
+  the recipient address's hourly and daily budgets, all or none (given back if the change does not commit); over any,
+  `429 rate_limited` and nothing changes (`remind` skips the rest and counts them as `limited`). Refusals per limit
+  appear in `GET /api/ops/email-mode` as `invitationLimitHits` (`global, perOrganizer, perAddressHour,
+  perAddressDay, total`, last 24 h); alert when `global` is above zero. The global cap logs a warning once per hour. A late
   permanent failure of an invitation marks the participant `EmailFailed` only while they still have that address.
 - Device tokens (ruling P4): `ITokenService` routes database events to `DbTokenService` (hashed rows in
   `DeviceTokens`) and demo events to the in-memory `TokenService`. The device ingest still resolves through the

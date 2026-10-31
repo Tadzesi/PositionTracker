@@ -25,6 +25,8 @@ namespace PositionTracker.Api.Events;
 /// <item><c>PUT /api/events/{id}/categories [{name, gender?, minAge?, maxAge?}]</c> and
 /// <c>PUT /api/events/{id}/waves [{name, startTime}]</c> replace the whole set → 200 view; 400
 /// <c>validation_failed</c> (+ <c>field</c>), 409 <c>event_locked|conflict</c>.</item>
+/// <item><c>PUT /api/events/{id}/confirmation-deadline {confirmationDeadline: string|null}</c> → 200 view; 400
+/// <c>validation_failed</c> (not UTC "Z", not in the future, after the start), 409 <c>event_locked|conflict</c>.</item>
 /// <item><c>POST /api/events/{id}/state {state: "ready"|"live"|"finished"}</c> → 200 view (repeating the current state
 /// is a success); 409 <c>invalid_transition|course_missing|no_confirmed_participants|conflict</c>, 500
 /// <c>runtime_failed</c>.</item>
@@ -56,7 +58,16 @@ public static class EventManagementEndpoints
         group.MapPut("/{eventId}/categories", PutCategoriesAsync).RequireAuthorization(CookieAuth.EmailConfirmedOrganizerPolicy);
         group.MapPut("/{eventId}/waves", PutWavesAsync).RequireAuthorization(CookieAuth.EmailConfirmedOrganizerPolicy);
         group.MapPost("/{eventId}/state", SetStateAsync).RequireAuthorization(CookieAuth.EmailConfirmedOrganizerPolicy);
+        group.MapPut("/{eventId}/confirmation-deadline", PutDeadlineAsync).RequireAuthorization(CookieAuth.EmailConfirmedOrganizerPolicy);
         return app;
+    }
+
+    private static async Task<IResult> PutDeadlineAsync(string eventId, HttpContext context, EventService events, IOptions<JsonOptions> json)
+    {
+        if (Organizer(context) is not { } organizer) return AccountErrors.Unauthorized();
+        var (body, error) = await ReadAsync<ConfirmationDeadlineRequest>(context, json, SmallBodyBytes);
+        if (error is not null) return error;
+        return Answer(await events.PutConfirmationDeadlineAsync(organizer, eventId, body!.ConfirmationDeadline, context.RequestAborted));
     }
 
     private static async Task<IResult> ListAsync(HttpContext context, EventService events) =>

@@ -238,6 +238,30 @@ public sealed class EventService(
         return await SaveAndViewAsync(ev, ct);
     }
 
+    // ----- confirmation deadline -----
+
+    /// <summary>
+    /// Sets (UTC ISO 8601 with <c>Z</c>, in the future, not after the event start) or clears (null) the confirmation
+    /// deadline. Draft and Ready only (409 <c>event_locked</c> once live).
+    /// </summary>
+    public async Task<EventResult<EventManageView>> PutConfirmationDeadlineAsync(Guid organizerId, string eventId, string? deadline,
+        CancellationToken ct)
+    {
+        DateTimeOffset? value = null;
+        if (deadline is not null)
+        {
+            if (!UtcTimestampConverter.TryParse(deadline, out var parsed) || parsed <= clock.GetUtcNow())
+                return EventErrors.InvalidDeadline("confirmationDeadline");
+            value = parsed;
+        }
+        if (await FindAsync(organizerId, eventId, tracked: true, ct) is not { } ev) return EventErrors.NotFound;
+        if (IsFrozen(ev)) return EventErrors.EventLocked;
+        if (value > ev.StartTime) return EventErrors.InvalidDeadline("confirmationDeadline");
+        ev.ConfirmationDeadline = value;
+        ev.Version = Guid.NewGuid();
+        return await SaveAndViewAsync(ev, ct);
+    }
+
     // ----- state -----
 
     public async Task<EventResult<EventManageView>> SetStateAsync(Guid organizerId, string eventId, string? state, CancellationToken ct)
@@ -324,6 +348,10 @@ public sealed class EventService(
         if (ev.GpxBytes is not { Length: > 0 }) return EventErrors.CourseMissing;
         var runtimeId = RuntimeFactory.RuntimeId(ev.Id);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
+        // The event row lock serializes going live with registration writes (they lock the same row first), so the
+        // participants read here are the committed set, and a registration change after this commit sees Live.
+        await db.Database.ExecuteSqlAsync($"""SELECT 1 FROM "Events" WHERE "Id" = {ev.Id} FOR UPDATE""", ct);
+        if (hooks?.BeforeGoLiveRead is { } readHook) await readHook(ev.Id);
         if (!await db.Participants.AnyAsync(p => p.EventId == ev.Id && p.Status == ParticipantStatus.Confirmed, ct))
             return EventErrors.NoConfirmedParticipants;
         EventRuntime runtime;
@@ -454,7 +482,7 @@ public sealed class EventService(
             waves.Select(w => new WaveView(w.Id.ToString("D"), w.Name, w.StartTime)).ToList(),
             new ParticipantCounts(Count(ParticipantStatus.Invited), Count(ParticipantStatus.Confirmed),
                 Count(ParticipantStatus.Declined), Count(ParticipantStatus.EmailFailed)),
-            registry.Get(runtimeId) is not null, emailMode.Mode, ev.CreatedAt, ev.EndedAt);
+            registry.Get(runtimeId) is not null, emailMode.Mode, ev.CreatedAt, ev.EndedAt, ev.ConfirmationDeadline);
     }
 
     private static Sport? ParseSport(string? sport) => sport switch

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using PositionTracker.Api.Accounts;
 using PositionTracker.Api.Auth;
 using PositionTracker.Api.Persistence;
+using PositionTracker.Api.Registration;
 using PositionTracker.Data;
 using PositionTracker.Data.Entities;
 using PositionTracker.Email;
@@ -15,11 +16,14 @@ namespace PositionTracker.Api.Endpoints;
 /// rows finished as <c>Simulated</c> in the last 24 hours (null without a database; rows already removed by
 /// <c>Email:Outbox:RetentionDays</c> are not counted), plus <c>limitHitsLast24h</c> and <c>limitHits</c>
 /// (<c>global, perEmail, perEmailAndIp, perIp, perPrefix</c>): account sign-up/sign-in requests and mails suppressed
-/// by a rate limit in the last 24 hours (counts only), for alerting (controller ruling P11).
+/// by a rate limit in the last 24 hours (counts only), for alerting (controller ruling P11), and
+/// <c>invitationLimitHits</c> (<c>global, perOrganizer, perAddressHour, perAddressDay, total</c>): participant invitation
+/// mails refused by a limit in the last 24 hours (alert when <c>global</c> is above zero).
 /// </summary>
 public static class OpsEndpoints
 {
-    public sealed record EmailModeResponse(string Mode, int? SimulatedLast24h, int LimitHitsLast24h, LimitHits LimitHits);
+    public sealed record EmailModeResponse(string Mode, int? SimulatedLast24h, int LimitHitsLast24h, LimitHits LimitHits,
+        InvitationLimitHits InvitationLimitHits);
 
     public static IEndpointRouteBuilder MapOpsEndpoints(this IEndpointRouteBuilder app)
     {
@@ -35,7 +39,7 @@ public static class OpsEndpoints
     }
 
     private static async Task<IResult> EmailModeAsync(IEmailMode mode, IOptions<PersistenceOptions> persistence,
-        IDbContextFactory<AppDbContext> contexts, TimeProvider clock, AccountRateLimiter limiter, CancellationToken ct)
+        IDbContextFactory<AppDbContext> contexts, TimeProvider clock, AccountRateLimiter limiter, InvitationLimiter invitations, CancellationToken ct)
     {
         int? simulated = null;
         if (persistence.Value.Enabled)
@@ -45,6 +49,6 @@ public static class OpsEndpoints
             simulated = await db.Outbox.CountAsync(r => r.Status == EmailOutboxStatus.Simulated && r.FinishedAt >= since, ct);
         }
         var hits = limiter.LimitHitsLast24h();
-        return Results.Ok(new EmailModeResponse(mode.Mode, simulated, hits.Total, hits));
+        return Results.Ok(new EmailModeResponse(mode.Mode, simulated, hits.Total, hits, invitations.LimitHitsLast24h()));
     }
 }

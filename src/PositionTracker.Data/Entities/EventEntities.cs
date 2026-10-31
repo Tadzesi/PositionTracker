@@ -27,6 +27,10 @@ public sealed class EventEntity
     /// <summary>When the event went <see cref="EventState.Finished"/>; position retention counts from here.</summary>
     public DateTimeOffset? EndedAt { get; set; }
     /// <summary>
+    /// Optional: participants should confirm by then (controller ruling P12); a reminder is allowed only after it.
+    /// </summary>
+    public DateTimeOffset? ConfirmationDeadline { get; set; }
+    /// <summary>
     /// Optimistic concurrency token: every write of the event (or of its course, categories or waves) sets a new
     /// value, and a write based on an older read fails with <c>DbUpdateConcurrencyException</c>.
     /// </summary>

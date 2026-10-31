@@ -423,7 +423,7 @@ public sealed class EmailTests(PostgresFixture postgres) : IClassFixture<Postgre
 
         var body = await client.GetStringAsync("/api/ops/email-mode");
 
-        Assert.Equal("""{"mode":"simulated","simulatedLast24h":null,"limitHitsLast24h":0,"limitHits":{"global":0,"perEmail":0,"perEmailAndIp":0,"perIp":0,"perPrefix":0,"total":0}}""", body);
+        Assert.Equal("""{"mode":"simulated","simulatedLast24h":null,"limitHitsLast24h":0,"limitHits":{"global":0,"perEmail":0,"perEmailAndIp":0,"perIp":0,"perPrefix":0,"total":0},"invitationLimitHits":{"global":0,"perOrganizer":0,"perAddressHour":0,"perAddressDay":0,"total":0}}""", body);
     }
 
     [Fact]
@@ -453,7 +453,7 @@ public sealed class EmailTests(PostgresFixture postgres) : IClassFixture<Postgre
             if (i > 0) await Task.Delay(50);
             body = await client.GetStringAsync("/api/ops/email-mode");
         }
-        Assert.Equal("""{"mode":"simulated","simulatedLast24h":2,"limitHitsLast24h":0,"limitHits":{"global":0,"perEmail":0,"perEmailAndIp":0,"perIp":0,"perPrefix":0,"total":0}}""", body);
+        Assert.Equal("""{"mode":"simulated","simulatedLast24h":2,"limitHitsLast24h":0,"limitHits":{"global":0,"perEmail":0,"perEmailAndIp":0,"perIp":0,"perPrefix":0,"total":0},"invitationLimitHits":{"global":0,"perOrganizer":0,"perAddressHour":0,"perAddressDay":0,"total":0}}""", body);
     }
 
     private static void AssertValidation(ValidateOptionsResult result, string? error)
