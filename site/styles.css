@@ -156,3 +156,8 @@ footer .wrap{display:flex;gap:20px;flex-wrap:wrap;justify-content:space-between}
   .track .map{position:relative;inset:auto;height:360px;flex:none}
   .track .callout{position:static;min-width:0;border-left-width:6px;border-top:1px solid #ffffff33}
 }
+
+.steps ol.sub{list-style:decimal;padding-left:1.3em;margin:0 0 1em;max-width:62ch}
+.steps ol.sub li{margin-bottom:.6em}
+.steps code{font:inherit;font-weight:700;background:var(--bg2);border:1px solid var(--line);padding:0 5px}
+.steps p a,.steps ol.sub a{color:var(--coral);font-weight:700}
