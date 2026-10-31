@@ -93,3 +93,5 @@ tr.sel td{background:var(--panel2)}tr.click{cursor:pointer}
 .hero{padding:40px 0 20px}
 .hero h1{font-size:3.4rem}
 @media (max-width:600px){.hero h1{font-size:2.4rem}h1{font-size:1.9rem}}
+
+@media (max-width:600px){.topbar .wrap{gap:6px;flex-wrap:nowrap;min-height:48px}.brand{font-size:1.15rem}.topbar .btn.small{padding:4px 8px;min-height:30px;font-size:.8rem}.toggles{gap:3px}.wrap{padding:0 12px}}

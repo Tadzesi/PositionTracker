@@ -26,7 +26,7 @@ export default function MapView({ points, markers, checkpoints, selectedId, onSe
 
   useEffect(() => {
     if (!host.current) return;
-    const m = L.map(host.current, { zoomControl: true, attributionControl: true }).setView([48.7, 19.5], 8);
+    const m = L.map(host.current, { zoomControl: true, attributionControl: true, zoomSnap: 0.25 }).setView([48.7, 19.5], 8);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(m);
@@ -40,7 +40,7 @@ export default function MapView({ points, markers, checkpoints, selectedId, onSe
     if (!m || points.length < 2) return;
     course.current?.remove();
     course.current = L.polyline(points, { color: '#FF1E3C', weight: 4, opacity: 0.85 }).addTo(m);
-    if (!fitted.current) { m.fitBounds(course.current.getBounds(), { padding: [20, 20] }); fitted.current = true; }
+    if (!fitted.current) { m.invalidateSize(); m.fitBounds(course.current.getBounds(), { padding: [24, 24] }); fitted.current = true; }
   }, [points]);
 
   useEffect(() => {
