@@ -584,7 +584,7 @@ public sealed class ParticipantLinkTests(PostgresFixture postgres) : IClassFixtu
         string token;
         await using (var db = Db(host))
         {
-            var mail = await db.Outbox.Where(m => m.Purpose == EmailPurpose.SignIn && m.ToAddress == email).OrderBy(m => m.Id).LastAsync();
+            var mail = await db.Outbox.Where(m => m.Purpose == EmailPurpose.SignIn && m.ToAddress == email).OrderBy(m => m.CreatedAt).ThenBy(m => m.Id).LastAsync();
             token = Uri.UnescapeDataString(SignInLink.Match(mail.TextBody).Groups[1].Value);
         }
         var redeemed = await Send(client, HttpMethod.Post, "/api/account/signin/redeem", JsonSerializer.Serialize(new { token }));

@@ -50,6 +50,7 @@ public sealed class OperationsTests(PostgresFixture postgres) : IClassFixture<Po
         await using (var restarted = Host(cs))
         {
             _ = restarted.Services;
+            restarted.Clock.Advance(TimeSpan.FromMinutes(5)); // a new mail is newer than the first host's
             var org = await SessionAsync(restarted, "org@example.org");
             Assert.True(await AckedAsync(org, ev, pid, "sos")); // loaded from the database
 

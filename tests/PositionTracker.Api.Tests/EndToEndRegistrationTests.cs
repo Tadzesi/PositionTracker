@@ -86,7 +86,7 @@ public sealed class EndToEndRegistrationTests(PostgresFixture postgres) : IClass
         await using (var restarted = Host(cs))
         {
             _ = restarted.Services;
-            restarted.Clock.SetUtcNow(restarted.Clock.GetUtcNow()); // keep the fake clock where the rebuild expects it
+            restarted.Clock.Advance(TimeSpan.FromMinutes(5)); // new mails are newer than the first host's
             var org = await SignedInAsync(restarted);
             var (live, publicView) = await ViewsAsync(restarted, ev, org);
             AssertViews(live, publicView, idA, idB, "Rocket");
@@ -138,7 +138,7 @@ public sealed class EndToEndRegistrationTests(PostgresFixture postgres) : IClass
     private static async Task<string> MailTokenAsync(ApiFactory host, string purpose, string to)
     {
         await using var db = Db(host);
-        var mail = await db.Outbox.Where(m => m.Purpose == purpose && m.ToAddress == to).OrderBy(m => m.Id).LastAsync();
+        var mail = await db.Outbox.Where(m => m.Purpose == purpose && m.ToAddress == to).OrderBy(m => m.CreatedAt).ThenBy(m => m.Id).LastAsync();
         return Uri.UnescapeDataString(Link.Match(mail.TextBody).Groups[1].Value);
     }
 
