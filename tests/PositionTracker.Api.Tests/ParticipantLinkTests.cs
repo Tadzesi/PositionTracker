@@ -576,7 +576,7 @@ public sealed class ParticipantLinkTests(PostgresFixture postgres) : IClassFixtu
     internal static HttpClient Client(ApiFactory host) => host.CreateDefaultClient(new Uri("https://localhost"));
 
     /// <summary>An organizer with a session: the account is seeded, then a sign-in link is requested and redeemed.</summary>
-    private static async Task<Organizer> SessionAsync(ApiFactory host, string email)
+    internal static async Task<Organizer> SessionAsync(ApiFactory host, string email)
     {
         var id = await OrganizerAsync(host, email);
         var client = Client(host);
@@ -608,7 +608,7 @@ public sealed class ParticipantLinkTests(PostgresFixture postgres) : IClassFixtu
         return id;
     }
 
-    private sealed class Organizer(HttpClient client, string cookie, Guid organizerId)
+    internal sealed class Organizer(HttpClient client, string cookie, Guid organizerId)
     {
         public Guid OrganizerId { get; } = organizerId;
 
@@ -616,9 +616,20 @@ public sealed class ParticipantLinkTests(PostgresFixture postgres) : IClassFixtu
 
         public Task<HttpResponseMessage> PutAsync(string path, object body) => SendAsync(HttpMethod.Put, path, body);
 
-        private Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, object body)
+        public string Cookie => cookie;
+
+        public Task<HttpResponseMessage> GetAsync(string path)
         {
-            var request = new HttpRequestMessage(method, path) { Content = Json(JsonSerializer.Serialize(body)) };
+            var request = new HttpRequestMessage(HttpMethod.Get, path);
+            request.Headers.Add("Cookie", cookie);
+            return client.SendAsync(request);
+        }
+
+        public Task<HttpResponseMessage> DeleteAsync(string path) => SendAsync(HttpMethod.Delete, path, null);
+
+        private Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, object? body)
+        {
+            var request = new HttpRequestMessage(method, path) { Content = Json(JsonSerializer.Serialize(body ?? new { })) };
             request.Headers.Add(BrowserApiHeaders.HeaderName, BrowserApiHeaders.HeaderValue);
             request.Headers.Add("Cookie", cookie);
             return client.SendAsync(request);

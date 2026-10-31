@@ -9,7 +9,8 @@ namespace PositionTracker.Core.Runtime;
 /// </summary>
 public enum AlarmKind { Sos, Stopped, OffCourse, Offline, LowBattery, LapsInferred }
 
-public sealed record Alarm(AlarmKind Kind, DateTimeOffset Since);
+/// <param name="Acknowledged">Set by the API when the organizer acknowledged the alarm (kept per participant and kind).</param>
+public sealed record Alarm(AlarmKind Kind, DateTimeOffset Since, bool Acknowledged = false);
 
 public sealed record SegmentResult(int Lap, int SegmentIndex, TimeSpan Time, SegmentColour Colour);
 

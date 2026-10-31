@@ -6,6 +6,7 @@ using PositionTracker.Api.Email;
 using PositionTracker.Api.Endpoints;
 using PositionTracker.Api.Events;
 using PositionTracker.Api.Live;
+using PositionTracker.Api.Operations;
 using PositionTracker.Api.OwnTracks;
 using PositionTracker.Api.Participants;
 using PositionTracker.Api.Persistence;
@@ -26,6 +27,7 @@ builder.Services.AddAccounts();
 builder.Services.AddEventManagement();
 builder.Services.AddRegistration();
 builder.Services.AddParticipantLinks();
+builder.Services.AddOperations();
 builder.Services.AddOptions<OrganizerOptions>()
     .BindConfiguration(OrganizerOptions.Section)
     .Validate(o => !string.IsNullOrWhiteSpace(o.ApiKey), "Configuration value 'Organizer:ApiKey' is required.")
@@ -57,6 +59,7 @@ app.MapAccountEndpoints();
 app.MapEventManagementEndpoints();
 app.MapRegistrationEndpoints();
 app.MapParticipantLinkEndpoints();
+app.MapOperationsEndpoints();
 app.MapIngestEndpoints();
 app.MapOwnTracksEndpoints();
 app.MapLiveEndpoints();

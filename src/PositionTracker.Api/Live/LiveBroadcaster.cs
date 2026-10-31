@@ -21,7 +21,7 @@ public sealed class LiveOptions
 /// and skipped; the others are still broadcast.
 /// </summary>
 public sealed class LiveBroadcaster(
-    EventRegistry registry, SpectatorFeed feed, IHubContext<LiveHub> hub, IOptions<LiveOptions> options,
+    EventRegistry registry, SpectatorFeed feed, Operations.AlarmAckService acks, IHubContext<LiveHub> hub, IOptions<LiveOptions> options,
     TimeProvider clock, ILogger<LiveBroadcaster> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -50,7 +50,7 @@ public sealed class LiveBroadcaster(
                 var view = runtime.BuildLiveView();
                 feed.Push(runtime, view);
                 await hub.Clients.Group(LiveHub.OrganizerGroup(eventId))
-                    .SendAsync(LiveHub.LiveUpdateMethod, view, cancellationToken);
+                    .SendAsync(LiveHub.LiveUpdateMethod, await acks.ApplyAsync(view, cancellationToken), cancellationToken);
                 if (feed.GetCurrent(runtime) is { } spectatorView)
                     await hub.Clients.Group(LiveHub.SpectatorGroup(eventId))
                         .SendAsync(LiveHub.PublicUpdateMethod, spectatorView, cancellationToken);

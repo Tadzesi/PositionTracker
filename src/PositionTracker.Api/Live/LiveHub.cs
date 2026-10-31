@@ -1,5 +1,10 @@
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using PositionTracker.Api.Accounts;
+using PositionTracker.Api.Operations;
+using PositionTracker.Api.Persistence;
+using PositionTracker.Data;
 using PositionTracker.Api.Auth;
 using PositionTracker.Api.Events;
 
@@ -11,7 +16,8 @@ namespace PositionTracker.Api.Live;
 /// view) to <see cref="OrganizerGroup"/> and <see cref="PublicUpdateMethod"/> (the delayed spectator view) to
 /// <see cref="SpectatorGroup"/>. Groups are only joined through these methods.
 /// </summary>
-public sealed class LiveHub(EventRegistry registry, IOptions<OrganizerOptions> organizer) : Hub
+public sealed class LiveHub(EventRegistry registry, IOptions<OrganizerOptions> organizer, IDbContextFactory<AppDbContext> contexts,
+    IOptions<PersistenceOptions> persistence) : Hub
 {
     public const string Path = "/hubs/live";
     public const string LiveUpdateMethod = "LiveUpdate";
@@ -21,12 +27,21 @@ public sealed class LiveHub(EventRegistry registry, IOptions<OrganizerOptions> o
 
     public static string SpectatorGroup(string eventId) => "spec:" + eventId;
 
-    /// <summary>Joins the organizer group; a wrong key or an unknown event is a <see cref="HubException"/>.</summary>
-    public Task JoinOrganizer(string eventId, string apiKey)
+    /// <summary>
+    /// Joins the organizer group with the operator key, or (empty key) with an organizer session that owns the event; a
+    /// wrong key, a foreign event or an unknown event is a <see cref="HubException"/>.
+    /// </summary>
+    public async Task JoinOrganizer(string eventId, string? apiKey)
     {
-        if (!organizer.Value.IsValidKey(apiKey)) throw new HubException("Invalid key");
+        if (!organizer.Value.IsValidKey(apiKey ?? ""))
+        {
+            var owner = Context.User is { } user ? CookieAuth.OrganizerId(user) : null;
+            if (owner is not { } organizerId
+                || !await OperationsEndpoints.OwnsEventAsync(contexts, persistence, organizerId, eventId, Context.ConnectionAborted))
+                throw new HubException("Invalid key");
+        }
         EnsureEvent(eventId);
-        return Groups.AddToGroupAsync(Context.ConnectionId, OrganizerGroup(eventId), Context.ConnectionAborted);
+        await Groups.AddToGroupAsync(Context.ConnectionId, OrganizerGroup(eventId), Context.ConnectionAborted);
     }
 
     /// <summary>Joins the spectator group; an unknown event is a <see cref="HubException"/>.</summary>
