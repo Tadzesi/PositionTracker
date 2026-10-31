@@ -343,6 +343,18 @@ unavailable` without or on a failing database. Status values are `Invited`, `Con
   `DeviceTokens`) and demo events to the in-memory `TokenService`. The device ingest still resolves through the
   in-memory service; Task 7 switches it.
 
+## Participant link and OwnTracks
+
+The invitation link (`/api/p/{linkToken}`, no session, 60 requests/minute per link) lets a participant view their state, `confirm`
+(nickname, gender), `decline` (until the start), edit the `profile`, give `consent` (returns the **device token once**; a second consent
+re-issues it) and fetch the OwnTracks setup (`POST /owntracks-config {deviceToken}` → `deepLink`, `otrcJson`, `qrPayload`). Errors:
+`link_invalid` 404, `link_superseded` 410, `link_expired` 400, `gender_locked`, `decline_locked`, `not_confirmed`, `event_finished` 409.
+The host does not log request paths (the link token is in the path); a reverse proxy in front must not either.
+
+The primary device client is **OwnTracks** in HTTP mode: `POST /api/ingest/owntracks` with Basic auth (user name = bib, password = device
+token), see `docs/ops/owntracks-setup.md` (verified protocol facts, UNVERIFIED items, phone setup SK/EN, open field gate). The bearer
+endpoints under `/api/events/{id}/positions|actions` remain for other clients and now accept database tokens.
+
 ## Persistence and restart
 
 - **What is stored.** For real (non-simulated) events: every fix the tracker stored from a batch

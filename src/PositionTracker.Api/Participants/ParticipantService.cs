@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using PositionTracker.Api.Accounts;
 using PositionTracker.Api.Auth;
 using PositionTracker.Api.Events;
+using PositionTracker.Api.OwnTracks;
 using PositionTracker.Api.Persistence;
 using PositionTracker.Core.Runtime;
 using PositionTracker.Data;
@@ -138,6 +139,29 @@ public sealed class ParticipantService(AppDbContext db, LinkTokenService links, 
         return Ok(new ConsentAnswer(token, RuntimeFactory.RuntimeId(ev.Id)));
     }
 
+    // ----- OwnTracks setup -----
+
+    /// <summary>
+    /// The OwnTracks configuration of a participant who has consented. The raw device token is not stored, so the page
+    /// sends the token it got from <c>consent</c>; it must be the participant's current one (else 409
+    /// <c>consent_required</c>). Nothing new is issued.
+    /// </summary>
+    public async Task<EventResult<OwnTracksSetup>> OwnTracksConfigAsync(string linkToken, OwnTracksConfigRequest request, string baseUrl, CancellationToken ct)
+    {
+        var (participantId, error) = await RedeemAsync(linkToken, ct);
+        if (error is not null) return error;
+        var p = await db.Participants.AsNoTracking().SingleOrDefaultAsync(x => x.Id == participantId, ct);
+        var ev = p is null ? null : await db.Events.AsNoTracking().SingleOrDefaultAsync(e => e.Id == p.EventId, ct);
+        if (p is null || ev is null) return ParticipantErrors.LinkInvalid;
+        if (ev.State == EventState.Finished) return ParticipantErrors.EventFinished;
+        if (p.Status != ParticipantStatus.Confirmed) return ParticipantErrors.NotConfirmed;
+        var resolved = string.IsNullOrEmpty(request.DeviceToken) ? null : await deviceTokens.ResolveAsync(request.DeviceToken, ct);
+        if (resolved is not { } r || r.EventId != RuntimeFactory.RuntimeId(ev.Id) || r.ParticipantId != Id(p.Id))
+            return ParticipantErrors.ConsentRequired;
+        var config = OwnTracksConfigBuilder.Build(baseUrl, p.Bib, request.DeviceToken!, OwnTracksConfigBuilder.TrackerId(p.Bib), EventTuning.For(ev.Sport));
+        return Ok(new OwnTracksSetup(config.DeepLink, config.OtrcJson, config.QrPayload));
+    }
+
     // ----- helpers -----
 
     private async Task<(Guid Id, EventError? Error)> RedeemAsync(string linkToken, CancellationToken ct)
@@ -250,6 +274,10 @@ public sealed record ProfileRequest(string? Nickname, string? Gender);
 
 public sealed record ConsentRequest(bool? LocationConsent, bool? ShowNameToSpectators);
 
+public sealed record OwnTracksConfigRequest(string? DeviceToken);
+
+public sealed record OwnTracksSetup(string DeepLink, System.Text.Json.Nodes.JsonObject OtrcJson, string QrPayload);
+
 public sealed record StatusAnswer(string Status);
 
 /// <param name="DeviceToken">The raw device token: returned this once, never again.</param>
@@ -281,6 +309,10 @@ public static class ParticipantErrors
 
     public static readonly EventError NotConfirmed = new(StatusCodes.Status409Conflict, "not_confirmed",
         "Najprv potvrďte účasť.", "Please confirm your participation first.");
+
+    public static readonly EventError ConsentRequired = new(StatusCodes.Status409Conflict, "consent_required",
+        "Najprv udeľte súhlas so zdieľaním polohy; nastavenie OwnTracks potrebuje token zariadenia z tohto kroku.",
+        "Please give your consent to share your location first; the OwnTracks setup needs the device token from that step.", "deviceToken");
 
     public static readonly EventError DeclineLocked = new(StatusCodes.Status409Conflict, "decline_locked",
         "Podujatie už začalo; účasť už nemožno odmietnuť. Kontaktujte organizátora.",

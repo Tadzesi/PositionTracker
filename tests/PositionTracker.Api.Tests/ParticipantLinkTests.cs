@@ -29,7 +29,7 @@ public sealed class ParticipantLinkTests(PostgresFixture postgres) : IClassFixtu
 {
     private const string BaseUrl = "https://tracker.example.org";
     private static readonly Regex SignInLink = new(@"https://tracker\.example\.org/account/signin\?token=([A-Za-z0-9%_\-]+)");
-    private static readonly DateTimeOffset Start = ApiFactory.T0.AddDays(1);
+    internal static readonly DateTimeOffset Start = ApiFactory.T0.AddDays(1);
 
     // ----- viewing -----
 
@@ -529,7 +529,7 @@ public sealed class ParticipantLinkTests(PostgresFixture postgres) : IClassFixtu
         return await client.PostAsync($"/api/events/{ev}/positions", Json(body));
     }
 
-    private static async Task<string> ConsentAsync(HttpClient client, string link, bool showName)
+    internal static async Task<string> ConsentAsync(HttpClient client, string link, bool showName)
     {
         using var json = await JsonAsync(await PostAsync(client, link, "/consent", new { locationConsent = true, showNameToSpectators = showName }));
         return json.RootElement.GetProperty("deviceToken").GetString()!;
@@ -543,7 +543,7 @@ public sealed class ParticipantLinkTests(PostgresFixture postgres) : IClassFixtu
 
     private static Task<HttpResponseMessage> GetAsync(HttpClient client, string link) => client.GetAsync($"/api/p/{link}");
 
-    private static Task<HttpResponseMessage> PostAsync(HttpClient client, string link, string suffix, object body) =>
+    internal static Task<HttpResponseMessage> PostAsync(HttpClient client, string link, string suffix, object body) =>
         SendAsync(client, HttpMethod.Post, link, suffix, body);
 
     private static Task<HttpResponseMessage> SendAsync(HttpClient client, HttpMethod method, string link, string suffix, object body)
@@ -553,7 +553,7 @@ public sealed class ParticipantLinkTests(PostgresFixture postgres) : IClassFixtu
         return client.SendAsync(request);
     }
 
-    private static async Task<string> IssueLinkAsync(ApiFactory host, Guid participantId)
+    internal static async Task<string> IssueLinkAsync(ApiFactory host, Guid participantId)
     {
         await using var db = Db(host);
         return await new LinkTokenService(db, host.Clock).IssueAsync(LinkPurpose.ParticipantInvite, participantId, LinkTokenService.InviteLifetime, default);
@@ -573,7 +573,7 @@ public sealed class ParticipantLinkTests(PostgresFixture postgres) : IClassFixtu
         return factory;
     }
 
-    private static HttpClient Client(ApiFactory host) => host.CreateDefaultClient(new Uri("https://localhost"));
+    internal static HttpClient Client(ApiFactory host) => host.CreateDefaultClient(new Uri("https://localhost"));
 
     /// <summary>An organizer with a session: the account is seeded, then a sign-in link is requested and redeemed.</summary>
     private static async Task<Organizer> SessionAsync(ApiFactory host, string email)
@@ -632,9 +632,9 @@ public sealed class ParticipantLinkTests(PostgresFixture postgres) : IClassFixtu
         return client.SendAsync(request);
     }
 
-    private static StringContent Json(string json) => new(json, Encoding.UTF8, "application/json");
+    internal static StringContent Json(string json) => new(json, Encoding.UTF8, "application/json");
 
-    private static async Task<Guid> SeedEventAsync(ApiFactory host, EventState state, Guid? organizerId = null)
+    internal static async Task<Guid> SeedEventAsync(ApiFactory host, EventState state, Guid? organizerId = null)
     {
         var organizer = organizerId ?? await OrganizerAsync(host, "seed-organizer@example.org");
         await using var db = Db(host);
@@ -659,7 +659,7 @@ public sealed class ParticipantLinkTests(PostgresFixture postgres) : IClassFixtu
         return c.Id;
     }
 
-    private static async Task<Guid> SeedParticipantAsync(ApiFactory host, Guid eventId, ParticipantStatus status, string name,
+    internal static async Task<Guid> SeedParticipantAsync(ApiFactory host, Guid eventId, ParticipantStatus status, string name,
         Guid? categoryId = null, string language = "sk", bool isMinor = false, bool showName = true)
     {
         await using var db = Db(host);
@@ -676,20 +676,20 @@ public sealed class ParticipantLinkTests(PostgresFixture postgres) : IClassFixtu
         return p.Id;
     }
 
-    private static AppDbContext Db(ApiFactory host)
+    internal static AppDbContext Db(ApiFactory host)
     {
         _ = host.Services;
         return new AppDbContext(PostgresFixture.Options(host.Settings["ConnectionStrings:Default"]!));
     }
 
-    private static async Task<JsonDocument> JsonAsync(HttpResponseMessage response)
+    internal static async Task<JsonDocument> JsonAsync(HttpResponseMessage response)
     {
         var body = await response.Content.ReadAsStringAsync();
         Assert.True(response.IsSuccessStatusCode, $"{response.StatusCode}: {body}");
         return JsonDocument.Parse(body);
     }
 
-    private static async Task AssertErrorAsync(HttpResponseMessage response, HttpStatusCode status, string code, string? field = null)
+    internal static async Task AssertErrorAsync(HttpResponseMessage response, HttpStatusCode status, string code, string? field = null)
     {
         var body = await response.Content.ReadAsStringAsync();
         Assert.True(status == response.StatusCode, $"Expected {status}, got {response.StatusCode}: {body}");

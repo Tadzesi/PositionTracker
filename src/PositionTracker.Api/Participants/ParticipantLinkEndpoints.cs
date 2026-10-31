@@ -5,6 +5,7 @@ using System.Text;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Options;
 using PositionTracker.Api.Events;
+using PositionTracker.Email;
 
 namespace PositionTracker.Api.Participants;
 
@@ -106,6 +107,13 @@ public static class ParticipantLinkEndpoints
             await WithBody(context, json, (ProfileRequest body) => service.UpdateProfileAsync(linkToken, body, context.RequestAborted)));
         group.MapPost("/consent", async (string linkToken, HttpContext context, ParticipantService service, IOptions<JsonOptions> json) =>
             await WithBody(context, json, (ConsentRequest body) => service.ConsentAsync(linkToken, body, context.RequestAborted)));
+        group.MapPost("/owntracks-config", async (string linkToken, HttpContext context, ParticipantService service, IOptions<JsonOptions> json,
+            IOptions<EmailOptions> email) =>
+        {
+            var baseUrl = email.Value.PublicBaseUrl;
+            if (!EmailLinks.IsHttpUrl(baseUrl)) return EventErrors.Result(EventErrors.Unavailable);
+            return await WithBody(context, json, (OwnTracksConfigRequest body) => service.OwnTracksConfigAsync(linkToken, body, baseUrl, context.RequestAborted));
+        });
         return app;
     }
 

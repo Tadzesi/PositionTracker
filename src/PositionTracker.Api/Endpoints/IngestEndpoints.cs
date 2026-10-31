@@ -94,28 +94,41 @@ public static class IngestEndpoints
         var status = request.Status is { } s
             ? new DeviceStatus(s.Battery is >= 0 and <= 100 ? s.Battery : null, s.Charging, s.Queue, s.Foreground)
             : null;
+        var batch = new PositionBatch(fixes.Select(f => new PositionFix(f.T, f.Lat, f.Lon, f.Acc)).ToList(), status);
+        return await ApplyAsync(context, eventId, runtime, caller.ParticipantId, caller.TokenHash, batch, fixLimiter, history,
+            ingested => Results.Accepted(value: ingested));
+    }
+
+    /// <summary>
+    /// Applies a batch for an authenticated participant: the all-or-nothing fix budget (429 + <c>Retry-After</c>), the
+    /// write-queue reservation (503 + <c>Retry-After: 1</c>), the runtime and the persistence. Shared by the bearer
+    /// endpoint and the OwnTracks adapter; <paramref name="ok"/> builds the success answer.
+    /// </summary>
+    internal static async Task<IResult> ApplyAsync(HttpContext context, string eventId, EventRuntime runtime, string participantId,
+        string tokenHash, PositionBatch batch, FixRateLimiter fixLimiter, PersistenceQueue history, Func<IngestResult, IResult> ok)
+    {
+        var status = batch.Status;
         var persist = history.ShouldPersist(runtime.Settings);
         if (persist && !await history.TryReserveAsync(context.RequestAborted)) return QueueFull(context);
         var reserved = persist;
         try
         {
             // All or nothing: a batch over the fix budget is refused before anything (fixes or status) is applied.
-            if (!fixLimiter.TryTake(caller.TokenHash, fixes.Count, out var retryAfter))
+            if (!fixLimiter.TryTake(tokenHash, batch.Fixes.Count, out var retryAfter))
             {
                 SetRetryAfter(context, retryAfter);
                 return Results.Problem(
                     $"At most {FixRateLimiter.FixesPerMinute} fixes per minute; resend this batch after Retry-After.",
                     statusCode: StatusCodes.Status429TooManyRequests);
             }
-            var batch = new PositionBatch(fixes.Select(f => new PositionFix(f.T, f.Lat, f.Lon, f.Acc)).ToList(), status);
-            var ingested = runtime.IngestDetailed(caller.ParticipantId, batch);
+            var ingested = runtime.IngestDetailed(participantId, batch);
             if (persist && (ingested.Stored.Count > 0 || status is not null))
             {
                 reserved = false;
-                if (!history.Enqueue(new FixBatchWrite(eventId, caller.ParticipantId, ingested.Stored, status, ingested.At)))
+                if (!history.Enqueue(new FixBatchWrite(eventId, participantId, ingested.Stored, status, ingested.At)))
                     return QueueFull(context);
             }
-            return Results.Accepted(value: ingested.Result);
+            return ok(ingested.Result);
         }
         finally
         {
