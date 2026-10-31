@@ -1,5 +1,7 @@
 # Plan 2: Accounts, Events, Registration and Persistence Implementation Plan
 
+> **Decision 2026-10-31:** the primary device client is the **OwnTracks** app (HTTP mode), not a PWA tracker; see Task 7b. The PWA remains for registration, consent, instructions and viewing.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Organizers sign up and confirm their email, create events, upload the GPX course, register participants (manual entry, optional CSV), and participants confirm by emailed link, set a nickname and gender, and get their device token; everything survives a restart, including the position history.
@@ -231,6 +233,39 @@ Creating a participant enqueues the invitation email (Task 3) in the participant
 - [ ] **Step 3:** Implement; `UpdateParticipant` and `AddParticipant` calls keep `EventRuntime` consistent when the event is `Live`; rate limit per link token (60/min).
 - [ ] **Step 4:** Rerun the filter; expected: PASS.
 - [ ] **Step 5:** Commit `feat: participant confirmation, profile, consent and device tokens`.
+
+---
+
+### Task 7b: OwnTracks ingest adapter and onboarding (decision 2026-10-31: OwnTracks is the primary device client)
+
+**Why:** a PWA cannot track reliably in the background (spec section 9, problem A). Participants run the free **OwnTracks** app (Android and iOS) in HTTP mode instead; it runs as a background location service and posts to our server. The web pages stay only for registration, consent, setup instructions and viewing. A participant live screen and the PWA tracker are out of the MVP.
+
+**Files:**
+- Create: `src/PositionTracker.Api/OwnTracks/OwnTracksEndpoints.cs`, `OwnTracksMapper.cs`, `OwnTracksConfigBuilder.cs`
+- Modify: `src/PositionTracker.Api/Participants/ParticipantLinkEndpoints.cs` (config link after consent), `README.md`, `docs/ops/owntracks-setup.md` (new, SK + EN step-by-step phone setup incl. Android battery settings and iOS "Always" permission)
+- Test: `tests/PositionTracker.Api.Tests/OwnTracksTests.cs`
+
+**Interfaces:**
+- Produces:
+```csharp
+// POST /api/ingest/owntracks      HTTP Basic auth: username = participant public code (bib-based, non-secret), password = device token
+//   body: OwnTracks JSON message, e.g. {"_type":"location","lat":49.0,"lon":18.7,"tst":1790000000,"acc":6,"vel":28,"alt":410,"batt":71,"bs":1,"tid":"21","conn":"m"}
+//   -> 200 []   (valid auth; non-location types ignored with 200 [])   401 bad credentials   413 body > 16 KB   429 + Retry-After when the fix budget is exceeded
+public static class OwnTracksMapper { public static PositionBatch? ToBatch(JsonElement message); }   // null for non-location or invalid
+public static class OwnTracksConfigBuilder { public static OwnTracksConfig Build(string serverBaseUrl, string username, string deviceToken, string trackerId, EventTuning tuning); }
+// POST /api/p/{linkToken}/owntracks-config  (after consent)  -> 200 {"deepLink":"owntracks:///config?inline=<base64url>","otrcJson":{...},"qrPayload":"..."}
+```
+- Mapping: `tst` (epoch seconds, UTC) → `PositionFix.Time`; `lat`,`lon`; `acc` → `AccuracyM`; `batt` → `DeviceStatus.BatteryPct`; `bs` (1 unplugged, 2 charging, 3 full) → `Charging`; `queue` = 0 and `foreground` = true (unknown; documented); `vel` (km/h) and `alt` are ignored (speed and elevation come from the course matching). One message = one fix; the existing per-token fix budget (600 per minute) applies; a backlog replay after an outage is accepted up to the budget and the excess answers 429 with `Retry-After` (check how OwnTracks reacts and document it).
+
+- [ ] **Step 1: Verify against the OwnTracks documentation (do NOT guess).** Fetch the OwnTracks booklet (HTTP mode, JSON message formats, configuration/`config` deep link and `.otrc` keys: `mode`, `url`, `auth`, `username`, `password`, `tid`, `monitoring`, `locatorInterval`, `locatorDisplacement`, `ignoreInaccurateLocations`, `pubRetain` not needed, offline queue behaviour, response handling, minimum intervals, Android vs iOS differences) with WebFetch/WebSearch and write what you verified, with the source URLs and dates, at the top of `docs/ops/owntracks-setup.md`. Where the documentation is silent mark the item UNVERIFIED and list it for the field test.
+- [ ] **Step 2: Write failing tests:** the mapper on real sample messages (location, `transition`, `lwt`, `waypoints`, `status`, malformed, missing `tst`, `tst` in milliseconds, far-future `tst`, `acc` missing, battery out of range); endpoint auth (no/bad Basic, wrong token, token of another event 401, revoked token 401, username mismatch → 401 with the same body); non-location types → 200 `[]`; 429 behaviour; body cap 16 KB; the fixes reach the runtime (position appears in `/live`) and are persisted; the config builder produces valid base64url JSON that round-trips and contains no secret other than the device token; the config link endpoint requires prior consent and returns the same device token as the consent step (not a new one), 404/410 for bad or expired links, rate limit per link token; no token, username-password pair or `Authorization` header in logs.
+- [ ] **Step 3:** Run `dotnet test --filter FullyQualifiedName~OwnTracksTests`; expected: FAIL.
+- [ ] **Step 4:** Implement. Reuse `EventRuntime.IngestDetailed`, the persistence reservation/back-pressure path and the fix-budget limiter from the device ingest; Basic-auth parsing must be constant-time on the token (reuse `TokenService.Resolve`). The organizer-defined tuning (`monitoring` move mode, interval 5–10 s, displacement 10 m, ignore inaccurate > 50 m) is derived from the sport and event settings and documented.
+- [ ] **Step 5:** Run the filter and the whole suite; expected: PASS.
+- [ ] **Step 6 (manual field gate, human):** one Android and one iOS phone, walk or ride 20 minutes with the screen locked using the generated config link; record in `docs/ops/owntracks-setup.md`: send interval achieved, gaps, battery drain per hour, offline catch-up behaviour, anything UNVERIFIED from step 1. The result decides the default tuning values.
+- [ ] **Step 7:** Commit `feat: OwnTracks ingest adapter and onboarding config`.
+
+Not covered by OwnTracks (decided): participant SOS, pause and DNF buttons (the organizer marks DNF, SOS is by phone to the organizer; both are in Task 9 and in the setup instructions), queue length and foreground flags (shown as unknown).
 
 ---
 

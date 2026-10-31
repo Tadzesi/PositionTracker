@@ -49,7 +49,7 @@ The user asked for the analysis to focus on **problems that appear during real u
 
 ## 4. Decisions already made by the user
 
-- Participants broadcast via a **PWA**; this is sufficient for the MVP.
+- ~~Participants broadcast via a **PWA**; this is sufficient for the MVP.~~ **Superseded 2026-10-31:** participants broadcast with the free **OwnTracks** app (HTTP mode, Android and iOS) because a PWA cannot track reliably in the background; the web pages are used for registration, consent, setup instructions and viewing; a PWA tracker and a participant live screen are out of the MVP; participant SOS/pause buttons are replaced by organizer actions and a phone call (see Plan 2 Task 7b).
 - Server is a **C# API service**; the client is a **web application**.
 - Organizer prepares the course in advance. **GPX import is in the MVP**; drawing a course in the app is deferred to the next version because of its complexity.
 - Design is inspired by **F1 television graphics** (timing tower, sector colours, flag-style race-control messages).
