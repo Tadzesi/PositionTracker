@@ -161,3 +161,7 @@ footer .wrap{display:flex;gap:20px;flex-wrap:wrap;justify-content:space-between}
 .steps ol.sub li{margin-bottom:.6em}
 .steps code{font:inherit;font-weight:700;background:var(--bg2);border:1px solid var(--line);padding:0 5px}
 .steps p a,.steps ol.sub a{color:var(--coral);font-weight:700}
+
+.steps figure.ex{margin:22px 0 0;max-width:820px}
+.steps figure.ex img{width:100%;height:auto;border:1px solid var(--line);box-shadow:8px 8px 0 var(--ink)}
+.steps figure.ex figcaption{margin-top:14px}
