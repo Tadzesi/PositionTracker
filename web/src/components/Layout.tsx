@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, Outlet, useNavigate } from 'react-router-dom';
 import { ApiError, get, post } from '../lib/api';
-import { applyTheme, currentTheme, useI18n, type Theme } from '../lib/i18n';
+import { applyTheme, effectiveTheme, useI18n } from '../lib/i18n';
 import type { Me } from '../lib/types';
 
 interface Session {
@@ -40,24 +40,27 @@ export function useSession(): Session {
   return v;
 }
 
+/** Language and appearance as two explicit choices each (the active one is filled), not a button that cycles through states. */
 export function Toggles() {
   const { lang, setLang, t } = useI18n();
-  const [theme, setTheme] = useState<Theme>(currentTheme());
-  const next = () => {
-    const order: Theme[] = ['auto', 'dark', 'light'];
-    const n = order[(order.indexOf(theme) + 1) % order.length];
-    setTheme(n);
-    applyTheme(n);
-  };
-  const label = theme === 'auto' ? t('Auto', 'Auto') : theme === 'dark' ? t('Tmavá', 'Dark') : t('Svetlá', 'Light');
+  const [theme, setTheme] = useState<'light' | 'dark'>(effectiveTheme());
+  useEffect(() => {
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)');
+    const onChange = () => setTheme(effectiveTheme());
+    media?.addEventListener?.('change', onChange);
+    return () => media?.removeEventListener?.('change', onChange);
+  }, []);
+  const choose = (next: 'light' | 'dark') => { applyTheme(next); setTheme(next); };
   return (
     <div className="toggles">
-      <button className="btn small ghost" onClick={() => setLang(lang === 'sk' ? 'en' : 'sk')} aria-label={t('Jazyk', 'Language')}>
-        <span>{lang === 'sk' ? 'EN' : 'SK'}</span>
-      </button>
-      <button className="btn small ghost" onClick={next} aria-label={t('Téma', 'Theme')} title={t('Téma', 'Theme')}>
-        <span>{label}</span>
-      </button>
+      <div className="seg" role="group" aria-label={t('Jazyk', 'Language')}>
+        <button type="button" lang="sk" aria-pressed={lang === 'sk'} onClick={() => setLang('sk')}>SK</button>
+        <button type="button" lang="en" aria-pressed={lang === 'en'} onClick={() => setLang('en')}>EN</button>
+      </div>
+      <div className="seg" role="group" aria-label={t('Vzhľad stránky', 'Page appearance')}>
+        <button type="button" aria-pressed={theme === 'light'} aria-label={t('Svetlý režim', 'Light mode')} title={t('Svetlý režim', 'Light mode')} onClick={() => choose('light')}>☀<span className="lbl"> {t('Svetlý', 'Light')}</span></button>
+        <button type="button" aria-pressed={theme === 'dark'} aria-label={t('Tmavý režim', 'Dark mode')} title={t('Tmavý režim', 'Dark mode')} onClick={() => choose('dark')}>☾<span className="lbl"> {t('Tmavý', 'Dark')}</span></button>
+      </div>
     </div>
   );
 }

@@ -53,6 +53,13 @@ export function currentTheme(): Theme {
   return 'auto';
 }
 
+/** What the page shows now: the stored choice, else the system setting. */
+export function effectiveTheme(): 'light' | 'dark' {
+  const stored = currentTheme();
+  if (stored !== 'auto') return stored;
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
 export function applyTheme(theme: Theme) {
   if (theme === 'auto') document.documentElement.removeAttribute('data-theme');
   else document.documentElement.setAttribute('data-theme', theme);

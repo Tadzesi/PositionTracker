@@ -1,36 +1,62 @@
 <!doctype html>
-<html lang="sk">
+<html lang="[[lang]]">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>PositionTracker – živé sledovanie pretekov, aké ste ešte nevideli</title>
-  <meta name="description" content="Živé sledovanie behu a cyklistických pretekov na mape: poradie, odstupy, ETA a alarmy v reálnom čase. Bez vlastnej aplikácie, bez účtu pre divákov.">
+  <title>[[title]]</title>
+  <meta name="description" content="[[desc]]">
+  <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1">
   <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#0A1F44">
+  <link rel="canonical" href="[[url]]">
+  [[altlinks]]
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="PositionTracker">
+  <meta property="og:title" content="[[title]]">
+  <meta property="og:description" content="[[desc]]">
+  <meta property="og:url" content="[[url]]">
+  <meta property="og:locale" content="[[locale]]">
+  <meta property="og:locale:alternate" content="[[locale_alt]]">
+  <meta property="og:image" content="https://www.lab463.com/tracker/assets/og-image.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="[[og_alt]]">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="[[title]]">
+  <meta name="twitter:description" content="[[desc]]">
+  <meta name="twitter:image" content="https://www.lab463.com/tracker/assets/og-image.jpg">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230A1F44'/%3E%3Cpath d='M9 24V8h8a5 5 0 010 10h-4v6z' fill='%23FF4B2B'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@0,62..125,100..900;1,62..125,100..900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="vendor/leaflet.css?v=20261031e">
-  <link rel="stylesheet" href="styles.css?v=20261031e">
-  <script src="theme.js?v=20261031e"></script>
+  <link rel="stylesheet" href="vendor/leaflet.css">
+  <link rel="stylesheet" href="styles.css">
+  <script src="theme.js"></script>
+  [[jsonld]]
 </head>
 <body>
-<a class="skip" href="#guides" data-i="skip">Preskočiť na návody</a>
+<a class="skip" href="#main" data-i="skip">Preskočiť na obsah</a>
 <header class="top">
   <div class="wrap">
-    <a class="logo" href="#top">Position<b>Tracker</b></a>
+    <a class="logo" href="#main">Position<b>Tracker</b></a>
     <nav aria-label="Hlavná navigácia" data-i-aria="nav">
+      <a class="nl" href="#what" data-i="nav_what">Čo to je</a>
       <a class="nl" href="#who" data-i="nav_who">Pre koho</a>
       <a class="nl" href="#screens" data-i="nav_screens">Ako to vyzerá</a>
-      <a href="#guides" data-i="nav_guides">Návody</a>
+      <a class="nm" href="#guides" data-i="nav_guides">Návody</a>
       <a class="nl" href="#faq" data-i="nav_faq">Otázky</a>
-      <a id="appnav" hidden href="#" data-i="nav_app" style="background:var(--coral)">Otvoriť aplikáciu</a>
-      <button class="pill" id="lang" type="button" aria-label="Language">EN</button>
-      <button class="pill" id="theme" type="button" aria-label="Téma" data-i-aria="theme" data-i="theme_t">Téma</button>
+      <a class="appnav" id="appnav" hidden href="#" data-i="nav_app">Otvoriť aplikáciu</a>
+      <div class="seg" role="group" aria-label="Jazyk" data-i-aria="lang_g">
+        <a href="[[sk_href]]" hreflang="sk" lang="sk" [[sk_cur]]>SK</a><a href="[[en_href]]" hreflang="en" lang="en" [[en_cur]]>EN</a>
+      </div>
+      <div class="seg" id="themeseg" role="group" aria-label="Vzhľad stránky" data-i-aria="theme_g">
+        <button type="button" data-theme="light" aria-pressed="false" aria-label="Svetlý režim" data-i-aria="theme_l_a"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.3 5.3l1.7 1.7M17 17l1.7 1.7M5.3 18.7L7 17M17 7l1.7-1.7"/></g></svg><span data-i="theme_l">Svetlý</span></button>
+        <button type="button" data-theme="dark" aria-pressed="false" aria-label="Tmavý režim" data-i-aria="theme_d_a"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M20.5 14.2A8.6 8.6 0 019.8 3.5a8.6 8.6 0 108.7 10.7z" fill="currentColor"/></svg><span data-i="theme_d">Tmavý</span></button>
+      </div>
     </nav>
   </div>
 </header>
 
-<main id="top">
+<main id="main">
 <section class="hero" aria-labelledby="h1">
   <div class="wrap">
     <div class="herohead">
@@ -62,21 +88,41 @@
         <ol aria-label="Poradie" data-i-aria="tower_label"></ol>
         <div class="flags" aria-live="polite"></div>
         <div class="controls">
-          <button class="chip" data-view="organizer" aria-pressed="true" type="button" data-i="view_org">Pohľad organizátora</button>
-          <button class="chip" data-view="spectator" aria-pressed="false" type="button" data-i="view_spec">Pohľad diváka</button>
-          <button class="chip" data-speed="1" aria-pressed="false" type="button">×1</button>
-          <button class="chip" data-speed="12" aria-pressed="true" type="button">×12</button>
-          <button class="chip" data-speed="30" aria-pressed="false" type="button">×30</button>
-          <button class="chip" data-sport="cycling" aria-pressed="true" type="button" data-i="sport_c">Bicykel</button>
-          <button class="chip" data-sport="running" aria-pressed="false" type="button" data-i="sport_r">Beh</button>
-          <button class="chip danger" data-alarm="stopped" type="button" data-i="demo_stop">Zastaví sa</button>
-          <button class="chip danger" data-alarm="offCourse" type="button" data-i="demo_off">Zíde z trate</button>
-          <button class="chip danger" data-alarm="lowBattery" type="button" data-i="demo_batt">Slabá batéria</button>
-          <button class="chip" data-act="restart" type="button" data-i="demo_restart">Reštart</button>
+          <div class="grp" role="group" aria-labelledby="g-view"><span class="gl" id="g-view" data-i="g_view">Pohľad</span>
+            <button class="chip" data-view="organizer" aria-pressed="true" type="button" data-i="view_org">Organizátor</button>
+            <button class="chip" data-view="spectator" aria-pressed="false" type="button" data-i="view_spec">Divák</button></div>
+          <div class="grp" role="group" aria-labelledby="g-speed"><span class="gl" id="g-speed" data-i="g_speed">Rýchlosť</span>
+            <button class="chip" data-speed="1" aria-pressed="false" type="button">×1</button>
+            <button class="chip" data-speed="12" aria-pressed="true" type="button">×12</button>
+            <button class="chip" data-speed="30" aria-pressed="false" type="button">×30</button>
+            <button class="chip" data-act="pause" aria-pressed="false" type="button" data-i="demo_pause">Pozastaviť</button></div>
+          <div class="grp" role="group" aria-labelledby="g-sport"><span class="gl" id="g-sport" data-i="g_sport">Šport</span>
+            <button class="chip" data-sport="cycling" aria-pressed="true" type="button" data-i="sport_c">Bicykel</button>
+            <button class="chip" data-sport="running" aria-pressed="false" type="button" data-i="sport_r">Beh</button></div>
+          <div class="grp" role="group" aria-labelledby="g-try"><span class="gl" id="g-try" data-i="g_try">Skúste na vybranom jazdcovi</span>
+            <button class="chip danger" data-alarm="stopped" type="button" data-i="demo_stop">Zastaví sa</button>
+            <button class="chip danger" data-alarm="offCourse" type="button" data-i="demo_off">Zíde z trate</button>
+            <button class="chip danger" data-alarm="lowBattery" type="button" data-i="demo_batt">Slabá batéria</button></div>
+          <div class="grp"><button class="chip" data-act="restart" type="button" data-i="demo_restart">Reštart</button></div>
         </div>
       </div>
     </div>
     <p class="small" style="color:#9DB0D6;margin-top:14px" data-i="demo_note">Demo beží vo vašom prehliadači (vymyslení jazdci a trať), ale ukazuje to isté ako skutočná aplikácia. Pohľad organizátora vidí všetko okamžite vrátane alarmov a stavu batérie. Pohľad diváka je oneskorený o 15 s, bez alarmov a so skrytými menami tých, čo nesúhlasili. Vyberte jazdca a skúste „Zastaví sa“.</p>
+  </div>
+</section>
+
+<section id="what" aria-labelledby="what-h">
+  <div class="wrap doc">
+    <h2 class="display" id="what-h" data-i="what_h">Čo je PositionTracker</h2>
+    <p class="lead" data-i="what_p">PositionTracker je webová služba na sledovanie polohy účastníkov behu a cyklistických pretekov v reálnom čase na mape. Organizátor vytvorí podujatie, nahrá trať vo formáte GPX a pozve účastníkov e-mailom. Účastníci posielajú polohu z telefónu aplikáciou OwnTracks (Android, iPhone). Diváci sledujú poradie, odstupy a odhad príchodu do cieľa cez verejný odkaz, bez účtu a bez inštalácie.</p>
+    <dl class="spec">
+      <div><dt data-i="spec1_t">Športy</dt><dd data-i="spec1_d">Beh a cyklistika; okruh s viacerými kolami alebo jedno kolo</dd></div>
+      <div><dt data-i="spec2_t">Organizátor</dt><dd data-i="spec2_d">Webový prehliadač; prihlásenie jednorazovým odkazom z e-mailu, bez hesla</dd></div>
+      <div><dt data-i="spec3_t">Účastník</dt><dd data-i="spec3_d">Bezplatná aplikácia OwnTracks pre Android a iPhone</dd></div>
+      <div><dt data-i="spec4_t">Divák</dt><dd data-i="spec4_d">Verejný odkaz v prehliadači; polohy oneskorené o 5 až 300 sekúnd podľa nastavenia</dd></div>
+      <div><dt data-i="spec5_t">Jazyky</dt><dd data-i="spec5_d">Slovenčina a angličtina (rozhranie aj e-maily)</dd></div>
+      <div><dt data-i="spec6_t">Ochrana údajov</dt><dd data-i="spec6_d">Polohy sa 30 dní po skončení podujatia zmažú; meno vidia diváci len so súhlasom</dd></div>
+    </dl>
   </div>
 </section>
 
@@ -121,24 +167,24 @@
       <p class="lead" data-i="sc_lead">Všetky obrázky nižšie sú snímky obrazovky z bežiacej aplikácie, so vzorovými jazdcami a trasou.</p>
     </div>
     <div class="shots">
-      <figure class="big"><img src="assets/shots/control-light.png?v=20261031e" width="2720" height="2260" loading="lazy" alt="Riadenie pretekov: mapa, poradie a hlásenia" data-i-alt="sc1_alt">
+      <figure class="big"><img src="assets/shots/control-light.png" width="2720" height="2260" loading="lazy" alt="Riadenie pretekov: mapa, poradie a hlásenia" data-i-alt="sc1_alt">
         <figcaption><b data-i="sc1_h">Riadenie pretekov</b><span data-i="sc1_p">Mapa so všetkými jazdcami, poradie s farebnými sektormi, hlásenia o zastavení, odbočení z trate, strate signálu a slabej batérii.</span></figcaption></figure>
-      <figure class="tall phone"><img src="assets/shots/spectator-mobile.png?v=20261031e" width="780" height="1688" loading="lazy" alt="Divácka stránka na telefóne" data-i-alt="sc2_alt">
+      <figure class="tall phone"><img src="assets/shots/spectator-mobile.png" width="780" height="1688" loading="lazy" alt="Divácka stránka na telefóne" data-i-alt="sc2_alt">
         <figcaption><b data-i="sc2_h">Divák na telefóne</b><span data-i="sc2_p">Najväčšie číslo je ETA do cieľa. Pod ním vzdialenosť, rýchlosť a sektory.</span></figcaption></figure>
-      <figure class="half"><img src="assets/shots/spectator-dark.png?v=20261031e" width="2720" height="1720" loading="lazy" alt="Divácka stránka v tmavom režime" data-i-alt="sc3_alt">
+      <figure class="half"><img src="assets/shots/spectator-dark.png" width="2720" height="1720" loading="lazy" alt="Divácka stránka v tmavom režime" data-i-alt="sc3_alt">
         <figcaption><b data-i="sc3_h">Tmavý aj svetlý režim</b><span data-i="sc3_p">Stránka sa riadi nastavením zariadenia. Prepínač je vždy po ruke.</span></figcaption></figure>
-      <figure class="half"><img src="assets/shots/org-participants.png?v=20261031e" width="2720" height="1720" loading="lazy" alt="Zoznam účastníkov so stavmi" data-i-alt="sc4_alt">
+      <figure class="half"><img src="assets/shots/org-participants.png" width="2720" height="1720" loading="lazy" alt="Zoznam účastníkov so stavmi" data-i-alt="sc4_alt">
         <figcaption><b data-i="sc4_h">Účastníci a pozvánky</b><span data-i="sc4_p">Kto potvrdil, kto ešte nie. Opätovné odoslanie, pripomienka a nový odkaz jedným klikom.</span></figcaption></figure>
-      <figure class="half phone"><img src="assets/shots/participant-setup.png?v=20261031e" width="780" height="1688" loading="lazy" alt="Nastavenie telefónu s QR kódom" data-i-alt="sc5_alt">
-        <figcaption><b data-i="sc5_h">Nastavenie telefónu za minútu</b><span data-i="sc5_p">Jeden klepnutím alebo QR kódom sa nakonfiguruje aplikácia OwnTracks. Bez prepisovania adries.</span></figcaption></figure>
-      <figure class="half"><img src="assets/shots/org-setup.png?v=20261031e" width="2720" height="1720" loading="lazy" alt="Nastavenie podujatia" data-i-alt="sc6_alt">
+      <figure class="big"><img src="assets/shots/org-setup.png" width="2720" height="1720" loading="lazy" alt="Nastavenie podujatia" data-i-alt="sc6_alt">
         <figcaption><b data-i="sc6_h">Podujatie za pár minút</b><span data-i="sc6_p">Nahráte GPX, nastavíte kolá, kontrolné body, kategórie a oneskorenie pre divákov.</span></figcaption></figure>
+      <figure class="tall phone"><img src="assets/shots/participant-setup.png" width="780" height="1688" loading="lazy" alt="Nastavenie telefónu s QR kódom" data-i-alt="sc5_alt">
+        <figcaption><b data-i="sc5_h">Nastavenie telefónu za minútu</b><span data-i="sc5_p">Jeden klepnutím alebo QR kódom sa nakonfiguruje aplikácia OwnTracks. Bez prepisovania adries.</span></figcaption></figure>
     </div>
   </div>
 </section>
 
 <section id="guides" aria-labelledby="g-h">
-  <div class="wrap">
+  <div class="wrap doc">
     <div class="sechead">
       <h2 class="display" id="g-h" data-i="g_h">Návody tak jasné, že ich zvládne aj vaša stará mama.</h2>
       <p class="lead" data-i="g_lead">Vyberte si, kým ste. Každý postup má presne tie kroky, ktoré uvidíte v aplikácii.</p>
@@ -148,11 +194,12 @@
       <button role="tab" id="t-par" aria-controls="p-par" aria-selected="false" tabindex="-1" data-i="g_par">Účastník</button>
       <button role="tab" id="t-spe" aria-controls="p-spe" aria-selected="false" tabindex="-1" data-i="g_spe">Divák</button>
     </div>
+    <p class="small share"><span data-i="g_share">Pošlite účastníkom priamy odkaz na ich návod:</span> <button class="linkbtn" id="copylink" type="button" data-i="g_copy">Skopírovať odkaz</button><span id="copied" role="status"></span></p>
 
     <div class="panel" id="p-org" role="tabpanel" aria-labelledby="t-org">
       <ol class="steps">
-        <li class="noimg"><div><h3 data-i="o1_h">Vytvorte si účet</h3><p data-i="o1_p">Zadáte meno a e-mail. Heslo nie je: prihlasujete sa jednorazovým odkazom z e-mailu. Odkaz otvorte a potvrďte tlačidlom „Potvrdiť e-mail“. Až potom môžete nahrať trasu a pozývať účastníkov (ochrana pred zneužitím).</p></div></li>
-        <li class="noimg"><div><h3 data-i="o0_h">Pripravte si trať ako súbor GPX</h3>
+        <li><div><h3 data-i="o1_h">Vytvorte si účet</h3><p data-i="o1_p">Zadáte meno a e-mail. Heslo nie je: prihlasujete sa jednorazovým odkazom z e-mailu. Odkaz otvorte a potvrďte tlačidlom „Potvrdiť e-mail“. Až potom môžete nahrať trasu a pozývať účastníkov (ochrana pred zneužitím).</p></div></li>
+        <li><div><h3 data-i="o0_h">Pripravte si trať ako súbor GPX</h3>
           <p data-i="o0_p">Netreba vedieť nič o GPS. Stačí zadarmo nástroj <a href="https://gpx.studio/app" target="_blank" rel="noopener">gpx.studio</a>: beží v prehliadači, nepýta si účet a trasu v ňom nakreslíte klikaním na mapu. Ak už trasu máte v Strave, Komoote, Garmin Connect alebo na Mapy.com, stačí ju odtiaľ stiahnuť ako GPX a tento krok preskočiť.</p>
           <ol class="sub">
             <li data-i="o0_1">Otvorte <a href="https://gpx.studio/app" target="_blank" rel="noopener">gpx.studio/app</a>. Lupou vpravo vyhľadajte miesto preteku a <b>mapu priblížte tak, aby ste videli jednotlivé ulice</b>. Z príliš vzdialeného pohľadu nástroj trasu nenakreslí („start point is too far from the nearest road“).</li>
@@ -162,41 +209,41 @@
             <li data-i="o0_5">Dĺžku skontrolujte vľavo dole (pri viacerých kolách je to dĺžka jedného kola).</li>
             <li data-i="o0_6">Hore zvoľte <b>File → Export…</b> (alebo Ctrl+S) a v okne <b>Export options</b> stlačte <b>Download file</b>. Stiahne sa súbor s príponou <code>.gpx</code>.</li>
           </ol>
-                    <figure class="ex"><img src="assets/shots/gpxstudio-route.webp?v=20261031e" width="2560" height="1600" loading="lazy" alt="Hotová trasa v nástroji gpx.studio" data-i-alt="o0_fig1_alt">
+                    <figure class="ex"><img src="assets/shots/gpxstudio-route.webp" width="2560" height="1600" loading="lazy" alt="Hotová trasa v nástroji gpx.studio" data-i-alt="o0_fig1_alt">
             <figcaption><b data-i="o0_fig1_h">Príklad: okruh po Žiline</b><span data-i="o0_fig1_p">Päť klikov na mapu a „Back to start“. Vľavo dole vidno dĺžku trasy (5,67 km) a výškový profil. Kruhy sú body, na ktoré ste klikli.</span></figcaption></figure>
-          <figure class="ex"><img src="assets/shots/gpxstudio-export.webp?v=20261031e" width="2560" height="1600" loading="lazy" alt="Okno exportu v nástroji gpx.studio" data-i-alt="o0_fig2_alt">
+          <figure class="ex"><img src="assets/shots/gpxstudio-export.webp" width="2560" height="1600" loading="lazy" alt="Okno exportu v nástroji gpx.studio" data-i-alt="o0_fig2_alt">
             <figcaption><b data-i="o0_fig2_h">Export</b><span data-i="o0_fig2_p">File → Export… otvorí okno, v ňom stlačte „Download file“. Zaškrtávacie políčko „OpenStreetMap data“ nechajte prázdne.</span></figcaption></figure>
           <p data-i="o0_dl">Chcete si postup vyskúšať? Stiahnite si <a href="assets/example-trat.gpx" download>ukážkový súbor GPX</a> presne z tohto príkladu (okruh po Žiline, 5,67 km, 162 bodov) a nahrajte ho do aplikácie pri vytváraní podujatia.</p>
           <p class="tip" data-i="o0_tip">Čo aplikácia od súboru chce: aspoň 50 m na kolo, veľkosť do 1 MB, a pri viacerých kolách okruh, ktorého koniec je najviac 100 m od štartu. Preto na okruh použite „Back to start“. Štartovú čiaru neznačíte: štart je prvý bod trasy.</p></div></li>
-        <li><div><h3 data-i="o2_h">Vytvorte podujatie a nahrajte trať</h3><p data-i="o2_p">Názov, miesto, dátum a čas štartu, šport. Potom súbor GPX, počet kôl (1 až 10), kontrolné body a oneskorenie pre divákov (5 až 300 sekúnd). Trasa s viacerými kolami musí byť uzavretá.</p><p class="tip" data-i="o2_tip">Tip: oneskorenie 15 až 30 sekúnd robí vysielanie plynulé a zároveň férové voči jazdcom.</p></div><img src="assets/shots/org-setup.png?v=20261031e" width="2720" height="1720" loading="lazy" alt="Nastavenie podujatia" data-i-alt="sc6_alt"></li>
-        <li><div><h3 data-i="o3_h">Pozvite účastníkov</h3><p data-i="o3_p">Meno, e-mail, pohlavie, jazyk e-mailu, kategória, vlna. Štartové číslo sa pridelí samo, alebo ho zadáte. Pozvánka odíde okamžite. V zozname vidíte stavy Pozvaní, Potvrdení, Odmietli a Chyba e-mailu, a môžete poslať pripomienku, odoslať znova alebo vydať nový odkaz.</p><p class="tip" data-i="o3_tip">Meno účastníka sa divákom ukáže len so súhlasom. U maloletých sa verejne zobrazuje iba štartové číslo.</p></div><img src="assets/shots/org-participants.png?v=20261031e" width="2720" height="1720" loading="lazy" alt="Zoznam účastníkov" data-i-alt="sc4_alt"></li>
-        <li class="noimg"><div><h3 data-i="o4_h">Pripravené, potom naživo</h3><p data-i="o4_p">Stlačte „Označiť ako pripravené“ a v deň pretekov „Spustiť naživo“. Aplikácia ukáže verejný odkaz pre divákov: pošlite ho na sociálne siete a vyvesťte ako QR. Po spustení už nemožno meniť trať.</p></div></li>
-        <li><div><h3 data-i="o5_h">Riaďte preteky</h3><p data-i="o5_p">Na karte „Riadenie pretekov“ vidíte mapu, poradie, sektory a hlásenia. Alarm potvrdíte tlačidlom „Potvrdiť“, jazdca nájdete na mape a odstúpivšieho označíte ako DNF. Nevybavené hlásenia sú vždy hore, vybavené sa stlmia.</p></div><img src="assets/shots/control-light.png?v=20261031e" width="2720" height="2260" loading="lazy" alt="Riadenie pretekov" data-i-alt="sc1_alt"></li>
-        <li class="noimg"><div><h3 data-i="o6_h">Po cieli</h3><p data-i="o6_p">Stlačte „Ukončiť podujatie“. Polohy sa po 30 dňoch zmažú samy. Ak o to účastník požiada, jeho údaje zmažete hneď (zostane len číslo). Oficiálne výsledky vydávate vy: diváckemu poradiu treba rozumieť ako orientačnému.</p></div></li>
+        <li><div><h3 data-i="o2_h">Vytvorte podujatie a nahrajte trať</h3><p data-i="o2_p">Názov, miesto, dátum a čas štartu, šport. Potom súbor GPX, počet kôl (1 až 10), kontrolné body a oneskorenie pre divákov (5 až 300 sekúnd). Trasa s viacerými kolami musí byť uzavretá.</p><p class="tip" data-i="o2_tip">Tip: oneskorenie 15 až 30 sekúnd robí vysielanie plynulé a zároveň férové voči jazdcom.</p></div><img src="assets/shots/org-setup.png" width="2720" height="1720" loading="lazy" alt="Nastavenie podujatia" data-i-alt="sc6_alt"></li>
+        <li><div><h3 data-i="o3_h">Pozvite účastníkov</h3><p data-i="o3_p">Meno, e-mail, pohlavie, jazyk e-mailu, kategória, vlna. Štartové číslo sa pridelí samo, alebo ho zadáte. Pozvánka odíde okamžite. V zozname vidíte stavy Pozvaní, Potvrdení, Odmietli a Chyba e-mailu, a môžete poslať pripomienku, odoslať znova alebo vydať nový odkaz.</p><p class="tip" data-i="o3_tip">Meno účastníka sa divákom ukáže len so súhlasom. U maloletých sa verejne zobrazuje iba štartové číslo.</p></div><img src="assets/shots/org-participants.png" width="2720" height="1720" loading="lazy" alt="Zoznam účastníkov" data-i-alt="sc4_alt"></li>
+        <li><div><h3 data-i="o4_h">Pripravené, potom naživo</h3><p data-i="o4_p">Stlačte „Označiť ako pripravené“ a v deň pretekov „Spustiť naživo“. Aplikácia ukáže verejný odkaz pre divákov: pošlite ho na sociálne siete a vyvesťte ako QR. Po spustení už nemožno meniť trať.</p></div></li>
+        <li><div><h3 data-i="o5_h">Riaďte preteky</h3><p data-i="o5_p">Na karte „Riadenie pretekov“ vidíte mapu, poradie, sektory a hlásenia. Alarm potvrdíte tlačidlom „Potvrdiť“, jazdca nájdete na mape a odstúpivšieho označíte ako DNF. Nevybavené hlásenia sú vždy hore, vybavené sa stlmia.</p></div><img src="assets/shots/control-light.png" width="2720" height="2260" loading="lazy" alt="Riadenie pretekov" data-i-alt="sc1_alt"></li>
+        <li><div><h3 data-i="o6_h">Po cieli</h3><p data-i="o6_p">Stlačte „Ukončiť podujatie“. Polohy sa po 30 dňoch zmažú samy. Ak o to účastník požiada, jeho údaje zmažete hneď (zostane len číslo). Oficiálne výsledky vydávate vy: diváckemu poradiu treba rozumieť ako orientačnému.</p></div></li>
       </ol>
     </div>
 
     <div class="panel" id="p-par" role="tabpanel" aria-labelledby="t-par" hidden>
       <ol class="steps">
-        <li class="noimg"><div><h3 data-i="p0_h">Stiahnite si aplikáciu OwnTracks</h3>
+        <li><div><h3 data-i="p0_h">Stiahnite si aplikáciu OwnTracks</h3>
           <p data-i="p0_p">Aplikácia PositionTracker pre účastníka neexistuje. Polohu počas preteku posiela <b>OwnTracks</b>, bezplatná aplikácia s otvoreným kódom, ktorú si nainštalujete jednorazovo. Beží na pozadí, takže telefón môžete nechať zamknutý vo vrecku.</p>
           <p class="badges"><a href="https://apps.apple.com/us/app/owntracks/id692424691" target="_blank" rel="noopener" aria-label="OwnTracks: App Store (iPhone)" data-i-aria="p0_ios"><img data-badge="apple" src="assets/badges/apple-sk.svg" alt="Stiahnuť v App Store" data-i-alt="p0_ios_alt" width="120" height="40"></a>
           <a href="https://play.google.com/store/apps/details?id=org.owntracks.android" target="_blank" rel="noopener" aria-label="OwnTracks: Google Play (Android)" data-i-aria="p0_and"><img class="play" data-badge="play" src="assets/badges/play-sk.png" alt="Stiahnuť z Google Play" data-i-alt="p0_and_alt" width="646" height="250"></a></p>
           <p class="tip" data-i="p0_tip">Telefón bez Google Play? Aplikáciu nájdete aj na <a href="https://f-droid.org/packages/org.owntracks.android/" target="_blank" rel="noopener">F-Droid</a>. Pozor, hľadajte presne „OwnTracks“ (vývojár OwnTracks), nie podobne znejúce aplikácie. Pri prvom spustení aplikácie nič nenastavujte: konfiguráciu dostanete z pozvánky v kroku 4.</p></div></li>
-        <li><div><h3 data-i="p1_h">Otvorte pozvánku</h3><p data-i="p1_p">V e-maile od organizátora kliknete na osobný odkaz. Stránka sa zobrazí vo vašom jazyku. Ukáže podujatie, vaše meno a číslo. Potvrďte účasť (alebo odmietnite) a ak chcete, zvoľte prezývku (max. 30 znakov).</p></div><div class="phoneimg"><img src="assets/shots/participant-invite.png?v=20261031e" width="780" height="1688" loading="lazy" alt="Pozvánka na telefóne" data-i-alt="p1_alt"></div></li>
-        <li><div><h3 data-i="p2_h">Dajte súhlas</h3><p data-i="p2_p">Povinný je súhlas so zdieľaním polohy počas pretekov. Organizátor vás vidí presne, diváci oneskorene. Voliteľne povolíte zobraziť svoje meno (inak vidia len číslo). Údaje sa po 30 dňoch zmažú.</p></div><div class="phoneimg"><img src="assets/shots/participant-consent.png?v=20261031e" width="780" height="1688" loading="lazy" alt="Súhlas so sledovaním" data-i-alt="p2_alt"></div></li>
-        <li><div><h3 data-i="p3_h">Nastavte OwnTracks</h3><p data-i="p3_p">Na telefóne, kde máte OwnTracks nainštalovaný, klepnite na „Nastaviť OwnTracks“, alebo naskenujte QR z iného zariadenia, a potvrďte import. Nič sa neprepisuje ručne.</p><p class="tip" data-i="p3_tip">Nastavenie obsahuje tajný kľúč vášho zariadenia. Nezdieľajte ho. Ak ste ho stratili, súhlas zopakujte: starý kľúč prestane fungovať.</p></div><div class="phoneimg"><img src="assets/shots/participant-setup.png?v=20261031e" width="780" height="1688" loading="lazy" alt="Nastavenie OwnTracks" data-i-alt="sc5_alt"></div></li>
-        <li class="noimg"><div><h3 data-i="p4_h">Povoľte polohu a batériu</h3><p data-i="p4_p"><b>Android:</b> Nastavenia → Aplikácie → OwnTracks → Batéria → Bez obmedzení; Poloha → Povoliť vždy. <b>iPhone:</b> Nastavenia → OwnTracks → Poloha → Vždy, presná poloha zapnutá, obnovovanie na pozadí zapnuté. V aplikácii nechajte režim „Move“.</p></div></li>
-        <li class="noimg"><div><h3 data-i="p5_h">Na štarte a počas preteku</h3><p data-i="p5_p">Pred štartom skontrolujte, že aplikácia po odoslaní polohy nehlási chybu. Nevypínajte telefón ani nezapínajte úsporu batérie. SOS nie je tlačidlo v aplikácii: zavolajte organizátorovi. Odstúpenie označí organizátor.</p></div></li>
+        <li><div><h3 data-i="p1_h">Otvorte pozvánku</h3><p data-i="p1_p">V e-maile od organizátora kliknete na osobný odkaz. Stránka sa zobrazí vo vašom jazyku. Ukáže podujatie, vaše meno a číslo. Potvrďte účasť (alebo odmietnite) a ak chcete, zvoľte prezývku (max. 30 znakov).</p></div><div class="phoneimg"><img src="assets/shots/participant-invite.png" width="780" height="1688" loading="lazy" alt="Pozvánka na telefóne" data-i-alt="p1_alt"></div></li>
+        <li><div><h3 data-i="p2_h">Dajte súhlas</h3><p data-i="p2_p">Povinný je súhlas so zdieľaním polohy počas pretekov. Organizátor vás vidí presne, diváci oneskorene. Voliteľne povolíte zobraziť svoje meno (inak vidia len číslo). Údaje sa po 30 dňoch zmažú.</p></div><div class="phoneimg"><img src="assets/shots/participant-consent.png" width="780" height="1688" loading="lazy" alt="Súhlas so sledovaním" data-i-alt="p2_alt"></div></li>
+        <li><div><h3 data-i="p3_h">Nastavte OwnTracks</h3><p data-i="p3_p">Na telefóne, kde máte OwnTracks nainštalovaný, klepnite na „Nastaviť OwnTracks“, alebo naskenujte QR z iného zariadenia, a potvrďte import. Nič sa neprepisuje ručne.</p><p class="tip" data-i="p3_tip">Nastavenie obsahuje tajný kľúč vášho zariadenia. Nezdieľajte ho. Ak ste ho stratili, súhlas zopakujte: starý kľúč prestane fungovať.</p></div><div class="phoneimg"><img src="assets/shots/participant-setup.png" width="780" height="1688" loading="lazy" alt="Nastavenie OwnTracks" data-i-alt="sc5_alt"></div></li>
+        <li><div><h3 data-i="p4_h">Povoľte polohu a batériu</h3><p data-i="p4_p"><b>Android:</b> Nastavenia → Aplikácie → OwnTracks → Batéria → Bez obmedzení; Poloha → Povoliť vždy. <b>iPhone:</b> Nastavenia → OwnTracks → Poloha → Vždy, presná poloha zapnutá, obnovovanie na pozadí zapnuté. V aplikácii nechajte režim „Move“.</p></div></li>
+        <li><div><h3 data-i="p5_h">Na štarte a počas preteku</h3><p data-i="p5_p">Pred štartom skontrolujte, že aplikácia po odoslaní polohy nehlási chybu. Nevypínajte telefón ani nezapínajte úsporu batérie. SOS nie je tlačidlo v aplikácii: zavolajte organizátorovi. Odstúpenie označí organizátor.</p></div></li>
       </ol>
     </div>
 
     <div class="panel" id="p-spe" role="tabpanel" aria-labelledby="t-spe" hidden>
       <ol class="steps">
-        <li><div><h3 data-i="s1_h">Otvorte verejný odkaz</h3><p data-i="s1_p">Organizátor vám pošle odkaz alebo QR. Žiadna inštalácia, žiadny účet. Hore je upozornenie o oneskorení polôh: poradie je orientačné.</p></div><img src="assets/shots/spectator-dark.png?v=20261031e" width="2720" height="1720" loading="lazy" alt="Divácka stránka" data-i-alt="sc3_alt"></li>
-        <li><div><h3 data-i="s2_h">Nájdite svojho favorita</h3><p data-i="s2_p">Hľadajte podľa mena alebo čísla, filtrujte kategóriu. Hviezdička pri mene vás prihlási na sledovanie: ostatní jazdci sa na mape zmenšia, váš je výrazný.</p></div><div class="phoneimg"><img src="assets/shots/spectator-mobile.png?v=20261031e" width="780" height="1688" loading="lazy" alt="Divák na telefóne" data-i-alt="sc2_alt"></div></li>
-        <li class="noimg"><div><h3 data-i="s3_h">Číta sa to samo</h3><p data-i="s3_p">Najväčšie číslo je predpokladaný čas v cieli a jeho rozptyl. Pod ním prejdená vzdialenosť, rýchlosť (alebo tempo), poradie a odstup, a farebné sektory: fialová je najrýchlejší úsek spomedzi všetkých, zelená vaša najlepšia, žltá pomalšia.</p></div></li>
-        <li class="noimg"><div><h3 data-i="s4_h">Upozornenie v cieli a zdieľanie</h3><p data-i="s4_p">Zapnite „Upozorniť v cieli“ a stránka vás upozorní, keď jazdec prejde cieľom (kým je otvorená). „Zdieľať“ pošle odkaz presne na vášho jazdca.</p></div></li>
+        <li><div><h3 data-i="s1_h">Otvorte verejný odkaz</h3><p data-i="s1_p">Organizátor vám pošle odkaz alebo QR. Žiadna inštalácia, žiadny účet. Hore je upozornenie o oneskorení polôh: poradie je orientačné.</p></div><img src="assets/shots/spectator-dark.png" width="2720" height="1720" loading="lazy" alt="Divácka stránka" data-i-alt="sc3_alt"></li>
+        <li><div><h3 data-i="s2_h">Nájdite svojho favorita</h3><p data-i="s2_p">Hľadajte podľa mena alebo čísla, filtrujte kategóriu. Hviezdička pri mene vás prihlási na sledovanie: ostatní jazdci sa na mape zmenšia, váš je výrazný.</p></div><div class="phoneimg"><img src="assets/shots/spectator-mobile.png" width="780" height="1688" loading="lazy" alt="Divák na telefóne" data-i-alt="sc2_alt"></div></li>
+        <li><div><h3 data-i="s3_h">Číta sa to samo</h3><p data-i="s3_p">Najväčšie číslo je predpokladaný čas v cieli a jeho rozptyl. Pod ním prejdená vzdialenosť, rýchlosť (alebo tempo), poradie a odstup, a farebné sektory: fialová je najrýchlejší úsek spomedzi všetkých, zelená vaša najlepšia, žltá pomalšia.</p></div></li>
+        <li><div><h3 data-i="s4_h">Upozornenie v cieli a zdieľanie</h3><p data-i="s4_p">Zapnite „Upozorniť v cieli“ a stránka vás upozorní, keď jazdec prejde cieľom (kým je otvorená). „Zdieľať“ pošle odkaz presne na vášho jazdca.</p></div></li>
       </ol>
     </div>
   </div>
@@ -217,7 +264,7 @@
 </section>
 
 <section id="faq" aria-labelledby="faq-h">
-  <div class="wrap">
+  <div class="wrap doc">
     <div class="sechead"><h2 class="display" id="faq-h" data-i="faq_h">Otázky, ktoré by ste si položili neskôr.</h2></div>
     <details><summary data-i="q1">Potrebujem vlastný GPS trackér?</summary><p data-i="a1">Nie. Stačí telefón v dresovom vrecku, batohu alebo na ruke. Zdarma aplikácia OwnTracks posiela polohu na pozadí.</p></details>
     <details><summary data-i="q2">Čo ak vypadne signál?</summary><p data-i="a2">Aplikácia polohy zaradí do fronty a odošle ich po obnovení pripojenia. Diváci aj organizátor dostanú upozornenie „offline“, kým signál chýba. Presné správanie pri veľkých výpadkoch sa overuje v teréne.</p></details>
@@ -237,10 +284,10 @@
   </div>
 </section>
 </main>
-<footer><div class="wrap"><span>PositionTracker</span><span data-i="foot">Demo na tejto stránke používa vymyslené údaje. Mapové podklady © OpenStreetMap prispievatelia.</span></div></footer>
-<script src="config.js?v=20261031e"></script>
-<script src="vendor/leaflet.js?v=20261031e"></script>
-<script src="demo.js?v=20261031e"></script>
-<script src="app.js?v=20261031e"></script>
+<footer><div class="wrap"><span>PositionTracker · lab463.com</span><span data-i="foot">Demo na tejto stránke používa vymyslené údaje. Mapové podklady © OpenStreetMap prispievatelia.</span></div></footer>
+<script src="config.js" defer></script>
+<script src="vendor/leaflet.js" defer></script>
+<script src="demo.js" defer></script>
+<script src="app.js" defer></script>
 </body>
 </html>

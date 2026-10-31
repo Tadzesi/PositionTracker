@@ -67,7 +67,7 @@
     // the stage grows when the standings are filled in and when the window changes: keep the map fitted to its box
     if (window.ResizeObserver) new ResizeObserver(fit).observe($('.map')); else window.addEventListener('resize', fit);
 
-    let sport = 'cycling', view = 'organizer', speedMul = 12, selected = 0, simT = 0, running = true, finished = false, lastTs = 0;
+    let sport = 'cycling', view = 'organizer', speedMul = 12, selected = 0, simT = 0, running = true, paused = false, finished = false, lastTs = 0;
     let riders = [];
     const bestSector = Array(SECTORS).fill(Infinity);
 
@@ -225,7 +225,7 @@
       if (!lastTs) lastTs = ts;
       const dt = Math.min(0.1, (ts - lastTs) / 1000);
       lastTs = ts;
-      if (running && !document.hidden) {
+      if (running && !paused && !document.hidden) {
         for (let k = 0; k < speedMul; k++) step(dt);
         draw();
       }
@@ -252,7 +252,16 @@
       if (view === 'organizer') flag(r.alarms[k] && k !== 'lowBattery' ? 'sos' : '', names[k][r.alarms[k] ? 0 : 1] + ' · #' + (r.i + 1) + ' ' + label(r));
       running = true; draw();
     }));
-    $('[data-act="restart"]').addEventListener('click', () => { running = true; reset(); });
+    const pauseBtn = $('[data-act="pause"]');
+    const setPaused = (p) => {
+      paused = p;
+      pauseBtn.setAttribute('aria-pressed', String(p));
+      pauseBtn.textContent = p ? t('Pokračovať', 'Resume') : t('Pozastaviť', 'Pause');
+    };
+    pauseBtn.addEventListener('click', () => setPaused(!paused));
+    // moving content can be stopped at any time; with "reduce motion" the demo starts stopped
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) setPaused(true);
+    $('[data-act="restart"]').addEventListener('click', () => { setPaused(false); running = true; reset(); });
     $('[data-act="again"]').addEventListener('click', () => { running = true; reset(); });
     reset();
     for (let k = 0; k < 2000; k++) step(0.1); // 200 s into the race, so the first impression already has a field spread out

@@ -28,8 +28,14 @@ Migrations run at start (`Persistence__MigrateOnStartup`). Running events are re
 ## Update the site
 
 ```bash
-tar -C site -cf - --exclude=README.md . | ssh tadzesi@192.168.1.2 'tar -x -C ~/server/stacks/web/site/tracker'   # no reload needed
+cd site && python build.py                       # renders dist/ (Slovak /tracker/ and English /tracker/en/)
+cd .. && ssh tadzesi@192.168.1.2 'rm -rf ~/server/stacks/web/site/tracker.new && mkdir ~/server/stacks/web/site/tracker.new'
+tar -C site/dist -cf - --exclude=seo . | ssh tadzesi@192.168.1.2 'tar -x -C ~/server/stacks/web/site/tracker.new && cd ~/server/stacks/web/site && mv tracker ~/backups/tracker.old-$(date +%Y%m%d-%H%M%S) && mv tracker.new tracker'
 ```
+
+No nginx reload is needed. Asset URLs carry a content hash, so Cloudflare serves new files at once; the HTML is never cached.
+SEO files shared with the whole portal (`sitemap.xml`, `robots.txt`, `llms.txt`, `llms-full.txt`) were extended on 2026-10-31 with the tracker
+pages (backups: `~/backups/lab463-<file>.bak.*`).
 
 ## Operations
 

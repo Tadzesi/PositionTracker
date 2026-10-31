@@ -18,7 +18,7 @@ p{margin:.4rem 0}
 .brand{font-family:var(--display);font-style:italic;font-weight:900;font-size:1.4rem;text-transform:uppercase;color:var(--text);text-decoration:none}
 .brand b{color:var(--red)}
 .spacer{flex:1}
-.toggles{display:flex;gap:6px}
+.toggles{display:flex;gap:8px}
 .btn,button{font:inherit;cursor:pointer}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 16px;border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:3px;text-decoration:none;font-weight:600;min-height:40px;transform:skewX(-8deg)}
 .btn>*{transform:skewX(8deg)}
@@ -95,3 +95,10 @@ tr.sel td{background:var(--panel2)}tr.click{cursor:pointer}
 @media (max-width:600px){.hero h1{font-size:2.4rem}h1{font-size:1.9rem}}
 
 @media (max-width:600px){.topbar .wrap{gap:6px;flex-wrap:nowrap;min-height:48px}.brand{font-size:1.15rem}.topbar .btn.small{padding:4px 8px;min-height:30px;font-size:.8rem}.toggles{gap:3px}.wrap{padding:0 12px}}
+
+/* segmented controls: both choices visible, the active one filled */
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:99px;overflow:hidden;background:var(--panel2)}
+.seg button{background:transparent;border:0;color:var(--text);font:inherit;font-weight:600;font-size:.85rem;min-height:36px;padding:0 12px;cursor:pointer}
+.seg button:hover{background:var(--line)}
+.seg button[aria-pressed="true"]{background:var(--text);color:var(--deep);cursor:default}
+@media (max-width:600px){.seg button{padding:0 9px}.seg .lbl{display:none}}
