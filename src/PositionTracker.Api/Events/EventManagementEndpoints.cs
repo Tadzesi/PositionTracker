@@ -1,6 +1,4 @@
-using System.Data.Common;
 using Microsoft.AspNetCore.Http.Json;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using PositionTracker.Api.Accounts;
 using PositionTracker.Api.Endpoints;
@@ -147,7 +145,5 @@ public static class EventManagementEndpoints
         return body is null ? (null, EventErrors.Result(EventErrors.InvalidBody)) : (body, null);
     }
 
-    private static bool IsDatabaseFailure(Exception ex) =>
-        ex is DbException or DbUpdateException or TimeoutException
-        || ex.InnerException is DbException or TimeoutException;
+    private static bool IsDatabaseFailure(Exception ex) => EventService.IsDatabaseFailure(ex);
 }

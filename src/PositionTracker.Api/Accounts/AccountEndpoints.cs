@@ -228,19 +228,11 @@ public static class AccountEndpoints
             null => AccountErrors.InvalidBody(),
         };
 
-    /// <summary>Trimmed, 1 to 200 characters (Unicode scalar values), no control characters or line separators.</summary>
-    private static bool TryName(string? input, out string name)
-    {
-        name = (input ?? "").Trim();
-        if (name.Length == 0) return false;
-        var count = 0;
-        foreach (var rune in name.EnumerateRunes())
-        {
-            if (Rune.IsControl(rune) || rune.Value is 0x2028 or 0x2029) return false;
-            if (++count > MaxNameLength) return false;
-        }
-        return true;
-    }
+    /// <summary>
+    /// Trimmed, 1 to 200 characters (Unicode scalar values), no control, line separator or bidirectional formatting
+    /// characters (<see cref="Events.TextRules"/>, the rule of event names too).
+    /// </summary>
+    private static bool TryName(string? input, out string name) => Events.TextRules.TryLine(input, MaxNameLength, out name);
 
     private static bool TryLanguage(string? input, out string language)
     {

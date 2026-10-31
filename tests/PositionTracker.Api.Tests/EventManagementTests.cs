@@ -9,8 +9,10 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using PositionTracker.Api.Accounts;
 using PositionTracker.Api.Events;
+using PositionTracker.Api.Persistence;
 using PositionTracker.Api.Simulation;
 using PositionTracker.Core;
 using PositionTracker.Core.Simulation;
@@ -555,9 +557,21 @@ public sealed class EventManagementTests(PostgresFixture postgres) : IClassFixtu
 
         await AssertErrorAsync(await other.GetAsync($"/api/events/{id}/manage"), HttpStatusCode.NotFound, "not_found");
         await AssertErrorAsync(await PutCourseAsync(other, id), HttpStatusCode.NotFound, "not_found");
+        Assert.Equal(HttpStatusCode.OK, (await owner.PutAsync($"/api/events/{id}/categories", new[] { new { name = "Open" }, new { name = "Ženy" } })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await owner.PutAsync($"/api/events/{id}/waves", new[] { new { name = "Elita", startTime = Utc(Start) } })).StatusCode);
         await AssertErrorAsync(await other.PutAsync($"/api/events/{id}/categories", Array.Empty<object>()), HttpStatusCode.NotFound, "not_found");
+        await AssertErrorAsync(await other.PutAsync($"/api/events/{id}/categories", new[] { new { name = "Hijack" } }), HttpStatusCode.NotFound, "not_found");
         await AssertErrorAsync(await other.PutAsync($"/api/events/{id}/waves", Array.Empty<object>()), HttpStatusCode.NotFound, "not_found");
+        await AssertErrorAsync(await other.PutAsync($"/api/events/{id}/waves", new[] { new { name = "Hijack", startTime = Utc(Start.AddHours(1)) } }),
+            HttpStatusCode.NotFound, "not_found");
         await AssertErrorAsync(await StateAsync(other, id, "ready"), HttpStatusCode.NotFound, "not_found");
+        Assert.Equal(["Open", "Ženy"], (await CategoriesAsync(host, id)).Select(c => c.Name).Order(StringComparer.Ordinal));
+        await using (var db = Db(host))
+        {
+            var wave = Assert.Single(await db.Waves.Where(w => w.EventId == id).ToListAsync());
+            Assert.Equal("Elita", wave.Name);
+            Assert.Equal(Start, wave.StartTime);
+        }
         await AssertErrorAsync(await other.GetAsync("/api/events/not-a-guid/manage"), HttpStatusCode.NotFound, "not_found");
         await AssertErrorAsync(await other.GetAsync($"/api/events/{Guid.NewGuid()}/manage"), HttpStatusCode.NotFound, "not_found");
         var stored = await EventAsync(host, id);
@@ -662,6 +676,141 @@ public sealed class EventManagementTests(PostgresFixture postgres) : IClassFixtu
         Assert.Contains(responses, r => r.StatusCode == HttpStatusCode.OK);
         var names = (await CategoriesAsync(host, id)).Select(c => c.Name).Order(StringComparer.Ordinal).ToList();
         Assert.Contains(sets, set => set.Order(StringComparer.Ordinal).SequenceEqual(names));
+    }
+
+    [Fact]
+    public async Task Only_the_canonical_lower_case_id_reaches_an_event_on_read_and_write_routes()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "anna@example.org");
+        var id = await CreatedAsync(org);
+        Assert.Equal(HttpStatusCode.OK, (await org.GetAsync($"/api/events/{id:D}/manage")).StatusCode);
+
+        foreach (var form in new[] { id.ToString("D").ToUpperInvariant(), id.ToString("N"), id.ToString("B"), "not-a-guid" })
+        {
+            await AssertErrorAsync(await org.GetAsync($"/api/events/{form}/manage"), HttpStatusCode.NotFound, "not_found");
+            await AssertErrorAsync(await org.PutAsync($"/api/events/{form}/course", new { gpxBase64 = Convert.ToBase64String(LoopGpx) }),
+                HttpStatusCode.NotFound, "not_found");
+            await AssertErrorAsync(await org.PutAsync($"/api/events/{form}/categories", new[] { new { name = "X" } }), HttpStatusCode.NotFound, "not_found");
+            await AssertErrorAsync(await org.PutAsync($"/api/events/{form}/waves", new[] { new { name = "W", startTime = Utc(Start) } }),
+                HttpStatusCode.NotFound, "not_found");
+            await AssertErrorAsync(await StateAsync(org, form, "ready"), HttpStatusCode.NotFound, "not_found");
+        }
+        var stored = await EventAsync(host, id);
+        Assert.Null(stored.GpxBytes);
+        Assert.Empty(await CategoriesAsync(host, id));
+        await using var db = Db(host);
+        Assert.Empty(await db.Waves.ToListAsync());
+    }
+
+    [Fact]
+    public async Task A_line_wrapped_base64_gpx_just_under_one_megabyte_is_accepted()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "anna@example.org");
+        var id = await CreatedAsync(org);
+        var gpx = new byte[1024 * 1024];
+        Array.Fill(gpx, (byte)' ');
+        LoopGpx.CopyTo(gpx, 0);
+        var wrapped = Convert.ToBase64String(gpx, Base64FormattingOptions.InsertLineBreaks);
+        Assert.Contains("\r\n", wrapped);
+
+        Assert.Equal(HttpStatusCode.OK, (await org.PutAsync($"/api/events/{id}/course", new { gpxBase64 = wrapped })).StatusCode);
+        Assert.Equal(gpx, (await EventAsync(host, id)).GpxBytes);
+    }
+
+    [Fact]
+    public async Task A_finish_that_loses_a_race_to_another_finish_never_reopens_ingest()
+    {
+        var hooks = new EventServiceHooks();
+        await using var host = Host(services: s => s.AddSingleton(hooks));
+        var org = await SessionAsync(host, "anna@example.org");
+        var id = await SeedEventAsync(host, org.OrganizerId, EventState.Ready, LoopGpx);
+        await SeedParticipantAsync(host, id, ParticipantStatus.Confirmed);
+        Assert.Equal(HttpStatusCode.OK, (await StateAsync(org, id, "live")).StatusCode);
+        var runtimeId = id.ToString("D");
+        var raced = false;
+        var seenOnRetry = new List<bool>();
+        hooks.BeforeSave = async eventId =>
+        {
+            if (raced || eventId != id) return;
+            raced = true;
+            // Another request finishes the event between this request's read and its write.
+            Assert.Equal(HttpStatusCode.OK, (await StateAsync(org, id, "finished")).StatusCode);
+        };
+        hooks.BeforeStateAttempt = (eventId, attempt) =>
+        {
+            if (eventId == id && attempt > 1) lock (seenOnRetry) seenOnRetry.Add(host.Registry.IsFinished(runtimeId));
+            return Task.CompletedTask;
+        };
+
+        Assert.Equal(HttpStatusCode.OK, (await StateAsync(org, id, "finished")).StatusCode);
+
+        Assert.True(raced);
+        Assert.Equal([true], seenOnRetry); // the losing request did not reopen ingest while it retried
+        Assert.True(host.Registry.IsFinished(runtimeId));
+        Assert.Equal(EventState.Finished, (await EventAsync(host, id)).State);
+    }
+
+    [Fact]
+    public async Task Concurrent_finish_and_live_requests_leave_the_ingest_flag_matching_the_stored_state()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "anna@example.org");
+        var live = await SeedEventAsync(host, org.OrganizerId, EventState.Ready, LoopGpx);
+        var ready = await SeedEventAsync(host, org.OrganizerId, EventState.Ready, LoopGpx);
+        await SeedParticipantAsync(host, live, ParticipantStatus.Confirmed);
+        await SeedParticipantAsync(host, ready, ParticipantStatus.Confirmed);
+        Assert.Equal(HttpStatusCode.OK, (await StateAsync(org, live, "live")).StatusCode);
+
+        // A live event: several finishes and repeated lives at once.
+        var first = await Task.WhenAll(new[] { "finished", "live", "finished", "finished", "live", "finished" }.Select(s => StateAsync(org, live, s)));
+        foreach (var r in first)
+            if (r.StatusCode != HttpStatusCode.OK) await AssertErrorAsync(r, HttpStatusCode.Conflict, "invalid_transition");
+        Assert.Equal(EventState.Finished, (await EventAsync(host, live)).State);
+        Assert.True(host.Registry.IsFinished(live.ToString("D")));
+
+        // A ready event: live and finished race; whatever wins, the flag follows the database.
+        var second = await Task.WhenAll(StateAsync(org, ready, "live"), StateAsync(org, ready, "finished"));
+        Assert.Equal(HttpStatusCode.OK, second[0].StatusCode);
+        var state = (await EventAsync(host, ready)).State;
+        Assert.Equal(state == EventState.Finished, host.Registry.IsFinished(ready.ToString("D")));
+        Assert.NotNull(host.Registry.Get(ready.ToString("D")));
+    }
+
+    public static TheoryData<string> DatabaseFailures => new() { "timeout", "wrapped" };
+
+    [Theory]
+    [MemberData(nameof(DatabaseFailures))]
+    public async Task A_database_failure_while_building_the_runtime_is_503_unavailable_and_the_event_stays_ready(string kind)
+    {
+        Exception failure = kind == "timeout"
+            ? new TimeoutException("read timed out")
+            : new InvalidOperationException("transient", new Npgsql.NpgsqlException("connection refused"));
+        await using var host = Host(services: s =>
+        {
+            s.RemoveAll<IFixStore>();
+            s.AddSingleton<IFixStore>(new FailingFixStore(failure));
+        });
+        var org = await SessionAsync(host, "anna@example.org");
+        var id = await SeedEventAsync(host, org.OrganizerId, EventState.Ready, LoopGpx);
+        await SeedParticipantAsync(host, id, ParticipantStatus.Confirmed);
+
+        await AssertErrorAsync(await StateAsync(org, id, "live"), HttpStatusCode.ServiceUnavailable, "unavailable");
+
+        Assert.Equal(EventState.Ready, (await EventAsync(host, id)).State);
+        Assert.Null(host.Registry.Get(id.ToString("D")));
+    }
+
+    private sealed class FailingFixStore(Exception failure) : IFixStore
+    {
+        public Task AppendAsync(string eventId, string participantId, IReadOnlyList<PositionFix> accepted, DeviceStatus? status,
+            DateTimeOffset receivedAt, CancellationToken ct) => throw failure;
+        public Task WriteAsync(IReadOnlyList<HistoryWrite> writes, CancellationToken ct) => throw failure;
+        public IAsyncEnumerable<StoredFix> ReadAsync(string eventId, CancellationToken ct) => throw failure;
+        public IAsyncEnumerable<StoredStatus> ReadStatusesAsync(string eventId, CancellationToken ct) => throw failure;
+        public IAsyncEnumerable<StoredAction> ReadActionsAsync(string eventId, CancellationToken ct) => throw failure;
+        public Task<int> DeleteOlderThanAsync(DateTimeOffset eventEndedBefore, CancellationToken ct) => throw failure;
     }
 
     [Fact]

@@ -6,6 +6,8 @@ using Microsoft.Extensions.Configuration.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using PositionTracker.Email;
 using Microsoft.Extensions.Time.Testing;
 using PositionTracker.Api.Auth;
 using PositionTracker.Api.Events;
@@ -51,7 +53,21 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         ["Organizer:ApiKey"] = "test-key",
         ["ConnectionStrings:Default"] = "", // in memory, unless a test sets a database
         ["Persistence:MigrateOnStartup"] = "false",
+        // Hermetic: the in-memory source is added last, so these override environment variables (and user secrets
+        // are removed): no developer or CI mailbox reaches a test host. Tests that need SMTP set a "*.invalid" host.
+        ["Email:Smtp:Host"] = "",
+        ["Email:Smtp:User"] = "",
+        ["Email:Smtp:Password"] = "",
+        ["Email:Smtp:Port"] = "587",
+        ["Email:Smtp:UseStartTls"] = "true",
+        ["Email:From"] = "",
     };
+
+    /// <summary>
+    /// Opt-in for a host whose SMTP server is not a reserved <c>*.invalid</c> name. Without it, building such a host
+    /// fails the test, so the test project can never send real mail.
+    /// </summary>
+    public bool AllowRealSmtp { get; init; }
 
     public EventRegistry Registry => Services.GetRequiredService<EventRegistry>();
 
@@ -100,6 +116,14 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     protected override IHost CreateHost(IHostBuilder builder)
     {
         var host = base.CreateHost(builder);
+        if (!AllowRealSmtp && host.Services.GetRequiredService<IEmailSender>() is SmtpEmailSender
+            && host.Services.GetRequiredService<IOptions<EmailOptions>>().Value.Smtp.Host is var smtpHost
+            && !smtpHost.TrimEnd('.').EndsWith(".invalid", StringComparison.OrdinalIgnoreCase))
+        {
+            host.Dispose();
+            throw new InvalidOperationException(
+                "This test host would send through a real SMTP server; use a '*.invalid' host or set AllowRealSmtp.");
+        }
         if (!SeedTestEvent) return host;
         var registry = host.Services.GetRequiredService<EventRegistry>();
         var tokens = host.Services.GetRequiredService<TokenService>();

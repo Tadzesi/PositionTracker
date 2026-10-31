@@ -7,4 +7,7 @@ namespace PositionTracker.Api.Events;
 public sealed class EventServiceHooks
 {
     public Func<Guid, Task>? BeforeSave { get; set; }
+
+    /// <summary>Runs at the start of every attempt of a state change (attempt 1, 2, ...).</summary>
+    public Func<Guid, int, Task>? BeforeStateAttempt { get; set; }
 }

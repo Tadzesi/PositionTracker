@@ -205,6 +205,25 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         Assert.Single(await OrganizersAsync(host));
     }
 
+    public static TheoryData<string> BidiNames => new()
+    {
+        "Eve " + (char)0x202E + "gnp.exe",
+        "Isolate " + (char)0x2066 + "x" + (char)0x2069,
+        "Mark " + (char)0x200F,
+        "Arabic mark " + (char)0x061C,
+    };
+
+    [Theory]
+    [MemberData(nameof(BidiNames))]
+    public async Task Organizer_names_with_bidirectional_formatting_characters_are_rejected(string name)
+    {
+        await using var host = Host();
+        var client = Client(host);
+
+        await AssertErrorAsync(await SignUpAsync(client, name, "bidi@example.org", "en"), HttpStatusCode.BadRequest, "validation_failed", "name");
+        Assert.Empty(await OrganizersAsync(host));
+    }
+
     [Theory]
     [InlineData("", "a@example.org", "en", "name")]
     [InlineData("   ", "a@example.org", "en", "name")]

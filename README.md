@@ -200,6 +200,8 @@ routes under `/api/events/**`, but not the device ingest `/api/events/{id}/posit
   cookie, the profile, and the email counts as confirmed (the link proves the mailbox). Errors
   `400 link_expired|link_used|link_invalid` (superseded, wrong purpose, unknown and missing tokens are `link_invalid`),
   `429 rate_limited` beyond 60 per IP bucket and hour. GET on these routes is `405`.
+- Organizer names: trimmed, 1–200 characters; control characters (CR, LF, tab, …), line/paragraph separators and
+  bidirectional formatting characters are rejected (`400 validation_failed`, field `name`), never stripped.
 - `POST signout` (204) clears the cookie and rotates the security stamp, ending every session of the account.
 - `GET me` → `{name,email,language,emailConfirmed,emailMode}` or `401 unauthorized`.
 - Errors are `{"code","message":{"sk","en"}}` (+ `field` for `validation_failed`). Policies for later endpoints:
@@ -246,12 +248,13 @@ browser headers (see above); the device routes `/api/events/{id}/positions|actio
 shared `{"code","message":{"sk","en"},"field"?}` shape. An event of **another organizer, an unknown id and a
 simulated (demo) event are all `404 not_found`**, for reads and writes alike; the list shows only the organizer's
 own database events (demo events live only in memory and never appear). The runtime id of an event is its database
-Guid formatted `D` (lower case).
+Guid formatted `D` (lower case); only that canonical form reaches an event (upper case, `N` or `{…}` forms are
+`404 not_found`).
 
 - `POST /api/events {name, location, startTime, sport}` → `201 {eventId}` (state `draft`, laps 1, spectator delay
   30 s); allowed before the email is confirmed. `name`/`location`: trimmed, 1–120 characters; control characters
   (CR, LF, tab, …), line/paragraph separators and bidirectional formatting characters are **rejected** (not
-  stripped), as for organizer names. `startTime`: UTC ISO 8601 with `Z`, strictly in the future (at most 5 years
+  stripped), the same rule as for organizer names at sign-up. `startTime`: UTC ISO 8601 with `Z`, strictly in the future (at most 5 years
   ahead). `sport`: `running` or `cycling`. Invalid input: `400 validation_failed` + `field`.
 - `GET /api/events` → `{emailMode, events:[{eventId,name,location,startTime,sport,state}]}`;
   `GET /api/events/{id}/manage` → name, location, start, sport, state, laps, spectator delay, `course`
@@ -262,7 +265,7 @@ Guid formatted `D` (lower case).
   (laps default 1, delay default 30 s). Everything is validated before the database is touched: `laps_invalid`
   (1–10), `delay_invalid` (5–300 s), `checkpoint_invalid` (name 1–60 characters, names unique ignoring case,
   distances distinct and strictly inside the lap, at most 50), `gpx_invalid` (missing, not base64, not GPX, DTD, fewer
-  than 2 points: parsed by the hardened `GpxParser`), `413 gpx_too_large` (over 1 MB decoded; the body cap is 2 MB),
+  than 2 points: parsed by the hardened `GpxParser`), `413 gpx_too_large` (over 1 MB decoded; line-wrapped base64 is accepted; the body cap is 2 MB),
   `course_too_short` (lap under 50 m), `course_not_closed` (more than one lap on an open course). Stores the GPX
   bytes, laps, checkpoints and delay on the event and the derived parameters in `Courses`; a new upload replaces
   the old one.

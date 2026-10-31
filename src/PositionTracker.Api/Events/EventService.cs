@@ -255,6 +255,7 @@ public sealed class EventService(
         {
             db.ChangeTracker.Clear();
             if (await FindAsync(organizerId, eventId, tracked: true, ct) is not { } ev) return EventErrors.NotFound;
+            if (hooks?.BeforeStateAttempt is { } attemptHook) await attemptHook(ev.Id, attempt);
             try
             {
                 var error = ev.State == target
@@ -293,7 +294,7 @@ public sealed class EventService(
         {
             runtime = await factory.BuildAsync(db, ev, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException && ex is not NpgsqlException)
+        catch (Exception ex) when (ex is not OperationCanceledException && !IsDatabaseFailure(ex))
         {
             logger.LogError("Runtime of live event {EventId} could not be rebuilt ({ExceptionType}).", runtimeId, ex.GetType().Name);
             return EventErrors.RuntimeFailed;
@@ -330,7 +331,7 @@ public sealed class EventService(
         {
             runtime = await factory.BuildAsync(db, ev, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException && ex is not NpgsqlException)
+        catch (Exception ex) when (ex is not OperationCanceledException && !IsDatabaseFailure(ex))
         {
             // Rolled back by disposing the transaction: the event stays Ready.
             logger.LogError("Runtime of event {EventId} could not be built ({ExceptionType}); it stays ready.", runtimeId, ex.GetType().Name);
@@ -369,9 +370,16 @@ public sealed class EventService(
         ev.Version = Guid.NewGuid();
         // Refuse ingest from now on; if the change does not commit, the event is still live and takes ingest again.
         registry.SetFinished(runtimeId, true);
+        if (hooks?.BeforeSave is { } hook) await hook(ev.Id);
         try
         {
             await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Another request changed the event first, most likely finishing it: keep ingest closed; the caller
+            // re-reads and, should the event still be live after all, finishes it on the next attempt.
+            throw;
         }
         catch
         {
@@ -385,9 +393,22 @@ public sealed class EventService(
 
     private async Task<EventEntity?> FindAsync(Guid organizerId, string eventId, bool tracked, CancellationToken ct)
     {
-        if (!Guid.TryParse(eventId, out var id)) return null;
+        // Only the canonical runtime id (Guid "D", lower case; ruling P5) names an event.
+        if (!Guid.TryParseExact(eventId, "D", out var id) || !string.Equals(eventId, RuntimeFactory.RuntimeId(id), StringComparison.Ordinal))
+            return null;
         var query = tracked ? db.Events : db.Events.AsNoTracking();
         return await query.SingleOrDefaultAsync(e => e.Id == id && e.OrganizerId == organizerId, ct);
+    }
+
+    /// <summary>
+    /// A failure of the database (connection, timeout, provider error, also when EF wraps it in an
+    /// <see cref="InvalidOperationException"/>): answered 503 <c>unavailable</c>, never as a broken event.
+    /// </summary>
+    public static bool IsDatabaseFailure(Exception ex)
+    {
+        for (var e = ex; e is not null; e = e.InnerException)
+            if (e is System.Data.Common.DbException or DbUpdateException or TimeoutException) return true;
+        return false;
     }
 
     private static bool IsFrozen(EventEntity ev) => ev.State is EventState.Live or EventState.Finished;
@@ -462,7 +483,11 @@ public sealed class EventService(
     private static (byte[]? Gpx, EventError? Error) DecodeGpx(string? base64)
     {
         if (string.IsNullOrWhiteSpace(base64)) return (null, EventErrors.GpxInvalid);
-        if ((long)base64.Length / 4 * 3 > MaxGpxBytes + 2) return (null, EventErrors.GpxTooLarge);
+        // Count only the base64 characters: line-wrapped base64 (CR/LF every 76 characters) is fine.
+        long chars = 0;
+        foreach (var c in base64)
+            if (c is not (' ' or (char)9 or (char)10 or (char)13)) chars++;
+        if (chars / 4 * 3 > MaxGpxBytes + 2) return (null, EventErrors.GpxTooLarge);
         byte[] bytes;
         try
         {
