@@ -63,7 +63,14 @@ app.Use((context, next) =>
     return next(context);
 });
 app.UseDefaultFiles();
-app.UseStaticFiles(); // the web app build (wwwroot), see web/
+// The web app build (wwwroot), see web/. Vite names everything under /assets by content hash, so those files can be cached for
+// good; index.html and the other files keep their names and must be revalidated (ETag, so an unchanged file costs a 304), or a
+// browser keeps running the previous deployment until the user reloads by hand.
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx => ctx.Context.Response.Headers.CacheControl =
+        ctx.Context.Request.Path.StartsWithSegments("/assets") ? "public, max-age=31536000, immutable" : "no-cache",
+});
 app.UseBrowserApiHeaders(); // first: refused requests never reach a limiter
 app.UseDeviceAuthentication(); // before the limiter: it partitions by the resolved token
 app.UseRateLimiter();
