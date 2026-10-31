@@ -188,5 +188,11 @@
  "demo_resume": "Resume",
  "g_share": "Send participants a direct link to their guide:",
  "g_copy": "Copy link",
- "g_copied": "Link copied"
+ "g_copied": "Link copied",
+ "story_h": "Born over a beer. That is why it works.",
+ "story_p1": "This tool was not born in a meeting. It started over a beer, when my colleague Qto explained how he struggles to tell an AI what exactly it should do. Qto is a passionate cyclist and a man who knows his way around vibration and signal measurement. He can spot one bad bearing in a chart at a glance.",
+ "story_p2": "My take: an AI is not a calibrated sensor, it is a capable new colleague. Tell it “just do something” and you get something. Tell it what you want, what it will run on and how you will check it, and you get PositionTracker: live race tracking from registration to the finish line.",
+ "story_p3": "I am Martin Horný, a senior .NET developer from Košice, Slovakia. If you are sceptical about AI, you are right not to trust it blindly. You have to steer it and check its work. I would be glad to show you how to bring it into your team’s work.",
+ "story_cta": "Want to try it in your company or club? Get in touch:",
+ "story_links": "<a href=\"https://www.linkedin.com/in/martin-horny-profile\" rel=\"me noopener\">LinkedIn</a> · <a href=\"https://github.com/Tadzesi\" rel=\"me noopener\">GitHub</a> · <a href=\"https://www.lab463.com/cv/\">CV</a> · <a href=\"mailto:martinhorny74@gmail.com\">E-mail</a>"
 }

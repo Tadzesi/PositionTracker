@@ -143,6 +143,12 @@ figcaption b{color:var(--text);display:block;font-stretch:75%;font-weight:800;fo
 .panel[hidden]{display:none}
 kbd{font:inherit;font-weight:700;background:var(--bg2);border:1px solid var(--line);padding:0 6px}
 
+/* story */
+.story{max-width:68ch}
+.story p{font-size:1.1rem;margin:0 0 18px}
+.story-cta{margin-top:28px!important;padding-top:20px;border-top:3px solid var(--text)}
+.story-cta a{font-weight:700}
+
 /* how */
 .facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:36px}
 .facts div b{display:block;font-stretch:62%;font-weight:900;font-style:italic;font-size:3.6rem;line-height:.9;color:var(--coral)}
