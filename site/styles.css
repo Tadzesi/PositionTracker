@@ -149,3 +149,5 @@ details p{margin-top:10px}
 footer{background:#06142F;color:#9DB0D6;padding:34px 0;font-size:.9rem}
 footer .wrap{display:flex;gap:20px;flex-wrap:wrap;justify-content:space-between}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+[hidden]{display:none!important}

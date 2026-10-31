@@ -1,0 +1,68 @@
+# PositionTracker on the home server: ~/server/stacks/positiontracker/docker-compose.yml
+# The source is in ./src (git archive of the repository), secrets in ./.env (chmod 600, never committed).
+# Public path: https://www.lab463.com/tracker/ (site) and /tracker/app/ (this app), routed by the nginx of the web stack.
+name: positiontracker
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: positiontracker-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: positiontracker
+      POSTGRES_USER: positiontracker
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pt-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U positiontracker -d positiontracker"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [internal]
+
+  app:
+    build:
+      context: ./src
+      args:
+        VITE_BASE: /tracker/app/
+    image: positiontracker-app
+    container_name: positiontracker
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Default: "Host=db;Port=5432;Database=positiontracker;Username=positiontracker;Password=${DB_PASSWORD}"
+      Persistence__MigrateOnStartup: "true"
+      Organizer__ApiKey: ${ORGANIZER_API_KEY}
+      Accounts__RateLimitSalt: ${RATE_LIMIT_SALT}
+      Accounts__DataProtectionKeysPath: /keys
+      Email__PublicBaseUrl: https://www.lab463.com/tracker/app
+      Email__From: ${MAIL_FROM}
+      Email__FromName: ${MAIL_FROM_NAME}
+      Email__Smtp__Host: ${SMTP_HOST}
+      Email__Smtp__Port: ${SMTP_PORT}
+      Email__Smtp__UseStartTls: ${SMTP_STARTTLS}
+      Email__Smtp__User: ${SMTP_USER}
+      Email__Smtp__Password: ${SMTP_PASSWORD}
+      # Only the nginx of the web stack (frontend network) is trusted for X-Forwarded-For / -Proto.
+      Proxy__KnownNetworks__0: 172.30.0.0/24
+      Retention__FixDays: "30"
+    volumes:
+      - pt-keys:/keys
+    networks:
+      frontend:
+        aliases: [positiontracker]
+      internal:
+
+volumes:
+  pt-db:
+  pt-keys:
+
+networks:
+  frontend:
+    external: true
+  internal:
+    driver: bridge

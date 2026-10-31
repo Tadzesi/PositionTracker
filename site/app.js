@@ -52,7 +52,7 @@
     q4: 'Does it work for running and cycling?', a4: 'Yes. For running the app shows pace in min/km, for cycling km/h, and it adjusts the position sampling too.',
     q5: 'What does it cost and where does it run?', a5: 'PositionTracker is an open project you can run on your own server (Docker, PostgreSQL). The deployment guide is in the repository.',
     q6: 'Are the standings official?', a6: 'No. Spectator standings are indicative because positions are delayed. The organizer issues the official results.',
-    fin_h: 'Your next race deserves a broadcast.', fin_p: 'Run the demo once more, press SOS and imagine it is your event. Then create your own.', fin_cta: 'Try the demo again',
+    fin_h: 'Your next race deserves a broadcast.', fin_p: 'Run the demo once more, press SOS and imagine it is your event. Then create your own.', fin_cta: 'Try the demo again', fin_app: 'Create an account and start your race', nav_app: 'Open the app',
     foot: 'The demo on this page uses made-up data. Map data © OpenStreetMap contributors.',
   };
   const ATTR = [['data-i-aria', 'aria-label'], ['data-i-alt', 'alt']];
@@ -113,7 +113,7 @@
   if (location.hash === '#guide-participant') show(tabs[1]);
   if (location.hash === '#guide-spectator') show(tabs[2]);
 
-  if (window.PT_APP_URL) { const a = document.getElementById('appcta'); a.href = window.PT_APP_URL; }
+  if (window.PT_APP_URL) { for (const id of ['appcta', 'appnav']) { const a = document.getElementById(id); a.href = window.PT_APP_URL; a.hidden = false; } }
 
   let demo = null;
   demo = window.PTDemo.init(document.getElementById('demo'), t);

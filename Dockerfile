@@ -4,6 +4,8 @@ WORKDIR /repo/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --legacy-peer-deps
 COPY web/ ./
+ARG VITE_BASE=/
+ENV VITE_BASE=$VITE_BASE
 # vite.config.ts writes to ../src/PositionTracker.Api/wwwroot
 RUN mkdir -p /repo/src/PositionTracker.Api && npm run build
 

@@ -19,7 +19,10 @@ services:
     networks: [internal]
 
   app:
-    build: .
+    build:
+      context: .
+      args:
+        VITE_BASE: ${VITE_BASE:-/}
     restart: unless-stopped
     depends_on:
       db:

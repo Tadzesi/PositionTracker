@@ -1,2 +1,2 @@
-// URL of a running PositionTracker app. When set, the final call to action opens it; empty keeps it pointing at the demo.
-window.PT_APP_URL = '';
+// URL of a running PositionTracker app (relative to this site or absolute). Empty hides the "open the app" links.
+window.PT_APP_URL = '/tracker/app/';

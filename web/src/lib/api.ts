@@ -1,5 +1,8 @@
 export interface LocalizedText { sk: string; en: string }
 
+/** The path the app is served under ("" at the root, "/tracker/app" when deployed under a sub-path: build with VITE_BASE). */
+export const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
+
 export class ApiError extends Error {
   constructor(public status: number, public code: string, public text: LocalizedText, public field?: string) {
     super(text.en);
@@ -17,7 +20,7 @@ export async function api<T = void>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', p
   }
   let response: Response;
   try {
-    response = await fetch(path, init);
+    response = await fetch(BASE + path, init);
   } catch {
     throw new ApiError(0, 'network', { sk: 'Server je nedostupný. Skontrolujte pripojenie.', en: 'The server cannot be reached. Check your connection.' });
   }

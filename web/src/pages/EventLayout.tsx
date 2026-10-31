@@ -1,6 +1,6 @@
 import { createContext, useContext, useState } from 'react';
 import { NavLink, Outlet, useParams } from 'react-router-dom';
-import { get, post, put } from '../lib/api';
+import { BASE, get, post, put } from '../lib/api';
 import { formatDateTime, localInputToUtc, utcToLocalInput } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 import { useLoad, type Loaded } from '../lib/hooks';
@@ -84,7 +84,7 @@ export function Setup() {
             <span className="mute">{event.state === 'draft' ? t('Najprv nahrajte trasu.', 'Upload the course first.') : ''}</span>
           </div>
         )}
-        {event.state === 'live' && <p className="mute">{t('Verejný odkaz pre divákov:', 'Public link for spectators:')} <a href={`/e/${event.eventId}`}>{`${location.origin}/e/${event.eventId}`}</a></p>}
+        {event.state === 'live' && <p className="mute">{t('Verejný odkaz pre divákov:', 'Public link for spectators:')} <a href={`${BASE}/e/${event.eventId}`}>{`${location.origin}${BASE}/e/${event.eventId}`}</a></p>}
       </div>
       <CourseForm disabled={!confirmed || locked} run={run} />
       <Categories disabled={!confirmed || locked} run={run} />
