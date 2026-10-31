@@ -46,9 +46,13 @@
     o4_h: 'Ready, then live', o4_p: 'Press "Mark as ready" and on race day "Go live". The app shows the public link for spectators: post it and put it on posters as a QR code. Once live, the course can no longer be changed.',
     o5_h: 'Run the race', o5_p: 'The "Race control" tab shows the map, standings, sectors and messages. Press "Acknowledge" to handle an alarm, find the rider on the map, and mark a rider who has withdrawn as DNF. Unhandled messages stay on top, handled ones are dimmed.',
     o6_h: 'After the finish', o6_p: 'Press "Finish event". Positions are deleted after 30 days by themselves. If a participant asks, you delete their data immediately (only the bib remains). You issue the official results: read the spectator standings as indicative.',
+    p0_h: 'Download the OwnTracks app',
+    p0_p: 'There is no PositionTracker app for participants. Your position during the race is sent by <b>OwnTracks</b>, a free open-source app you install once. It runs in the background, so you can leave the phone locked in your pocket.',
+    p0_ios: 'OwnTracks: App Store (iPhone)', p0_ios_alt: 'Download on the App Store', p0_and: 'OwnTracks: Google Play (Android)', p0_and_alt: 'Get it on Google Play',
+    p0_tip: 'A phone without Google Play? The app is also on <a href="https://f-droid.org/packages/org.owntracks.android/" target="_blank" rel="noopener">F-Droid</a>. Look for exactly "OwnTracks" (developer OwnTracks), not similar-sounding apps. Do not set anything up when you first open the app: you get the configuration from your invitation in step 4.',
     p1_h: 'Open the invitation', p1_p: 'In the organizer\'s email click your personal link. The page appears in your language and shows the event, your name and bib. Confirm (or decline) and, if you like, choose a nickname (max. 30 characters).', p1_alt: 'The invitation on a phone',
     p2_h: 'Give your consent', p2_p: 'Consent to share your location during the race is required. The organizer sees you exactly, spectators with a delay. Optionally allow showing your name (otherwise they see only the bib). The data is deleted after 30 days.', p2_alt: 'Consent to tracking',
-    p3_h: 'Set up OwnTracks', p3_p: 'Install the free OwnTracks app (Android and iPhone). On the phone tap "Set up OwnTracks", or scan the QR code from another device, and accept the import. Nothing is typed by hand.', p3_tip: 'The setup contains your device\'s secret key. Do not share it. If you lost it, repeat the consent: the old key stops working.',
+    p3_h: 'Set up OwnTracks', p3_p: 'On the phone with OwnTracks installed tap "Set up OwnTracks", or scan the QR code from another device, and accept the import. Nothing is typed by hand.', p3_tip: 'The setup contains your device\'s secret key. Do not share it. If you lost it, repeat the consent: the old key stops working.',
     p4_h: 'Allow location and battery', p4_p: '<b>Android:</b> Settings → Apps → OwnTracks → Battery → Unrestricted; Location → Allow all the time. <b>iPhone:</b> Settings → OwnTracks → Location → Always, Precise Location on, Background App Refresh on. Keep the app in "Move" mode.',
     p5_h: 'At the start and during the race', p5_p: 'Before the start check that the app shows no error after sending a position. Do not switch the phone off or turn on battery saver. SOS is not a button in the app: phone the organizer. The organizer marks a withdrawal.',
     s1_h: 'Open the public link', s1_p: 'The organizer sends you a link or a QR code. No installation, no account. At the top a notice says positions are delayed: the standings are indicative.',
@@ -89,6 +93,7 @@
     ATTR.forEach(([d, a]) => document.querySelectorAll('[' + d + ']').forEach((el) => {
       el.setAttribute(a, lang === 'sk' ? el.getAttribute('data-sk-' + a) : (EN[el.getAttribute(d)] ?? el.getAttribute('data-sk-' + a)));
     }));
+    document.querySelectorAll('[data-badge]').forEach((img) => { img.src = 'assets/badges/' + img.dataset.badge + '-' + lang + (img.dataset.badge === 'apple' ? '.svg' : '.png'); });
     document.title = lang === 'sk' ? 'PositionTracker – živé sledovanie pretekov, aké ste ešte nevideli' : 'PositionTracker – live race tracking like you have never seen';
     document.getElementById('lang').textContent = lang === 'sk' ? 'EN' : 'SK';
     if (demo) demo.redraw();

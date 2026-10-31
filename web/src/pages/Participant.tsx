@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
-import { ApiError, get, post, put } from '../lib/api';
+import { ApiError, BASE, get, post, put } from '../lib/api';
 import { formatDateTime } from '../lib/format';
 import { useI18n, type Lang } from '../lib/i18n';
 import { useLoad } from '../lib/hooks';
@@ -133,7 +133,7 @@ function Step2({ token, onToken }: { token: string; onToken: (t: string) => void
 }
 
 function Step3({ token, deviceToken }: { token: string; deviceToken: string }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const setup = useLoad(() => post<Setup>(`/api/p/${encodeURIComponent(token)}/owntracks-config`, { deviceToken }), [token, deviceToken]);
   const [qr, setQr] = useState<string | null>(null);
   useEffect(() => {
@@ -146,7 +146,16 @@ function Step3({ token, deviceToken }: { token: string; deviceToken: string }) {
       {!setup.data ? <Loading /> : (
         <>
           <ol>
-            <li>{t('Nainštalujte aplikáciu OwnTracks (Android / iOS).', 'Install the OwnTracks app (Android / iOS).')}</li>
+            <li>{t('Nainštalujte zadarmo aplikáciu OwnTracks (ak ju ešte nemáte):', 'Install the free OwnTracks app (if you do not have it yet):')}
+              <div className="row" style={{ margin: '10px 0', alignItems: 'center', gap: 16 }}>
+                <a href="https://apps.apple.com/us/app/owntracks/id692424691" target="_blank" rel="noopener noreferrer" aria-label={t('OwnTracks v App Store (iPhone)', 'OwnTracks on the App Store (iPhone)')}>
+                  <img src={`${BASE}/badges/apple-${lang}.svg`} alt={t('Stiahnuť v App Store', 'Download on the App Store')} height={44} style={{ height: 44, width: 'auto', display: 'block' }} />
+                </a>
+                <a href="https://play.google.com/store/apps/details?id=org.owntracks.android" target="_blank" rel="noopener noreferrer" aria-label={t('OwnTracks v Google Play (Android)', 'OwnTracks on Google Play (Android)')}>
+                  <img src={`${BASE}/badges/play-${lang}.png`} alt={t('Stiahnuť z Google Play', 'Get it on Google Play')} height={66} style={{ height: 66, width: 'auto', display: 'block', margin: '-11px -5px' }} />
+                </a>
+              </div>
+            </li>
             <li>{t('Na telefóne otvorte toto tlačidlo, alebo naskenujte QR kód z iného zariadenia a potvrďte import konfigurácie:', 'On the phone open this button, or scan the QR code from another device, and accept the configuration import:')}
               <div className="row" style={{ margin: '10px 0' }}>
                 <a className="btn primary" href={setup.data.deepLink}><span>{t('Nastaviť OwnTracks', 'Set up OwnTracks')}</span></a>
