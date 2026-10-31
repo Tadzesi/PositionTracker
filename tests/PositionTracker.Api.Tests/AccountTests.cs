@@ -29,6 +29,8 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
 {
     private const string BaseUrl = "https://tracker.example.org";
     private const string IpHeader = "X-Test-Remote-Ip";
+    /// <summary>Added to every response by the edge middleware; not part of what these tests compare.</summary>
+    private static readonly string[] EdgeHeaders = ["X-Content-Type-Options", "X-Frame-Options", "Content-Security-Policy", "Permissions-Policy", "Strict-Transport-Security"];
     private static readonly Regex LinkPattern = new(@"https://tracker\.example\.org/account/(confirm|signin)\?token=([A-Za-z0-9%_\-]+)");
 
     // ----- sign-up -----
@@ -317,12 +319,13 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         Assert.Equal(HttpStatusCode.MethodNotAllowed, (await client.GetAsync("/api/account/confirm?token=" + Uri.EscapeDataString(confirm))).StatusCode);
         Assert.Equal(HttpStatusCode.MethodNotAllowed, (await client.GetAsync("/api/account/signin/redeem?token=" + Uri.EscapeDataString(signIn))).StatusCode);
 
-        // A mail scanner fetching the emailed front-end URLs reaches no API route.
+        // A mail scanner fetching the emailed front-end URLs reaches no API route: the page (the web app's index.html when it is
+        // built into wwwroot, else 404) sets no session and consumes nothing.
         foreach (var mail in mails)
         {
             var url = new Uri(LinkPattern.Match(mail.TextBody).Value);
             var scanned = await client.GetAsync(url.PathAndQuery);
-            Assert.Equal(HttpStatusCode.NotFound, scanned.StatusCode);
+            Assert.Contains(scanned.StatusCode, new[] { HttpStatusCode.NotFound, HttpStatusCode.OK });
             Assert.Null(SessionCookie(scanned));
         }
 
@@ -1051,7 +1054,7 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
     private static async Task AssertSameAnswerAsync(params HttpResponseMessage[] responses)
     {
         static async Task<string> Describe(HttpResponseMessage r) =>
-            $"{(int)r.StatusCode} {r.Content.Headers.ContentType} {string.Join(",", r.Headers.Select(h => h.Key).Order())} " +
+            $"{(int)r.StatusCode} {r.Content.Headers.ContentType} {string.Join(",", r.Headers.Select(h => h.Key).Where(k => !EdgeHeaders.Contains(k)).Order())} " +
             await r.Content.ReadAsStringAsync();
         var first = await Describe(responses[0]);
         Assert.Equal("""202 application/json; charset=utf-8 Cache-Control,Referrer-Policy {"status":"accepted"}""", first);
