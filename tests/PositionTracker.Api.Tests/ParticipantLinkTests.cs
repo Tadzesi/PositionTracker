@@ -712,7 +712,7 @@ public sealed class ParticipantLinkTests(PostgresFixture postgres) : IClassFixtu
         if (field is not null) Assert.Equal(field, json.RootElement.GetProperty("field").GetString());
     }
 
-    private static byte[] Gpx(IReadOnlyList<GeoPoint> points)
+    internal static byte[] Gpx(IReadOnlyList<GeoPoint> points)
     {
         var gpx = new StringBuilder("""<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="test" xmlns="http://www.topografix.com/GPX/1/1"><trk><trkseg>""");
         foreach (var p in points)

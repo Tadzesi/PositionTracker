@@ -161,6 +161,7 @@ event and participant (in Plan 1 only the demo simulator issues them).
 | `Accounts:RateLimitSalt` | Secret salt of the per-email limiter keys; empty = random per process (the counters are in memory). |
 | `Accounts:ConfirmPath` / `Accounts:SignInPath` | Front-end pages the emailed links open (defaults `account/confirm`, `account/signin`, relative to `Email:PublicBaseUrl`). |
 | `Accounts:DataProtectionKeysPath` | Directory of the keys that encrypt session cookies. Set a persistent volume in a container, or every restart signs everyone out. |
+| `Retention:{FixDays,CheckIntervalHours}` | Position fixes and device statuses are deleted `FixDays` (default 30) after the event ended; checked every `CheckIntervalHours` (default 24), first check one interval after start. The action log and results are kept. |
 | `Registration:{MaxParticipantsPerEvent,InvitationsGlobalPerHour,InvitationsPerOrganizerPerHour,InvitationsPerAddressPerHour,InvitationsPerAddressPerDay,RemindMinAgeHours,InvitePath}` | Participant registration: at most 2 000 participants per event; invitation mails 300 per hour in total (below the mailbox quota, with room for the 200 account mails), 100 per organizer per hour, 5 per recipient address per hour and 10 per day (in memory, per process); without a confirmation deadline reminders only for links older than 24 h; the invitation link opens `{Email:PublicBaseUrl}/p?token=…`. |
 
 Email credentials, real host names and addresses are never committed; `appsettings*.json` keep empty values.
@@ -354,6 +355,22 @@ The host does not log request paths (the link token is in the path); a reverse p
 The primary device client is **OwnTracks** in HTTP mode: `POST /api/ingest/owntracks` with Basic auth (user name = bib, password = device
 token), see `docs/ops/owntracks-setup.md` (verified protocol facts, UNVERIFIED items, phone setup SK/EN, open field gate). The bearer
 endpoints under `/api/events/{id}/positions|actions` remain for other clients and now accept database tokens.
+
+## Organizer operations
+
+All under `/api/events/{eventId}` with the organizer session (own events only, else `404 not_found`; unsafe requests need the browser headers):
+`POST /alarms/ack {participantId, kind}` → 204 (the alarm shows `acknowledged:true` in `/live` and the hub push until it clears; a cleared alarm
+that returns is new), `POST /participants/{pid}/dnf` → 204 (persisted in the action log), `DELETE /participants/{pid}/data` → 204 (privacy deletion:
+fixes, statuses, consents, tokens, links and queued mails are deleted, name/email/nickname anonymised, only the bib stays; a running event keeps the
+rider's in-memory track until the next restart). `GET /live` and the hub's `JoinOrganizer(eventId, null)` accept an organizer session for its own
+events as well as the operator `X-Api-Key`.
+
+## End to end
+
+`EndToEndRegistrationTests` runs the whole path against PostgreSQL: organizer sign-up → email confirmation → sign-in → event with a 3-lap GPX course →
+two participants (SK and EN) confirm through their emailed links, one sets a nickname and shows the name → ready → live → fixes with the device tokens →
+`/live` and `/public` (nickname for the consenting rider, `#bib` for the other) → restart on the same database (identical views) → re-issued device token
+(old token `401`). Run `docker compose up -d` only for local development; the tests start their own PostgreSQL container (Docker required).
 
 ## Persistence and restart
 

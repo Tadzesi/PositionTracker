@@ -165,3 +165,10 @@ Real sending is switched on only after a row with both providers in the inbox an
 |---|---|---|---|---|---|---|---|---|
 | PENDING | | Gmail | | | | | | |
 | PENDING | | Outlook.com | | | | | | |
+
+Recorded so far (2026-10-31): sender `possitiontracker@lab463.com` on Websupport (`smtp.m1.websupport.sk:587`, STARTTLS), SPF include
+`_spf.m1.websupport.sk`, DMARC `p=quarantine` on `lab463.com`. Test run `20261031-044014-4581b7` to a Gmail address was accepted by the SMTP
+server and **arrived** (confirmed by the owner). Still open, and only the owner can do them: read the Gmail "Show original" headers (folder, SPF /
+DKIM / DMARC results), send one test to an Outlook.com mailbox, fill the table above, and **rotate the mailbox password** (it was shown unmasked in
+an earlier transcript and test hosts briefly loaded the secrets before they were isolated). Real sending stays off in production until the table
+has both rows.
