@@ -63,17 +63,21 @@
         <ol aria-label="Poradie" data-i-aria="tower_label"></ol>
         <div class="flags" aria-live="polite"></div>
         <div class="controls">
+          <button class="chip" data-view="organizer" aria-pressed="true" type="button" data-i="view_org">Pohľad organizátora</button>
+          <button class="chip" data-view="spectator" aria-pressed="false" type="button" data-i="view_spec">Pohľad diváka</button>
           <button class="chip" data-speed="1" aria-pressed="false" type="button">×1</button>
           <button class="chip" data-speed="4" aria-pressed="true" type="button">×4</button>
           <button class="chip" data-speed="12" aria-pressed="false" type="button">×12</button>
           <button class="chip" data-sport="cycling" aria-pressed="true" type="button" data-i="sport_c">Bicykel</button>
           <button class="chip" data-sport="running" aria-pressed="false" type="button" data-i="sport_r">Beh</button>
-          <button class="chip danger" data-act="sos" type="button" data-i="demo_sos">SOS vybranému</button>
+          <button class="chip danger" data-alarm="stopped" type="button" data-i="demo_stop">Zastaví sa</button>
+          <button class="chip danger" data-alarm="offCourse" type="button" data-i="demo_off">Zíde z trate</button>
+          <button class="chip danger" data-alarm="lowBattery" type="button" data-i="demo_batt">Slabá batéria</button>
           <button class="chip" data-act="restart" type="button" data-i="demo_restart">Reštart</button>
         </div>
       </div>
     </div>
-    <p class="small" style="color:#9DB0D6;margin-top:14px" data-i="demo_note">Toto je skutočné demo bežiace vo vašom prehliadači (vymyslení jazdci, vymyslená trať). Kliknite na jazdca v poradí alebo na mape: uvidíte jeho predpokladaný čas v cieli. Skúste SOS.</p>
+    <p class="small" style="color:#9DB0D6;margin-top:14px" data-i="demo_note">Demo beží vo vašom prehliadači (vymyslení jazdci a trať), ale ukazuje to isté ako skutočná aplikácia. Pohľad organizátora vidí všetko okamžite vrátane alarmov a stavu batérie. Pohľad diváka je oneskorený o 15 s, bez alarmov a so skrytými menami tých, čo nesúhlasili. Vyberte jazdca a skúste „Zastaví sa“.</p>
   </div>
 </section>
 
@@ -98,7 +102,7 @@
       <article>
         <span class="num">3</span>
         <h3 data-i="w3_h">Organizátor</h3>
-        <p data-i="w3_p">Riadiaca miestnosť ako vo Formule 1: mapa, poradie, farebné sektory a alarmy pre SOS, zastavenie aj odbočenie z trate. Nikto nezostane v lese bez povšimnutia.</p>
+        <p data-i="w3_p">Riadiaca miestnosť ako vo Formule 1: mapa, poradie, farebné sektory a alarmy pre zastavenie, odbočenie z trate, stratu signálu aj slabú batériu. Nikto nezostane v lese bez povšimnutia.</p>
         <ul><li data-i="w3_a">Pozvánky e-mailom v slovenčine aj angličtine, pripomienky jedným klikom.</li><li data-i="w3_b">GPX trať, kolá, kontrolné body, kategórie a štartové vlny.</li><li data-i="w3_c">Verejný odkaz pre divákov s nastaviteľným oneskorením.</li></ul>
       </article>
       <article>
@@ -119,7 +123,7 @@
     </div>
     <div class="shots">
       <figure class="big"><img src="assets/shots/control-light.png" width="2720" height="2260" loading="lazy" alt="Riadenie pretekov: mapa, poradie a hlásenia" data-i-alt="sc1_alt">
-        <figcaption><b data-i="sc1_h">Riadenie pretekov</b><span data-i="sc1_p">Mapa so všetkými jazdcami, poradie s farebnými sektormi, hlásenia o SOS, zastavení a slabej batérii.</span></figcaption></figure>
+        <figcaption><b data-i="sc1_h">Riadenie pretekov</b><span data-i="sc1_p">Mapa so všetkými jazdcami, poradie s farebnými sektormi, hlásenia o zastavení, odbočení z trate, strate signálu a slabej batérii.</span></figcaption></figure>
       <figure class="tall phone"><img src="assets/shots/spectator-mobile.png" width="780" height="1688" loading="lazy" alt="Divácka stránka na telefóne" data-i-alt="sc2_alt">
         <figcaption><b data-i="sc2_h">Divák na telefóne</b><span data-i="sc2_p">Najväčšie číslo je ETA do cieľa. Pod ním vzdialenosť, rýchlosť a sektory.</span></figcaption></figure>
       <figure class="half"><img src="assets/shots/spectator-dark.png" width="2720" height="1720" loading="lazy" alt="Divácka stránka v tmavom režime" data-i-alt="sc3_alt">
@@ -152,7 +156,7 @@
         <li><div><h3 data-i="o2_h">Vytvorte podujatie a nahrajte trať</h3><p data-i="o2_p">Názov, miesto, dátum a čas štartu, šport. Potom súbor GPX, počet kôl (1 až 10), kontrolné body a oneskorenie pre divákov (5 až 300 sekúnd). Trasa s viacerými kolami musí byť uzavretá.</p><p class="tip" data-i="o2_tip">Tip: oneskorenie 15 až 30 sekúnd robí vysielanie plynulé a zároveň férové voči jazdcom.</p></div><img src="assets/shots/org-setup.png" width="2720" height="1720" loading="lazy" alt="Nastavenie podujatia" data-i-alt="sc6_alt"></li>
         <li><div><h3 data-i="o3_h">Pozvite účastníkov</h3><p data-i="o3_p">Meno, e-mail, pohlavie, jazyk e-mailu, kategória, vlna. Štartové číslo sa pridelí samo, alebo ho zadáte. Pozvánka odíde okamžite. V zozname vidíte stavy Pozvaní, Potvrdení, Odmietli a Chyba e-mailu, a môžete poslať pripomienku, odoslať znova alebo vydať nový odkaz.</p><p class="tip" data-i="o3_tip">Meno účastníka sa divákom ukáže len so súhlasom. U maloletých sa verejne zobrazuje iba štartové číslo.</p></div><img src="assets/shots/org-participants.png" width="2720" height="1720" loading="lazy" alt="Zoznam účastníkov" data-i-alt="sc4_alt"></li>
         <li class="noimg"><div><h3 data-i="o4_h">Pripravené, potom naživo</h3><p data-i="o4_p">Stlačte „Označiť ako pripravené“ a v deň pretekov „Spustiť naživo“. Aplikácia ukáže verejný odkaz pre divákov: pošlite ho na sociálne siete a vyvesťte ako QR. Po spustení už nemožno meniť trať.</p></div></li>
-        <li><div><h3 data-i="o5_h">Riaďte preteky</h3><p data-i="o5_p">Na karte „Riadenie pretekov“ vidíte mapu, poradie, sektory a hlásenia. Alarm potvrdíte tlačidlom „Potvrdiť“, jazdca nájdete na mape a odstúpivšieho označíte ako DNF. SOS je vždy hore a červený.</p></div><img src="assets/shots/control-light.png" width="2720" height="2260" loading="lazy" alt="Riadenie pretekov" data-i-alt="sc1_alt"></li>
+        <li><div><h3 data-i="o5_h">Riaďte preteky</h3><p data-i="o5_p">Na karte „Riadenie pretekov“ vidíte mapu, poradie, sektory a hlásenia. Alarm potvrdíte tlačidlom „Potvrdiť“, jazdca nájdete na mape a odstúpivšieho označíte ako DNF. Nevybavené hlásenia sú vždy hore, vybavené sa stlmia.</p></div><img src="assets/shots/control-light.png" width="2720" height="2260" loading="lazy" alt="Riadenie pretekov" data-i-alt="sc1_alt"></li>
         <li class="noimg"><div><h3 data-i="o6_h">Po cieli</h3><p data-i="o6_p">Stlačte „Ukončiť podujatie“. Polohy sa po 30 dňoch zmažú samy. Ak o to účastník požiada, jeho údaje zmažete hneď (zostane len číslo). Oficiálne výsledky vydávate vy: diváckemu poradiu treba rozumieť ako orientačnému.</p></div></li>
       </ol>
     </div>
@@ -207,7 +211,7 @@
 <section class="final" id="start" aria-labelledby="fin-h">
   <div class="wrap">
     <h2 class="display" id="fin-h" data-i="fin_h">Vaše ďalšie preteky si zaslúžia vysielanie.</h2>
-    <p class="lead" data-i="fin_p">Spustite demo ešte raz, kliknite na SOS a predstavte si, že je to vaše podujatie. Potom si vytvorte vlastné.</p>
+    <p class="lead" data-i="fin_p">Spustite demo ešte raz, prepnite na pohľad diváka a predstavte si, že je to vaše podujatie. Potom si vytvorte vlastné.</p>
     <div class="cta"><a class="btn" id="appcta" hidden href="#"><span data-i="fin_app">Vytvoriť účet a spustiť preteky</span></a><a class="btn ghost" href="#demo"><span data-i="fin_cta">Vyskúšať demo znova</span></a></div>
   </div>
 </section>
