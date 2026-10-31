@@ -6,11 +6,15 @@ using PositionTracker.Api.Email;
 using PositionTracker.Api.Endpoints;
 using PositionTracker.Api.Events;
 using PositionTracker.Api.Live;
+using PositionTracker.Api.Participants;
 using PositionTracker.Api.Persistence;
 using PositionTracker.Api.Registration;
 using PositionTracker.Api.Simulation;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// The participant link token sits in the request path (/api/p/{token}): keep the path out of the host logs.
+builder.Services.AddRequestPathPrivacy();
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<TokenService>();
@@ -20,6 +24,7 @@ builder.Services.AddEmail();
 builder.Services.AddAccounts();
 builder.Services.AddEventManagement();
 builder.Services.AddRegistration();
+builder.Services.AddParticipantLinks();
 builder.Services.AddOptions<OrganizerOptions>()
     .BindConfiguration(OrganizerOptions.Section)
     .Validate(o => !string.IsNullOrWhiteSpace(o.ApiKey), "Configuration value 'Organizer:ApiKey' is required.")
@@ -42,6 +47,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<SimulationService>
 var app = builder.Build();
 
 app.UseBrowserApiHeaders(); // first: refused requests never reach a limiter
+app.UseDeviceAuthentication(); // before the limiter: it partitions by the resolved token
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -49,6 +55,7 @@ app.MapGet("/healthz", () => "ok");
 app.MapAccountEndpoints();
 app.MapEventManagementEndpoints();
 app.MapRegistrationEndpoints();
+app.MapParticipantLinkEndpoints();
 app.MapIngestEndpoints();
 app.MapLiveEndpoints();
 app.MapDemoEndpoints();

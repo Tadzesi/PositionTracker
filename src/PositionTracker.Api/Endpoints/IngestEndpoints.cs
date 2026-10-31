@@ -186,22 +186,60 @@ public static class IngestEndpoints
         return null;
     }
 
-    /// <summary>Resolves the bearer token once per request (the rate limiter and the handler both need it).</summary>
-    private static Caller? Authenticate(HttpContext context)
-    {
-        if (context.Items.TryGetValue(CallerKey, out var cached)) return (Caller?)cached;
+    /// <summary>
+    /// The caller resolved by <see cref="UseDeviceAuthentication"/> (null when there was no valid bearer token). The
+    /// rate limiter policy and the handler both read it; resolving needs the database, so it happens in the middleware.
+    /// </summary>
+    private static Caller? Authenticate(HttpContext context) =>
+        context.Items.TryGetValue(CallerKey, out var cached) ? (Caller?)cached : null;
 
-        Caller? caller = null;
-        var header = context.Request.Headers.Authorization.ToString();
-        const string scheme = "Bearer ";
-        if (header.StartsWith(scheme, StringComparison.OrdinalIgnoreCase))
+    /// <summary>
+    /// Resolves the bearer token of the device routes (<c>/api/events/{id}/positions|actions</c>) before the rate
+    /// limiter: simulated events from memory, real events from the database (<see cref="ITokenService"/>), so a token
+    /// revoked or re-issued is refused at once and database tokens survive a restart. A database failure is 503.
+    /// </summary>
+    public static IApplicationBuilder UseDeviceAuthentication(this IApplicationBuilder app) =>
+        app.Use(async (context, next) =>
         {
-            var raw = header[scheme.Length..].Trim();
-            if (context.RequestServices.GetRequiredService<TokenService>().Resolve(raw) is { } id)
-                caller = new Caller(id.EventId, id.ParticipantId, TokenService.Hash(raw));
-        }
-        context.Items[CallerKey] = caller;
-        return caller;
+            if (HttpMethods.IsPost(context.Request.Method) && IsDeviceRoute(context.Request.Path)
+                && BearerToken(context.Request) is { } raw)
+            {
+                try
+                {
+                    context.Items[CallerKey] = await ResolveAsync(context, raw);
+                }
+                catch (Exception ex) when (EventService.IsDatabaseFailure(ex) && !context.RequestAborted.IsCancellationRequested)
+                {
+                    context.Response.Headers.RetryAfter = "1";
+                    await EventErrors.Result(EventErrors.Unavailable).ExecuteAsync(context);
+                    return;
+                }
+            }
+            await next(context);
+        });
+
+    private static async Task<Caller?> ResolveAsync(HttpContext context, string raw)
+    {
+        var services = context.RequestServices;
+        (string EventId, string ParticipantId)? id = services.GetRequiredService<TokenService>().Resolve(raw);
+        if (id is null && services.GetRequiredService<IOptions<PersistenceOptions>>().Value.Enabled)
+            id = await services.GetRequiredService<ITokenService>().ResolveAsync(raw, context.RequestAborted);
+        return id is { } found ? new Caller(found.EventId, found.ParticipantId, TokenService.Hash(raw)) : null;
+    }
+
+    private static string? BearerToken(HttpRequest request)
+    {
+        var header = request.Headers.Authorization.ToString();
+        const string scheme = "Bearer ";
+        return header.StartsWith(scheme, StringComparison.OrdinalIgnoreCase) ? header[scheme.Length..].Trim() : null;
+    }
+
+    private static bool IsDeviceRoute(PathString path)
+    {
+        if (!path.StartsWithSegments("/api/events", StringComparison.OrdinalIgnoreCase, out var rest)) return false;
+        var segments = (rest.Value ?? "").Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length == 2 && (segments[1].Equals("positions", StringComparison.OrdinalIgnoreCase)
+            || segments[1].Equals("actions", StringComparison.OrdinalIgnoreCase));
     }
 
     private static IResult BadRequest(string detail) =>
