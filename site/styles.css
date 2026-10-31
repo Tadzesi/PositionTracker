@@ -59,16 +59,7 @@ p{margin:0 0 1em;max-width:62ch}
 .stage{margin-top:36px;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,1fr);gap:0;border:2px solid #ffffff33;background:#06142F}
 @media (max-width:900px){.stage{grid-template-columns:1fr}}
 .track{position:relative;background:radial-gradient(circle at 30% 20%,#12306a 0,#071a3c 70%);min-height:360px}
-.track svg{display:block;width:100%;height:100%}
-.track .course{fill:none;stroke:#2c4a86;stroke-width:26;stroke-linecap:round;stroke-linejoin:round}
-.track .line{fill:none;stroke:#8fb0ff;stroke-width:2;stroke-dasharray:3 9;stroke-linecap:round}
-.track .startline{stroke:#fff;stroke-width:5}
-.rider text{font-family:var(--font);font-weight:800;font-size:13px;fill:#fff;text-anchor:middle;dominant-baseline:central;pointer-events:none}
-.rider circle{stroke:#fff;stroke-width:2.5;transition:r .2s}
-.rider.sel circle{stroke:var(--coral);stroke-width:5}
-.rider{cursor:pointer}
-.rider.sos circle{fill:#ff2d2d!important;animation:pulse .8s infinite}
-@keyframes pulse{50%{opacity:.45}}
+.track .map{position:absolute;inset:0;z-index:0}
 .callout{position:absolute;left:14px;bottom:14px;background:#06142Fee;border:1px solid #ffffff44;padding:12px 16px;min-width:240px;border-left:6px solid var(--coral)}
 .callout b{font-stretch:75%;font-style:italic;font-weight:900;font-size:1.5rem;text-transform:uppercase;display:block;line-height:1}
 .callout .eta{font-stretch:62%;font-weight:900;font-style:italic;font-size:3.4rem;line-height:1;display:block;margin-top:6px}
@@ -151,3 +142,17 @@ footer .wrap{display:flex;gap:20px;flex-wrap:wrap;justify-content:space-between}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 
 [hidden]{display:none!important}
+
+/* map markers like the application's (numbered circles; selected = yellow ring) */
+.track .leaflet-container{background:#0b1d3f;font-family:var(--font)}
+.track .leaflet-container img{max-width:none!important}
+.mk{display:flex;align-items:center;justify-content:center;border-radius:50%;border:2px solid #fff;background:#3DA5FF;color:#fff;font:700 11px var(--font);box-shadow:0 1px 4px rgba(0,0,0,.5)}
+.mk.warn{background:#FF1E3C}.mk.dim{background:#5C6275}.mk.sel{outline:3px solid #FFD60A}
+.track .callout{z-index:1000}.track .winner{z-index:1100}
+
+/* narrow screens: the map on top, the rider card below it (not over the map) */
+@media (max-width:900px){
+  .track{display:flex;flex-direction:column;min-height:0}
+  .track .map{position:relative;inset:auto;height:360px;flex:none}
+  .track .callout{position:static;min-width:0;border-left-width:6px;border-top:1px solid #ffffff33}
+}

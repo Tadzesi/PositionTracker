@@ -9,6 +9,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230A1F44'/%3E%3Cpath d='M9 24V8h8a5 5 0 010 10h-4v6z' fill='%23FF4B2B'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@0,62..125,100..900;1,62..125,100..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="vendor/leaflet.css">
   <link rel="stylesheet" href="styles.css">
   <script src="theme.js"></script>
 </head>
@@ -45,9 +46,7 @@
 
     <div class="stage" id="demo" aria-label="Živé demo pretekov" data-i-aria="demo_label">
       <div class="track">
-        <svg viewBox="0 0 800 520" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Mapa trate s jazdcami" data-i-aria="demo_map">
-          <path class="course"/><path class="line"/>
-        </svg>
+        <div class="map" role="application" aria-label="Mapa trate s jazdcami" data-i-aria="demo_map"></div>
         <div class="callout" aria-live="off"></div>
         <div class="winner" role="status">
           <div>
@@ -66,8 +65,8 @@
           <button class="chip" data-view="organizer" aria-pressed="true" type="button" data-i="view_org">Pohľad organizátora</button>
           <button class="chip" data-view="spectator" aria-pressed="false" type="button" data-i="view_spec">Pohľad diváka</button>
           <button class="chip" data-speed="1" aria-pressed="false" type="button">×1</button>
-          <button class="chip" data-speed="4" aria-pressed="true" type="button">×4</button>
-          <button class="chip" data-speed="12" aria-pressed="false" type="button">×12</button>
+          <button class="chip" data-speed="12" aria-pressed="true" type="button">×12</button>
+          <button class="chip" data-speed="30" aria-pressed="false" type="button">×30</button>
           <button class="chip" data-sport="cycling" aria-pressed="true" type="button" data-i="sport_c">Bicykel</button>
           <button class="chip" data-sport="running" aria-pressed="false" type="button" data-i="sport_r">Beh</button>
           <button class="chip danger" data-alarm="stopped" type="button" data-i="demo_stop">Zastaví sa</button>
@@ -218,6 +217,7 @@
 </main>
 <footer><div class="wrap"><span>PositionTracker</span><span data-i="foot">Demo na tejto stránke používa vymyslené údaje. Mapové podklady © OpenStreetMap prispievatelia.</span></div></footer>
 <script src="config.js"></script>
+<script src="vendor/leaflet.js"></script>
 <script src="demo.js"></script>
 <script src="app.js"></script>
 </body>

@@ -1,10 +1,9 @@
-/* Live race demo: runs entirely in the browser, no server. It mirrors what the real application shows:
-   - organizer view: current positions, standings with sector colours and gaps, race-control messages (stopped, off course,
-     low battery), battery and GPS of the selected rider, ETA with its range;
-   - spectator view: positions and standings delayed by 15 s, no alarms and no device data, names only where the rider
-     agreed ("#bib" otherwise), the same ETA range.
+/* Live race demo: runs entirely in the browser, no server, and looks like the real application: OpenStreetMap, the course as a
+   red line with yellow checkpoints, numbered circles for riders (yellow ring = selected), the same standings and ETA.
+   - organizer view: current positions, sector colours, gaps, race-control messages, battery and GPS of the selected rider;
+   - spectator view: positions and standings delayed by 15 s, no alarms and no device data, names only where the rider agreed.
    SOS is deliberately absent: with OwnTracks the participant has no SOS button (an SOS is a phone call to the organizer).
-   Exposed as window.PTDemo.init(rootElement, t) where t(sk, en) returns the text in the current language. */
+   Exposed as window.PTDemo.init(rootElement, t) where t(sk, en) returns the text in the current language. Needs Leaflet (L). */
 (function () {
   // name, nickname, relative speed, agreed to show the name to spectators
   const RIDERS = [
@@ -12,17 +11,23 @@
     ['Tomáš Novotný', '', 0.9, false], ['Eva Kráľová', '', 0.88, true], ['Jakub Mráz', 'Junior', 0.84, false],
     ['Oliver Smith', '', 0.8, true], ['Adriana Pavlíková', '', 0.76, true], ['Filip Urban', '', 0.72, true],
   ];
-  const COLORS = ['#FF4B2B', '#22C55E', '#3B82F6', '#F59E0B', '#A855F7', '#06B6D4', '#EC4899', '#84CC16', '#F97316'];
-  const LAPS = 3, SECTORS = 6, DELAY = 15, W = 800, H = 520;
+  const LAPS = 3, SECTORS = 6, DELAY = 15, CHECKPOINTS = [0.4, 0.8];
 
-  function trackPoints() {
+  // the sample course of the screenshots: a wavy loop of about 5.5 km
+  function courseLatLng() {
     const pts = [];
-    for (let i = 0; i <= 240; i++) {
-      const a = (Math.PI * 2 * i) / 240;
-      const r = 1 + 0.26 * Math.sin(3 * a + 0.4) + 0.1 * Math.cos(2 * a);
-      pts.push([W / 2 + Math.cos(a) * 300 * r * 0.98, H / 2 + Math.sin(a) * 175 * r * 0.98]);
+    for (let i = 0; i <= 180; i++) {
+      const a = (Math.PI * 2 * i) / 180;
+      const r = 1 + 0.28 * Math.sin(3 * a) + 0.12 * Math.cos(2 * a);
+      pts.push([48.7285 + 0.0065 * r * Math.sin(a), 18.87 + 0.0105 * r * Math.cos(a)]);
     }
     return pts;
+  }
+  function haversine(a, b) {
+    const R = 6371000, rad = (x) => (x * Math.PI) / 180;
+    const dLat = rad(b[0] - a[0]), dLon = rad(b[1] - a[1]);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a[0])) * Math.cos(rad(b[0])) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
   }
 
   const fmt = (sec) => {
@@ -36,34 +41,49 @@
 
   function init(root, t) {
     const $ = (s) => root.querySelector(s);
-    const svg = $('svg'), course = $('.course'), tower = $('.tower ol'), clockEl = $('.clock'), flagsEl = $('.flags'), callout = $('.callout');
-    const winner = $('.winner');
-    const path = 'M' + trackPoints().map((p) => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('L') + 'Z';
-    course.setAttribute('d', path);
-    $('.line').setAttribute('d', path);
-    const total = course.getTotalLength();
-    const kmPerUnit = 12.5 / total; // one lap is shown as 12.5 km
+    const tower = $('.tower ol'), clockEl = $('.clock'), flagsEl = $('.flags'), callout = $('.callout'), winner = $('.winner');
 
-    let sport = 'cycling', view = 'organizer', speedMul = 4, selected = 0, simT = 0, running = true, finished = false, lastTs = 0;
+    const pts = courseLatLng();
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + haversine(pts[i - 1], pts[i]));
+    const lap = cum[cum.length - 1], total = lap * LAPS;
+
+    function at(dist) {
+      const d = ((dist % lap) + lap) % lap;
+      let lo = 0, hi = cum.length - 1;
+      while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (cum[mid] <= d) lo = mid; else hi = mid; }
+      const f = (d - cum[lo]) / (cum[hi] - cum[lo] || 1);
+      return [pts[lo][0] + (pts[hi][0] - pts[lo][0]) * f, pts[lo][1] + (pts[hi][1] - pts[lo][1]) * f];
+    }
+
+    const map = L.map($('.map'), { zoomControl: true, scrollWheelZoom: false, dragging: !L.Browser.mobile, tap: false, zoomSnap: 0.25 });
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }).addTo(map);
+    const line = L.polyline(pts, { color: '#FF1E3C', weight: 4, opacity: 0.85 }).addTo(map);
+    CHECKPOINTS.forEach((f) => L.circleMarker(at(lap * f), { radius: 5, color: '#FFD60A', weight: 2, fillOpacity: 0.9 }).addTo(map));
+    const fit = () => { map.invalidateSize(); map.fitBounds(line.getBounds(), { paddingTopLeft: [28, 28], paddingBottomRight: [28, 120] }); };
+    fit();
+    // the stage grows when the standings are filled in and when the window changes: keep the map fitted to its box
+    if (window.ResizeObserver) new ResizeObserver(fit).observe($('.map')); else window.addEventListener('resize', fit);
+
+    let sport = 'cycling', view = 'organizer', speedMul = 12, selected = 0, simT = 0, running = true, finished = false, lastTs = 0;
     let riders = [];
     const bestSector = Array(SECTORS).fill(Infinity);
 
     function reset() {
       simT = 0; finished = false; bestSector.fill(Infinity);
       winner.classList.remove('on'); flagsEl.innerHTML = '';
-      riders = RIDERS.map((r, i) => ({
-        i, name: r[0], nick: r[1], base: r[2], show: r[3], d: -i * 1.4, v: 0, battery: 82 - i * 4, finishT: null,
-        alarms: { stopped: false, offCourse: false, lowBattery: false },
-        secStart: 0, secColors: Array(SECTORS).fill(''), best: Array(SECTORS).fill(Infinity), lastSec: 0, hist: [], el: null,
-      }));
-      svg.querySelectorAll('.rider').forEach((n) => n.remove());
+      riders.forEach((r) => r.marker.remove());
       tower.innerHTML = '';
+      riders = RIDERS.map((r, i) => ({
+        i, name: r[0], nick: r[1], base: r[2], show: r[3], d: -i * 12, v: 0, battery: 82 - i * 4, finishT: null,
+        alarms: { stopped: false, offCourse: false, lowBattery: false },
+        secStart: 0, secColors: Array(SECTORS).fill(''), best: Array(SECTORS).fill(Infinity), lastSec: 0, hist: [], marker: null, row: null, iconKey: null,
+      }));
       riders.forEach((r) => {
-        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        g.setAttribute('class', 'rider'); g.dataset.rider = r.i;
-        g.innerHTML = '<circle r="14" fill="' + COLORS[r.i] + '"/><text>' + (r.i + 1) + '</text>';
-        g.addEventListener('click', () => select(r.i));
-        svg.appendChild(g); r.el = g;
+        r.marker = L.marker(at(0), { icon: L.divIcon({ className: '', iconSize: [26, 26], html: '' }), keyboard: false }).addTo(map);
+        r.marker.on('click', () => select(r.i));
         const li = document.createElement('li');
         li.innerHTML = '<span class="pos"></span><span class="bib">' + (r.i + 1) + '</span><span class="name"></span><span class="gap"></span><span class="sectors"></span>';
         li.addEventListener('click', () => select(r.i));
@@ -88,14 +108,14 @@
       simT += dt;
       riders.forEach((r) => {
         if (r.finishT !== null) return;
-        const wave = 1 + 0.12 * Math.sin(simT * 0.35 + r.i * 1.7) + 0.05 * Math.sin(simT * 1.3 + r.i);
-        r.v = r.alarms.stopped ? 0 : 4.2 * r.base * wave;
+        const wave = 1 + 0.12 * Math.sin(simT * 0.035 + r.i * 1.7) + 0.05 * Math.sin(simT * 0.13 + r.i);
+        r.v = r.alarms.stopped ? 0 : 9.5 * r.base * wave; // m/s
         r.d += r.v * dt;
         r.hist.push([simT, r.d]);
         while (r.hist.length > 2 && r.hist[1][0] < simT - DELAY - 5) r.hist.shift();
-        const lapD = Math.max(0, r.d) % total, lap = Math.floor(Math.max(0, r.d) / total);
-        const sec = Math.min(SECTORS - 1, Math.floor((lapD / total) * SECTORS));
-        const idx = lap * SECTORS + sec;
+        const lapD = Math.max(0, r.d) % lap, lapNo = Math.floor(Math.max(0, r.d) / lap);
+        const sec = Math.min(SECTORS - 1, Math.floor((lapD / lap) * SECTORS));
+        const idx = lapNo * SECTORS + sec;
         if (idx !== r.lastSec && r.d > 0) {
           const k = r.lastSec % SECTORS, time = simT - r.secStart;
           r.secStart = simT;
@@ -107,8 +127,8 @@
           }
           r.lastSec = idx;
         }
-        if (r.d >= total * LAPS) {
-          r.finishT = simT; r.d = total * LAPS;
+        if (r.d >= total) {
+          r.finishT = simT; r.d = total;
           if (!finished) {
             finished = true;
             $('.winner .who2').textContent = shownName(r);
@@ -131,39 +151,38 @@
       return last;
     }
 
-    function ordered() {
-      return riders.map((r) => ({ r, d: seen(r) })).sort((a, b) => b.d - a.d);
-    }
-
     function pointFor(r, dist) {
-      const at = (x) => course.getPointAtLength(((Math.max(0, x) % total) + total) % total);
       const p = at(dist);
       if (view === 'organizer' && r.alarms.offCourse) {
-        const q = at(dist + 2);
-        const nx = -(q.y - p.y), ny = q.x - p.x, len = Math.hypot(nx, ny) || 1;
-        return { x: p.x + (nx / len) * 34, y: p.y + (ny / len) * 34 };
+        const q = at(dist + 8);
+        const nx = -(q[0] - p[0]), ny = q[1] - p[1], len = Math.hypot(nx, ny) || 1;
+        return [p[0] + (nx / len) * 0.0011, p[1] + (ny / len) * 0.0011];
       }
       return p;
     }
 
     function draw() {
-      const ord = ordered();
+      const ord = riders.map((r) => ({ r, d: seen(r) })).sort((a, b) => b.d - a.d);
       const lead = ord[0];
       clockEl.textContent = clock(view === 'spectator' ? Math.max(0, simT - DELAY) : simT);
       riders.forEach((r) => {
-        const p = pointFor(r, seen(r));
-        r.el.setAttribute('transform', 'translate(' + p.x.toFixed(1) + ',' + p.y.toFixed(1) + ')');
-        r.el.classList.toggle('sel', r.i === selected);
-        r.el.classList.toggle('sos', view === 'organizer' && (r.alarms.stopped || r.alarms.offCourse));
-        r.el.querySelector('circle').setAttribute('r', r.i === selected ? 18 : 14);
-        if (r.i === selected && svg.lastChild !== r.el) svg.appendChild(r.el);
+        r.marker.setLatLng(pointFor(r, seen(r)));
+        const warn = view === 'organizer' && (r.alarms.stopped || r.alarms.offCourse);
+        const sel = r.i === selected;
+        const key = (sel ? 's' : '') + (warn ? 'w' : '');
+        if (key !== r.iconKey) {
+          r.iconKey = key;
+          const size = sel ? 34 : 26;
+          r.marker.setIcon(L.divIcon({ className: '', iconSize: [size, size], html: '<div class="mk ' + (warn ? 'warn ' : '') + (sel ? 'sel' : '') + '" style="width:' + size + 'px;height:' + size + 'px">' + (r.i + 1) + '</div>' }));
+          r.marker.setZIndexOffset(sel ? 1000 : 0);
+        }
       });
       // persistent rows (a click must land on the same element it started on); reorder only when the order changes
       ord.forEach(({ r, d: dd }, pos) => {
         const li = r.row;
         li.classList.toggle('sel', r.i === selected);
         const gap = pos === 0 ? t('Líder', 'Leader') : r.finishT !== null && lead.r.finishT !== null ? '+' + fmt(r.finishT - lead.r.finishT)
-          : '+' + fmt(Math.max(0, (lead.d - dd) / Math.max(1, lead.r.v || 4)));
+          : '+' + fmt(Math.max(0, (lead.d - dd) / Math.max(1, lead.r.v || 9)));
         const warn = view === 'organizer' && (r.alarms.stopped || r.alarms.offCourse || r.alarms.lowBattery) ? ' ⚠' : '';
         const set = (sel, text) => { const el = li.querySelector(sel); if (el.textContent !== text) el.textContent = text; };
         set('.pos', String(pos + 1)); set('.gap', gap); set('.name', shownName(r) + warn);
@@ -183,9 +202,9 @@
       }
       const s = riders[selected];
       const sd = seen(s);
-      const remainKm = Math.max(0, (total * LAPS - Math.max(0, sd)) * kmPerUnit);
-      const kmh = s.v * 6.6 * (sport === 'cycling' ? 1 : 0.34);
-      const rem = s.finishT !== null ? 0 : s.v > 0.1 ? (total * LAPS - sd) / s.v : Infinity;
+      const remainKm = Math.max(0, (total - Math.max(0, sd)) / 1000);
+      const kmh = s.v * 3.6 * (sport === 'cycling' ? 1 : 0.34);
+      const rem = s.finishT !== null ? 0 : s.v > 0.1 ? (total - sd) / s.v : Infinity;
       const base = view === 'spectator' ? simT - DELAY : simT;
       const speedTxt = sport === 'cycling' ? kmh.toFixed(1) + ' km/h' : (kmh > 1 ? fmt(3600 / kmh) : '–') + ' /km';
       let eta = '–', range = '';
@@ -198,7 +217,8 @@
         ? [speedTxt, remainKm.toFixed(1) + ' km', '🔋 ' + Math.round(s.battery) + ' %', 'GPS ±' + (4 + (s.i % 4)) + ' m']
         : [speedTxt, remainKm.toFixed(1) + ' km ' + t('do cieľa', 'to go'), (ord.findIndex((x) => x.r === s) + 1) + '. ' + t('miesto', 'place')];
       callout.innerHTML = '<b></b><span class="eta">' + eta + '</span><small>' + (range ? range + ' · ' : '') + lines.join(' · ') + '</small>';
-      callout.querySelector('b').textContent = '#' + (s.i + 1) + ' ' + shownName(s);
+      const nm = shownName(s);
+      callout.querySelector('b').textContent = nm.startsWith('#') ? nm : '#' + (s.i + 1) + ' ' + nm;
     }
 
     function loop(ts) {
@@ -235,7 +255,7 @@
     $('[data-act="restart"]').addEventListener('click', () => { running = true; reset(); });
     $('[data-act="again"]').addEventListener('click', () => { running = true; reset(); });
     reset();
-    for (let k = 0; k < 200 * 10; k++) step(0.1);
+    for (let k = 0; k < 2000; k++) step(0.1); // 200 s into the race, so the first impression already has a field spread out
     selected = 0; draw();
     requestAnimationFrame(loop);
     return { redraw: draw };
