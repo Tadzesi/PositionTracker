@@ -225,7 +225,7 @@ display address, name and language of a repeated sign-up; a confirmed one keeps 
 
 Links are 32 random bytes (base64url); only their SHA-256 is stored; confirmation 14 days (a new one supersedes the
 old one, opened or not), sign-in 15 minutes and single use (never superseded: each link lives on its own). The
-session cookie `__Host-pt-session` is `HttpOnly`, `Secure`, `SameSite=Lax`, 30 days sliding, and holds only the
+session cookie `__Secure-pt-session` is `HttpOnly`, `Secure`, `SameSite=Lax`, 30 days sliding, and holds only the
 organizer id and security stamp.
 
 **Front-end handoff.** The emailed links open front-end pages `Accounts:ConfirmPath` (`/account/confirm?token=…`)

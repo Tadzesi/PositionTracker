@@ -17,7 +17,7 @@ namespace PositionTracker.Api.Accounts;
 
 /// <summary>
 /// The organizer session: an ASP.NET Core authentication cookie (<see cref="CookieName"/>; <c>HttpOnly</c>,
-/// <c>Secure</c>, <c>SameSite=Lax</c>, path <c>/</c>, no domain, 30 days sliding). The encrypted ticket holds only
+/// <c>Secure</c>, <c>SameSite=Lax</c>, path <c>/</c> (a proxy may narrow it to its sub-path), no domain, 30 days sliding). The encrypted ticket holds only
 /// the organizer id and the account's security stamp; every request re-reads the account and rejects the cookie when
 /// the account is gone or its stamp changed (sign-out rotates it, which ends every session of the account).
 /// <para>Policies: <see cref="OrganizerSessionPolicy"/> (a valid session) and
@@ -29,8 +29,12 @@ namespace PositionTracker.Api.Accounts;
 public static class CookieAuth
 {
     public const string Scheme = "OrganizerCookie";
-    /// <summary>The <c>__Host-</c> prefix makes browsers insist on Secure, path <c>/</c> and no Domain attribute.</summary>
-    public const string CookieName = "__Host-pt-session";
+    /// <summary>
+    /// The <c>__Secure-</c> prefix makes browsers insist on Secure. It is deliberately not <c>__Host-</c>: that prefix also
+    /// demands <c>Path=/</c>, and the reverse proxy of a sub-path deployment (<c>/tracker/app/</c>) rewrites the cookie path,
+    /// so browsers silently dropped the cookie and nobody could stay signed in.
+    /// </summary>
+    public const string CookieName = "__Secure-pt-session";
     public const string OrganizerSessionPolicy = "OrganizerSession";
     public const string EmailConfirmedOrganizerPolicy = "EmailConfirmedOrganizer";
     public const string OrganizerIdClaim = "oid";
