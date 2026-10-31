@@ -25,6 +25,7 @@ public static class PersistenceServices
         });
         services.AddSingleton<IFixStore, FixStore>();
         services.AddSingleton<PersistenceQueue>();
+        services.AddSingleton<RuntimeFactory>();
         services.AddSingleton<RuntimeRehydrator>();
         services.AddHostedService(sp => sp.GetRequiredService<RuntimeRehydrator>());
         services.AddSingleton<PersistenceWriter>();

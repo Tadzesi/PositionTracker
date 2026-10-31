@@ -17,6 +17,7 @@ builder.Services.AddSingleton<EventRegistry>();
 builder.Services.AddPersistence();
 builder.Services.AddEmail();
 builder.Services.AddAccounts();
+builder.Services.AddEventManagement();
 builder.Services.AddOptions<OrganizerOptions>()
     .BindConfiguration(OrganizerOptions.Section)
     .Validate(o => !string.IsNullOrWhiteSpace(o.ApiKey), "Configuration value 'Organizer:ApiKey' is required.")
@@ -44,6 +45,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapGet("/healthz", () => "ok");
 app.MapAccountEndpoints();
+app.MapEventManagementEndpoints();
 app.MapIngestEndpoints();
 app.MapLiveEndpoints();
 app.MapDemoEndpoints();

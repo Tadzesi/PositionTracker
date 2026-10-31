@@ -26,6 +26,11 @@ public sealed class EventEntity
     public DateTimeOffset CreatedAt { get; set; }
     /// <summary>When the event went <see cref="EventState.Finished"/>; position retention counts from here.</summary>
     public DateTimeOffset? EndedAt { get; set; }
+    /// <summary>
+    /// Optimistic concurrency token: every write of the event (or of its course, categories or waves) sets a new
+    /// value, and a write based on an older read fails with <c>DbUpdateConcurrencyException</c>.
+    /// </summary>
+    public Guid Version { get; set; }
 }
 
 /// <summary>Course parameters derived from an event's GPX (one row per event with a course).</summary>
@@ -36,6 +41,8 @@ public sealed class CourseEntity
     public double AscentM { get; set; }
     public double DescentM { get; set; }
     public int PointCount { get; set; }
+    /// <summary>Whether the end lies within 100 m of the start (required for more than one lap).</summary>
+    public bool IsClosed { get; set; }
     public DateTimeOffset UploadedAt { get; set; }
 }
 

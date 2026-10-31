@@ -54,6 +54,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.Property(v => v.Name).HasMaxLength(120);
             e.Property(v => v.Location).HasMaxLength(120);
             e.Property(v => v.CheckpointsJson).HasColumnType("jsonb");
+            e.Property(v => v.Version).IsConcurrencyToken();
             e.HasOne<OrganizerEntity>().WithMany().HasForeignKey(v => v.OrganizerId).OnDelete(DeleteBehavior.Restrict);
             e.HasIndex(v => v.State);
         });

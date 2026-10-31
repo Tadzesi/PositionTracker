@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -80,7 +81,14 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         if (EnvironmentName is not null) builder.UseEnvironment(EnvironmentName);
-        builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(Settings));
+        builder.ConfigureAppConfiguration((_, config) =>
+        {
+            // Hermetic: the developer's user secrets (for example a real SMTP server) never reach a test host.
+            foreach (var secrets in config.Sources.OfType<JsonConfigurationSource>()
+                         .Where(j => string.Equals(j.Path, "secrets.json", StringComparison.OrdinalIgnoreCase)).ToList())
+                config.Sources.Remove(secrets);
+            config.AddInMemoryCollection(Settings);
+        });
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<TimeProvider>();

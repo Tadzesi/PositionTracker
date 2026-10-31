@@ -16,7 +16,7 @@ namespace PositionTracker.Api.Endpoints;
 /// Device endpoints authenticated by a participant bearer token:
 /// <c>POST /api/events/{eventId}/positions</c> (202 with accepted/rejected counts) and
 /// <c>POST /api/events/{eventId}/actions</c> (204). A missing, unknown or revoked token is 401, a token of
-/// another event 403, an unknown event or participant 404, a malformed body 400, more than
+/// another event 403, an unknown event or participant 404, a finished event 409 <c>event_finished</c>, a malformed body 400, more than
 /// <see cref="MaxFixesPerBatch"/> fixes or a body over <see cref="MaxBodyBytes"/> 413. Fixes with invalid coordinates or poor accuracy are not errors;
 /// they are counted as rejected. Each token may make <see cref="RequestsPerMinute"/> requests per fixed
 /// one-minute window (429 with <c>Retry-After</c> beyond); unauthenticated requests share a window per remote IP.
@@ -180,6 +180,7 @@ public static class IngestEndpoints
         }
         if (!string.Equals(c.EventId, eventId, StringComparison.Ordinal)) return Results.StatusCode(StatusCodes.Status403Forbidden);
         if (registry.Get(eventId) is not { } r || !r.HasParticipant(c.ParticipantId)) return Results.NotFound();
+        if (registry.IsFinished(eventId)) return EventErrors.Result(EventErrors.EventFinished);
         caller = c;
         runtime = r;
         return null;

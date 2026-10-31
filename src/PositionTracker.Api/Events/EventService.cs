@@ -1,0 +1,477 @@
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using PositionTracker.Api.Endpoints;
+using PositionTracker.Api.Persistence;
+using PositionTracker.Core;
+using PositionTracker.Core.Runtime;
+using PositionTracker.Data;
+using PositionTracker.Data.Entities;
+using PositionTracker.Email;
+
+namespace PositionTracker.Api.Events;
+
+/// <summary>
+/// The organizer's events (scoped, on the request's <see cref="AppDbContext"/>). Every operation is limited to the
+/// events of <c>organizerId</c>: another organizer's event and an unknown id are the same 404 <c>not_found</c>.
+/// Simulated events exist only in memory and are never seen here.
+/// <para><b>Validation before any write:</b> every input is validated (the GPX parsed by the hardened
+/// <see cref="GpxParser"/> and checked by <see cref="Course.Create"/>) before the event is even read, so an invalid
+/// request writes nothing and reveals nothing about the event.</para>
+/// <para><b>Concurrency:</b> every write sets a new <see cref="EventEntity.Version"/> (an optimistic concurrency
+/// token); a write based on a read that another request has overtaken fails as 409 <c>conflict</c> and changes nothing
+/// (also a unique-index race of two category or wave replacements). State changes re-read and retry instead, so
+/// repeating a transition that another request just made is answered as the idempotent success it is.</para>
+/// <para><b>live</b> builds the runtime with <see cref="RuntimeFactory"/> (the code path of the startup rebuild,
+/// <see cref="EventSettings.Create"/> included) inside the transaction that sets <see cref="EventState.Live"/>; the
+/// runtime is registered before the commit and removed again if the commit fails, and if the runtime cannot be built the
+/// transaction is rolled back (500 <c>runtime_failed</c>), so the database never says Live without a runtime being
+/// registered by that request. <c>live</c> on a Live event whose runtime is missing (its startup rebuild failed)
+/// rebuilds and registers it. <b>finished</b> keeps the runtime registered, read-only: the device endpoints answer 409
+/// <c>event_finished</c>, so nothing more is persisted.</para>
+/// </summary>
+public sealed class EventService(
+    AppDbContext db, EventRegistry registry, RuntimeFactory factory, IEmailMode emailMode, TimeProvider clock,
+    ILogger<EventService> logger, EventServiceHooks? hooks = null)
+{
+    public const int MaxNameLength = 120;
+    public const int MaxGroupNameLength = 60;
+    public const int MaxLaps = 10;
+    public const int MaxCheckpoints = 50;
+    public const int MaxCategories = 50;
+    public const int MaxWaves = 50;
+    public const int MaxGpxBytes = 1024 * 1024;
+    public const int DefaultSpectatorDelaySeconds = 30;
+    public const int MaxAge = 120;
+    public static readonly TimeSpan MaxWaveAfterStart = TimeSpan.FromHours(24);
+    /// <summary>A start further ahead is a typo, not a plan.</summary>
+    public static readonly TimeSpan MaxStartAhead = TimeSpan.FromDays(5 * 366);
+    private const int StateAttempts = 3;
+
+    // ----- read -----
+
+    public async Task<EventList> ListAsync(Guid organizerId, CancellationToken ct)
+    {
+        var events = await db.Events.AsNoTracking().Where(e => e.OrganizerId == organizerId)
+            .OrderByDescending(e => e.StartTime).ThenBy(e => e.Id)
+            .Select(e => new { e.Id, e.Name, e.Location, e.StartTime, e.Sport, e.State })
+            .ToListAsync(ct);
+        return new EventList(emailMode.Mode, events
+            .Select(e => new EventSummary(RuntimeFactory.RuntimeId(e.Id), e.Name, e.Location, e.StartTime, e.Sport, e.State))
+            .ToList());
+    }
+
+    public async Task<EventResult<EventManageView>> GetAsync(Guid organizerId, string eventId, CancellationToken ct)
+    {
+        if (await FindAsync(organizerId, eventId, tracked: false, ct) is not { } ev) return EventErrors.NotFound;
+        return new EventResult<EventManageView>(await ViewAsync(ev, ct), null);
+    }
+
+    // ----- create -----
+
+    public async Task<EventResult<CreatedEvent>> CreateAsync(Guid organizerId, CreateEventRequest request, CancellationToken ct)
+    {
+        if (!TextRules.TryLine(request.Name, MaxNameLength, out var name)) return EventErrors.InvalidName("name");
+        if (!TextRules.TryLine(request.Location, MaxNameLength, out var location)) return EventErrors.InvalidLocation("location");
+        var now = clock.GetUtcNow();
+        if (!UtcTimestampConverter.TryParse(request.StartTime, out var start) || start <= now || start > now + MaxStartAhead)
+            return EventErrors.StartNotInFuture("startTime");
+        if (ParseSport(request.Sport) is not { } sport) return EventErrors.InvalidSport("sport");
+
+        var ev = new EventEntity
+        {
+            Id = Guid.CreateVersion7(now), OrganizerId = organizerId, Name = name, Location = location, StartTime = start,
+            Sport = sport, State = EventState.Draft, Laps = 1, SpectatorDelaySeconds = DefaultSpectatorDelaySeconds,
+            CreatedAt = now, Version = Guid.NewGuid(),
+        };
+        db.Events.Add(ev);
+        await db.SaveChangesAsync(ct);
+        return new EventResult<CreatedEvent>(new CreatedEvent(RuntimeFactory.RuntimeId(ev.Id)), null);
+    }
+
+    // ----- course -----
+
+    public async Task<EventResult<EventManageView>> PutCourseAsync(Guid organizerId, string eventId, CourseRequest request, CancellationToken ct)
+    {
+        var laps = request.Laps ?? 1;
+        if (laps is < 1 or > MaxLaps) return EventErrors.LapsInvalid;
+        var delay = request.SpectatorDelaySeconds ?? DefaultSpectatorDelaySeconds;
+        if (TimeSpan.FromSeconds(delay) < EventSettings.MinSpectatorDelay || TimeSpan.FromSeconds(delay) > EventSettings.MaxSpectatorDelay)
+            return EventErrors.DelayInvalid;
+        if (ParseCheckpoints(request.Checkpoints) is not { } checkpoints) return EventErrors.CheckpointInvalid;
+        var (gpx, gpxError) = DecodeGpx(request.GpxBase64);
+        if (gpxError is not null) return gpxError;
+        IReadOnlyList<GeoPoint> points;
+        try
+        {
+            using var stream = new MemoryStream(gpx!, writable: false);
+            points = GpxParser.Parse(stream);
+        }
+        catch (GpxFormatException)
+        {
+            return EventErrors.GpxInvalid;
+        }
+        Course course;
+        try
+        {
+            course = Course.Create(points, laps, checkpoints);
+        }
+        catch (ArgumentException ex)
+        {
+            return ex.ParamName switch
+            {
+                "laps" => EventErrors.CourseNotClosed,
+                "checkpoints" => EventErrors.CheckpointInvalid,
+                _ => EventErrors.CourseTooShort,
+            };
+        }
+
+        // Valid: now (and only now) the database.
+        if (await FindAsync(organizerId, eventId, tracked: true, ct) is not { } ev) return EventErrors.NotFound;
+        if (IsFrozen(ev)) return EventErrors.EventLocked;
+        var now = clock.GetUtcNow();
+        ev.GpxBytes = gpx;
+        ev.Laps = laps;
+        ev.SpectatorDelaySeconds = delay;
+        ev.CheckpointsJson = RuntimeFactory.CheckpointsJsonOf(course.Checkpoints);
+        ev.Version = Guid.NewGuid();
+        var stored = await db.Courses.SingleOrDefaultAsync(c => c.EventId == ev.Id, ct);
+        if (stored is null) db.Courses.Add(stored = new CourseEntity { EventId = ev.Id });
+        stored.LapLengthM = course.LapLengthM;
+        stored.AscentM = course.AscentPerLapM;
+        stored.DescentM = course.DescentPerLapM;
+        stored.PointCount = course.Points.Count;
+        stored.IsClosed = course.IsClosed;
+        stored.UploadedAt = now;
+        return await SaveAndViewAsync(ev, ct);
+    }
+
+    // ----- categories and waves -----
+
+    public async Task<EventResult<EventManageView>> PutCategoriesAsync(Guid organizerId, string eventId,
+        IReadOnlyList<CategoryRequest?> request, CancellationToken ct)
+    {
+        if (request.Count > MaxCategories) return EventErrors.TooMany("categories", MaxCategories);
+        var wanted = new List<CategoryRequest>();
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < request.Count; i++)
+        {
+            var c = request[i];
+            if (c is null) return EventErrors.InvalidBody;
+            if (!TextRules.TryLine(c.Name, MaxGroupNameLength, out var name) || !names.Add(name))
+                return EventErrors.InvalidGroupName($"[{i}].name");
+            string? gender = null;
+            if (!string.IsNullOrWhiteSpace(c.Gender))
+            {
+                gender = c.Gender.Trim().ToLowerInvariant();
+                if (gender is not ("female" or "male")) return EventErrors.InvalidGender($"[{i}].gender");
+            }
+            if (c.MinAge is < 0 or > MaxAge) return EventErrors.InvalidAge($"[{i}].minAge");
+            if (c.MaxAge is < 0 or > MaxAge) return EventErrors.InvalidAge($"[{i}].maxAge");
+            if (c.MinAge > c.MaxAge) return EventErrors.InvalidAge($"[{i}].minAge");
+            wanted.Add(new CategoryRequest(name, gender, c.MinAge, c.MaxAge));
+        }
+
+        if (await FindAsync(organizerId, eventId, tracked: true, ct) is not { } ev) return EventErrors.NotFound;
+        if (IsFrozen(ev)) return EventErrors.EventLocked;
+        // Kept names (ignoring case) keep their row, so participants keep their category.
+        var existing = await db.Categories.Where(c => c.EventId == ev.Id).ToListAsync(ct);
+        var byName = existing.ToDictionary(c => c.Name, StringComparer.OrdinalIgnoreCase);
+        foreach (var w in wanted)
+        {
+            if (byName.Remove(w.Name!, out var row))
+            {
+                row.Name = w.Name!;
+                row.Gender = w.Gender;
+                row.MinAge = w.MinAge;
+                row.MaxAge = w.MaxAge;
+            }
+            else
+            {
+                db.Categories.Add(new CategoryEntity
+                {
+                    Id = Guid.NewGuid(), EventId = ev.Id, Name = w.Name!, Gender = w.Gender, MinAge = w.MinAge, MaxAge = w.MaxAge,
+                });
+            }
+        }
+        db.Categories.RemoveRange(byName.Values);
+        ev.Version = Guid.NewGuid();
+        return await SaveAndViewAsync(ev, ct);
+    }
+
+    public async Task<EventResult<EventManageView>> PutWavesAsync(Guid organizerId, string eventId,
+        IReadOnlyList<WaveRequest?> request, CancellationToken ct)
+    {
+        if (request.Count > MaxWaves) return EventErrors.TooMany("waves", MaxWaves);
+        var wanted = new List<(string Name, DateTimeOffset Start)>();
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < request.Count; i++)
+        {
+            var w = request[i];
+            if (w is null) return EventErrors.InvalidBody;
+            if (!TextRules.TryLine(w.Name, MaxGroupNameLength, out var name) || !names.Add(name))
+                return EventErrors.InvalidGroupName($"[{i}].name");
+            if (!UtcTimestampConverter.TryParse(w.StartTime, out var start)) return EventErrors.InvalidWaveStart($"[{i}].startTime");
+            wanted.Add((name, start));
+        }
+
+        if (await FindAsync(organizerId, eventId, tracked: true, ct) is not { } ev) return EventErrors.NotFound;
+        if (IsFrozen(ev)) return EventErrors.EventLocked;
+        for (var i = 0; i < wanted.Count; i++)
+            if (wanted[i].Start < ev.StartTime || wanted[i].Start > ev.StartTime + MaxWaveAfterStart)
+                return EventErrors.InvalidWaveStart($"[{i}].startTime");
+        var existing = await db.Waves.Where(w => w.EventId == ev.Id).ToListAsync(ct);
+        var byName = existing.ToDictionary(w => w.Name, StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, start) in wanted)
+        {
+            if (byName.Remove(name, out var row))
+            {
+                row.Name = name;
+                row.StartTime = start;
+            }
+            else
+            {
+                db.Waves.Add(new WaveEntity { Id = Guid.NewGuid(), EventId = ev.Id, Name = name, StartTime = start });
+            }
+        }
+        db.Waves.RemoveRange(byName.Values);
+        ev.Version = Guid.NewGuid();
+        return await SaveAndViewAsync(ev, ct);
+    }
+
+    // ----- state -----
+
+    public async Task<EventResult<EventManageView>> SetStateAsync(Guid organizerId, string eventId, string? state, CancellationToken ct)
+    {
+        EventState target;
+        switch ((state ?? "").Trim())
+        {
+            case "ready": target = EventState.Ready; break;
+            case "live": target = EventState.Live; break;
+            case "finished": target = EventState.Finished; break;
+            default: return EventErrors.InvalidState("state");
+        }
+
+        for (var attempt = 1; ; attempt++)
+        {
+            db.ChangeTracker.Clear();
+            if (await FindAsync(organizerId, eventId, tracked: true, ct) is not { } ev) return EventErrors.NotFound;
+            try
+            {
+                var error = ev.State == target
+                    ? await RepeatAsync(ev, ct)
+                    : (ev.State, target) switch
+                    {
+                        (EventState.Draft, EventState.Ready) => await ReadyAsync(ev, ct),
+                        (EventState.Ready, EventState.Live) => await GoLiveAsync(ev, ct),
+                        (EventState.Live, EventState.Finished) => await FinishAsync(ev, ct),
+                        _ => EventErrors.InvalidTransition,
+                    };
+                if (error is not null) return error;
+                db.ChangeTracker.Clear();
+                var current = await FindAsync(organizerId, eventId, tracked: false, ct);
+                return current is null ? EventErrors.NotFound : new EventResult<EventManageView>(await ViewAsync(current, ct), null);
+            }
+            catch (DbUpdateConcurrencyException) when (attempt < StateAttempts)
+            {
+                // Another request changed the event first: decide again on what it did.
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return EventErrors.Conflict;
+            }
+        }
+    }
+
+    /// <summary>The event is already in the target state: success, after making sure a live event is running.</summary>
+    private async Task<EventError?> RepeatAsync(EventEntity ev, CancellationToken ct)
+    {
+        var runtimeId = RuntimeFactory.RuntimeId(ev.Id);
+        if (ev.State == EventState.Finished) registry.SetFinished(runtimeId, true);
+        if (ev.State != EventState.Live || registry.Get(runtimeId) is not null) return null;
+        EventRuntime runtime;
+        try
+        {
+            runtime = await factory.BuildAsync(db, ev, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException && ex is not NpgsqlException)
+        {
+            logger.LogError("Runtime of live event {EventId} could not be rebuilt ({ExceptionType}).", runtimeId, ex.GetType().Name);
+            return EventErrors.RuntimeFailed;
+        }
+        try
+        {
+            registry.Add(runtime);
+        }
+        catch (ArgumentException)
+        {
+            // A concurrent request registered it first: running, which is all that was asked.
+        }
+        return null;
+    }
+
+    private async Task<EventError?> ReadyAsync(EventEntity ev, CancellationToken ct)
+    {
+        if (ev.GpxBytes is not { Length: > 0 }) return EventErrors.CourseMissing;
+        ev.State = EventState.Ready;
+        ev.Version = Guid.NewGuid();
+        await db.SaveChangesAsync(ct);
+        return null;
+    }
+
+    private async Task<EventError?> GoLiveAsync(EventEntity ev, CancellationToken ct)
+    {
+        if (ev.GpxBytes is not { Length: > 0 }) return EventErrors.CourseMissing;
+        var runtimeId = RuntimeFactory.RuntimeId(ev.Id);
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        if (!await db.Participants.AnyAsync(p => p.EventId == ev.Id && p.Status == ParticipantStatus.Confirmed, ct))
+            return EventErrors.NoConfirmedParticipants;
+        EventRuntime runtime;
+        try
+        {
+            runtime = await factory.BuildAsync(db, ev, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException && ex is not NpgsqlException)
+        {
+            // Rolled back by disposing the transaction: the event stays Ready.
+            logger.LogError("Runtime of event {EventId} could not be built ({ExceptionType}); it stays ready.", runtimeId, ex.GetType().Name);
+            return EventErrors.RuntimeFailed;
+        }
+        ev.State = EventState.Live;
+        ev.Version = Guid.NewGuid();
+        await db.SaveChangesAsync(ct); // a concurrent change of the event fails here (the caller re-reads)
+        try
+        {
+            registry.Add(runtime);
+        }
+        catch (ArgumentException)
+        {
+            // Some runtime with this id is registered although the event was not live: refuse rather than run two.
+            logger.LogError("Event {EventId} already had a registered runtime before going live; not changed.", runtimeId);
+            return EventErrors.Conflict;
+        }
+        try
+        {
+            await tx.CommitAsync(ct);
+        }
+        catch
+        {
+            registry.Remove(runtimeId);
+            throw;
+        }
+        return null;
+    }
+
+    private async Task<EventError?> FinishAsync(EventEntity ev, CancellationToken ct)
+    {
+        var runtimeId = RuntimeFactory.RuntimeId(ev.Id);
+        ev.State = EventState.Finished;
+        ev.EndedAt = clock.GetUtcNow();
+        ev.Version = Guid.NewGuid();
+        // Refuse ingest from now on; if the change does not commit, the event is still live and takes ingest again.
+        registry.SetFinished(runtimeId, true);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch
+        {
+            registry.SetFinished(runtimeId, false);
+            throw;
+        }
+        return null;
+    }
+
+    // ----- helpers -----
+
+    private async Task<EventEntity?> FindAsync(Guid organizerId, string eventId, bool tracked, CancellationToken ct)
+    {
+        if (!Guid.TryParse(eventId, out var id)) return null;
+        var query = tracked ? db.Events : db.Events.AsNoTracking();
+        return await query.SingleOrDefaultAsync(e => e.Id == id && e.OrganizerId == organizerId, ct);
+    }
+
+    private static bool IsFrozen(EventEntity ev) => ev.State is EventState.Live or EventState.Finished;
+
+    /// <summary>Saves (409 <c>conflict</c> when another request overtook this one) and returns the fresh view.</summary>
+    private async Task<EventResult<EventManageView>> SaveAndViewAsync(EventEntity ev, CancellationToken ct)
+    {
+        if (hooks?.BeforeSave is { } hook) await hook(ev.Id);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return EventErrors.Conflict;
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            return EventErrors.Conflict;
+        }
+        db.ChangeTracker.Clear();
+        return new EventResult<EventManageView>(await ViewAsync(ev, ct), null);
+    }
+
+    private async Task<EventManageView> ViewAsync(EventEntity ev, CancellationToken ct)
+    {
+        var course = await db.Courses.AsNoTracking().SingleOrDefaultAsync(c => c.EventId == ev.Id, ct);
+        var categories = await db.Categories.AsNoTracking().Where(c => c.EventId == ev.Id).OrderBy(c => c.Name).ToListAsync(ct);
+        var waves = await db.Waves.AsNoTracking().Where(w => w.EventId == ev.Id).OrderBy(w => w.StartTime).ThenBy(w => w.Name).ToListAsync(ct);
+        var counts = await db.Participants.AsNoTracking().Where(p => p.EventId == ev.Id)
+            .GroupBy(p => p.Status).Select(g => new { Status = g.Key, Count = g.Count() }).ToListAsync(ct);
+        int Count(ParticipantStatus s) => counts.SingleOrDefault(c => c.Status == s)?.Count ?? 0;
+        var runtimeId = RuntimeFactory.RuntimeId(ev.Id);
+        return new EventManageView(
+            runtimeId, ev.Name, ev.Location, ev.StartTime, ev.Sport, ev.State, ev.Laps, ev.SpectatorDelaySeconds,
+            course is null || ev.GpxBytes is null
+                ? null
+                : new CourseView(course.LapLengthM, course.AscentM, course.DescentM, course.PointCount, course.IsClosed,
+                    course.UploadedAt, RuntimeFactory.CheckpointsOf(ev.CheckpointsJson)),
+            categories.Select(c => new CategoryView(c.Id.ToString("D"), c.Name, c.Gender, c.MinAge, c.MaxAge)).ToList(),
+            waves.Select(w => new WaveView(w.Id.ToString("D"), w.Name, w.StartTime)).ToList(),
+            new ParticipantCounts(Count(ParticipantStatus.Invited), Count(ParticipantStatus.Confirmed),
+                Count(ParticipantStatus.Declined), Count(ParticipantStatus.EmailFailed)),
+            registry.Get(runtimeId) is not null, emailMode.Mode, ev.CreatedAt, ev.EndedAt);
+    }
+
+    private static Sport? ParseSport(string? sport) => sport switch
+    {
+        "running" => Sport.Running,
+        "cycling" => Sport.Cycling,
+        _ => null,
+    };
+
+    /// <summary>Names valid and unique (ignoring case), distances finite and distinct; null when not.</summary>
+    private static List<Checkpoint>? ParseCheckpoints(List<CheckpointRequest?>? input)
+    {
+        if (input is null) return [];
+        if (input.Count > MaxCheckpoints) return null;
+        var result = new List<Checkpoint>();
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var distances = new HashSet<double>();
+        foreach (var c in input)
+        {
+            if (c is null || !TextRules.TryLine(c.Name, MaxGroupNameLength, out var name) || !names.Add(name)) return null;
+            if (c.LapDistanceM is not { } d || !double.IsFinite(d) || !distances.Add(d)) return null;
+            result.Add(new Checkpoint(name, d));
+        }
+        return result;
+    }
+
+    /// <summary>The decoded GPX, or 400 <c>gpx_invalid</c> (missing, not base64) / 413 <c>gpx_too_large</c> (over 1 MB).</summary>
+    private static (byte[]? Gpx, EventError? Error) DecodeGpx(string? base64)
+    {
+        if (string.IsNullOrWhiteSpace(base64)) return (null, EventErrors.GpxInvalid);
+        if ((long)base64.Length / 4 * 3 > MaxGpxBytes + 2) return (null, EventErrors.GpxTooLarge);
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromBase64String(base64);
+        }
+        catch (FormatException)
+        {
+            return (null, EventErrors.GpxInvalid);
+        }
+        return bytes.Length > MaxGpxBytes ? (null, EventErrors.GpxTooLarge) : (bytes, null);
+    }
+}

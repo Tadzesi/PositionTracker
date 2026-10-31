@@ -123,6 +123,7 @@ event and participant (in Plan 1 only the demo simulator issues them).
   second, or beyond 20 000 stored fixes are counted as rejected, not errors.
 - `400` malformed body (the client must drop that batch, it will never succeed), `401` missing/unknown/revoked
   token (with `WWW-Authenticate: Bearer`), `403` token of another event, `404` unknown event or participant,
+  `409 {"code":"event_finished",...}` the event has finished (the client stops sending; nothing is stored),
   `413` body over 256 KB or more than 500 fixes, `429` over 60 requests per minute and token (with
   `Retry-After`), `503` the position store cannot take the batch now (with `Retry-After: 1`; nothing of the batch
   was applied, the client resends it; also for actions).
@@ -237,6 +238,58 @@ keep the token out of analytics. Every other unsafe call of the front end sends 
   app); otherwise every restart or new container signs everyone out.
 - Keep `Microsoft.AspNetCore` logging at `Warning` and do not log query strings of the front-end link pages.
 
+## Organizer events
+
+`/api/events` (`src/PositionTracker.Api/Events`), organizer session required (`401 unauthorized`); course,
+categories, waves and state also need a confirmed email (`403 email_not_confirmed`). Unsafe requests need the two
+browser headers (see above); the device routes `/api/events/{id}/positions|actions` stay exempt. Errors use the
+shared `{"code","message":{"sk","en"},"field"?}` shape. An event of **another organizer, an unknown id and a
+simulated (demo) event are all `404 not_found`**, for reads and writes alike; the list shows only the organizer's
+own database events (demo events live only in memory and never appear). The runtime id of an event is its database
+Guid formatted `D` (lower case).
+
+- `POST /api/events {name, location, startTime, sport}` → `201 {eventId}` (state `draft`, laps 1, spectator delay
+  30 s); allowed before the email is confirmed. `name`/`location`: trimmed, 1–120 characters; control characters
+  (CR, LF, tab, …), line/paragraph separators and bidirectional formatting characters are **rejected** (not
+  stripped), as for organizer names. `startTime`: UTC ISO 8601 with `Z`, strictly in the future (at most 5 years
+  ahead). `sport`: `running` or `cycling`. Invalid input: `400 validation_failed` + `field`.
+- `GET /api/events` → `{emailMode, events:[{eventId,name,location,startTime,sport,state}]}`;
+  `GET /api/events/{id}/manage` → name, location, start, sport, state, laps, spectator delay, `course`
+  (`lapLengthM, ascentM, descentM` per lap, `pointCount, closed, uploadedAt, checkpoints`) or null, categories,
+  waves, participant counts per status, `running` (runtime registered in this process), `emailMode`
+  (`simulated`|`smtp`: whether mails really go out, ruling P8), `createdAt`, `endedAt`.
+- `PUT /api/events/{id}/course {gpxBase64, laps?, checkpoints?:[{name,lapDistanceM}], spectatorDelaySeconds?}`
+  (laps default 1, delay default 30 s). Everything is validated before the database is touched: `laps_invalid`
+  (1–10), `delay_invalid` (5–300 s), `checkpoint_invalid` (name 1–60 characters, names unique ignoring case,
+  distances distinct and strictly inside the lap, at most 50), `gpx_invalid` (missing, not base64, not GPX, DTD, fewer
+  than 2 points: parsed by the hardened `GpxParser`), `413 gpx_too_large` (over 1 MB decoded; the body cap is 2 MB),
+  `course_too_short` (lap under 50 m), `course_not_closed` (more than one lap on an open course). Stores the GPX
+  bytes, laps, checkpoints and delay on the event and the derived parameters in `Courses`; a new upload replaces
+  the old one.
+- `PUT /api/events/{id}/categories [{name, gender?, minAge?, maxAge?}]` and `PUT /api/events/{id}/waves
+  [{name, startTime}]` replace the whole set in one transaction (at most 50 each). Names 1–60 characters, unique per
+  event ignoring case; a kept name keeps its row (participants keep their category). Category gender `female`,
+  `male` or none; ages 0–120 with min ≤ max. A wave starts between the event start and 24 h after it (UTC, `Z`).
+- `POST /api/events/{id}/state {state}`: only `draft → ready → live → finished`; repeating the current state is a
+  success. `ready` needs a course (`409 course_missing`). `live` needs a course and at least one `Confirmed`
+  participant (`409 no_confirmed_participants`); other moves are `409 invalid_transition`. Every answer is the
+  manage view.
+- **live** builds the `EventRuntime` with `RuntimeFactory` (the same code as the startup rebuild:
+  `EventSettings.Create`, the stored course, the confirmed participants, the stored history) inside the transaction
+  that sets `Live`, registers it in `EventRegistry` and commits; a commit failure unregisters it again, and a
+  runtime that cannot be built rolls the transaction back (`500 runtime_failed`, the event stays `ready`). Ingest is
+  persisted from then on. `live` on a live event whose runtime is missing (a failed startup rebuild) rebuilds it.
+- **Frozen once live:** course, laps, checkpoints, delay, categories and waves answer `409 event_locked` in `live`
+  and `finished`.
+- **finished** sets `EndedAt` (retention counts from it). The runtime **stays registered, read-only**, so
+  `/public` (and the operator's `/live`) keep showing the final state; the device endpoints answer
+  `409 event_finished` and nothing more is stored. After a restart, events that finished less than 7 days ago
+  (`RuntimeRehydrator.FinishedRuntimeDays`) are rebuilt the same way, still read-only; older ones are not running.
+- **Concurrency:** every write of an event sets a new `Events.Version` (optimistic concurrency token). A course,
+  category or wave write overtaken by another request is `409 conflict` and changes nothing (the client reloads and
+  repeats); state changes re-read and retry, so concurrent identical `live` calls all succeed with one runtime.
+- No personal data is logged (event ids and exception types only). A database failure is `503 unavailable`.
+
 ## Persistence and restart
 
 - **What is stored.** For real (non-simulated) events: every fix the tracker stored from a batch
@@ -253,7 +306,7 @@ keep the token out of analytics. Every other unsafe call of the front end sends 
   backoff while the slots stay taken; a row the database refuses for good (constraint violation) is logged with its
   ids and dropped. On shutdown the queue is closed and drained; only if the host's shutdown timeout runs out are the
   remaining writes lost (logged with their count).
-- **Restart.** At startup every event in state `Live` is rebuilt: course from the stored GPX, laps and checkpoints,
+- **Restart.** At startup every event in state `Live` (and every event finished less than 7 days ago, read-only) is rebuilt by `RuntimeFactory`: course from the stored GPX, laps and checkpoints,
   confirmed participants, then the stored actions, fixes and statuses are replayed on a `ReplayTimeProvider` whose
   time is set to each stored time (no wall-clock reads during the replay); the runtime's clock then switches to the
   real clock. The organizer and spectator views after a restart equal those before it. The spectator view starts

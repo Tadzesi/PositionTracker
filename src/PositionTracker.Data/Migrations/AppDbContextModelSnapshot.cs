@@ -151,6 +151,9 @@ namespace PositionTracker.Data.Migrations
                     b.Property<double>("DescentM")
                         .HasColumnType("double precision");
 
+                    b.Property<bool>("IsClosed")
+                        .HasColumnType("boolean");
+
                     b.Property<double>("LapLengthM")
                         .HasColumnType("double precision");
 
@@ -371,6 +374,10 @@ namespace PositionTracker.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
 
                     b.HasKey("Id");
 
