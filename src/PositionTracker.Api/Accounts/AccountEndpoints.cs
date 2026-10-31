@@ -20,13 +20,16 @@ namespace PositionTracker.Api.Accounts;
 /// state of the address (unknown, unconfirmed, confirmed), also over a rate limit; 400 <c>validation_failed</c>
 /// (+ <c>field</c>) for invalid input.</item>
 /// <item><c>POST /api/account/signin {email}</c> → the same 202.</item>
-/// <item><c>POST /api/account/confirm {token}</c> → 200 <c>{"confirmed":true}</c> (also when reopened), 400
+/// <item><c>POST /api/account/confirm {token}</c> → 200 <c>{"confirmed":true,"signedIn":bool}</c>; the first redemption
+/// also starts the session (<c>signedIn</c> true), a reopened link only answers confirmed; 400
 /// <c>link_expired|link_used|link_invalid</c>, 429 <c>rate_limited</c>.</item>
 /// <item><c>POST /api/account/signin/redeem {token}</c> → sets the session cookie (and confirms the email), 200 with
 /// the profile; the same errors.</item>
 /// <item><c>POST /api/account/signout</c> → 204; clears the cookie and ends every session of the account.</item>
 /// <item><c>GET /api/account/me</c> → 200 <c>{name, email, language, emailConfirmed, emailMode}</c>, 401
 /// <c>unauthorized</c> without a session.</item>
+/// <item><c>GET /api/account/session</c> → the same 200 profile, or 204 without a session (for the web app's start-up
+/// probe: an anonymous visitor must not produce a 401 in the browser console).</item>
 /// </list>
 /// The tokens travel in the JSON body (controller ruling P9): the emailed links open front-end pages that ask the
 /// user to press a button, which POSTs the token. A GET of an API route is 405, so neither a top-level navigation
@@ -50,7 +53,7 @@ public static class AccountEndpoints
 
     public sealed record AcceptedResponse(string Status);
 
-    public sealed record ConfirmResponse(bool Confirmed);
+    public sealed record ConfirmResponse(bool Confirmed, bool SignedIn);
 
     public sealed record MeResponse(string Name, string Email, string Language, bool EmailConfirmed, string EmailMode);
 
@@ -88,6 +91,7 @@ public static class AccountEndpoints
         group.MapPost("/signin/redeem", RedeemAsync);
         group.MapPost("/signout", SignOutAsync);
         group.MapGet("/me", Me).RequireAuthorization(CookieAuth.OrganizerSessionPolicy);
+        group.MapGet("/session", Session);
         return app;
     }
 
@@ -156,8 +160,10 @@ public static class AccountEndpoints
         if (!limiter.TryTakeRedeem(context.Connection.RemoteIpAddress)) return AccountErrors.RateLimited();
         try
         {
-            var status = await organizers.ConfirmEmailAsync(body!.Token ?? "", context.RequestAborted);
-            return status == LinkStatus.Ok ? Results.Ok(new ConfirmResponse(true)) : LinkError(status);
+            var (status, organizer) = await organizers.ConfirmEmailAsync(body!.Token ?? "", context.RequestAborted);
+            if (status != LinkStatus.Ok) return LinkError(status);
+            if (organizer is not null) await CookieAuth.SignInAsync(context, organizer);
+            return Results.Ok(new ConfirmResponse(true, organizer is not null));
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !context.RequestAborted.IsCancellationRequested)
         {
@@ -198,6 +204,9 @@ public static class AccountEndpoints
 
     private static IResult Me(HttpContext context, IEmailMode mode) =>
         CookieAuth.CurrentOrganizer(context) is { } organizer ? Results.Ok(Profile(organizer, mode)) : AccountErrors.Unauthorized();
+
+    private static IResult Session(HttpContext context, IEmailMode mode) =>
+        CookieAuth.CurrentOrganizer(context) is { } organizer ? Results.Ok(Profile(organizer, mode)) : Results.NoContent();
 
     private static MeResponse Profile(OrganizerEntity o, IEmailMode mode) =>
         new(o.Name, o.Email, o.Language, o.EmailConfirmedAt is not null, mode.Mode);

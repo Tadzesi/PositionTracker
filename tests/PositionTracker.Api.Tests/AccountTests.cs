@@ -557,9 +557,15 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         host.Clock.Advance(TimeSpan.FromDays(14) - TimeSpan.FromSeconds(1));
         var response = await ConfirmAsync(client, token);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("""{"confirmed":true}""", await response.Content.ReadAsStringAsync());
+        Assert.Equal("""{"confirmed":true,"signedIn":true}""", await response.Content.ReadAsStringAsync());
+        Assert.Contains(CookieAuth.CookieName + "=", string.Join(";", response.Headers.GetValues("Set-Cookie")));
         Assert.Equal(host.Clock.GetUtcNow(), Assert.Single(await OrganizersAsync(host)).EmailConfirmedAt);
-        Assert.Equal(HttpStatusCode.OK, (await ConfirmAsync(client, token)).StatusCode);
+
+        // The link is reusable, so a reopened one confirms but must not log anybody in.
+        var again = await ConfirmAsync(client, token);
+        Assert.Equal(HttpStatusCode.OK, again.StatusCode);
+        Assert.Equal("""{"confirmed":true,"signedIn":false}""", await again.Content.ReadAsStringAsync());
+        Assert.False(again.Headers.Contains("Set-Cookie"));
     }
 
     [Fact]
@@ -794,6 +800,23 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
 
         host.Clock.Advance(TimeSpan.FromDays(31));
         await AssertErrorAsync(await MeAsync(client, newCookie), HttpStatusCode.Unauthorized, "unauthorized");
+    }
+
+    [Fact]
+    public async Task Session_answers_204_without_a_session_and_the_profile_with_one()
+    {
+        await using var host = Host();
+        var client = Client(host);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await client.GetAsync("/api/account/session")).StatusCode);
+
+        await SignUpAsync(client, "Anna", "Anna@Example.org", "sk");
+        var cookie = await SignInSessionAsync(host, client, "anna@example.org");
+        var request = new HttpRequestMessage(HttpMethod.Get, "/api/account/session");
+        request.Headers.Add("Cookie", cookie);
+        var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("\"name\":\"Anna\"", await response.Content.ReadAsStringAsync());
     }
 
     [Fact]

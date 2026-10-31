@@ -122,11 +122,12 @@ export function ConfirmEmail() {
   const [params] = useSearchParams();
   const token = params.get('token') ?? '';
   const { refresh } = useSession();
+  const navigate = useNavigate();
   const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle');
   const [error, setError] = useState<unknown>(null);
   const confirm = async () => {
     setState('busy'); setError(null);
-    try { await post('/api/account/confirm', { token }); await refresh(); setState('done'); } catch (x) { setError(x); setState('idle'); }
+    try { const r = await post<{ signedIn: boolean }>('/api/account/confirm', { token }); await refresh(); if (r?.signedIn) { navigate('/org'); return; } setState('done'); } catch (x) { setError(x); setState('idle'); }
   };
   return (
     <div className="card narrow stack">

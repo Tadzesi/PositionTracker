@@ -53,7 +53,7 @@ describe('web app', () => {
   });
 
   it('sign-in link needs an explicit click and then posts the token', async () => {
-    const calls = mockFetch({ 'POST /api/account/signin/redeem': { body: {} }, 'GET /api/account/me': { body: { name: 'A', email: 'a@x', language: 'en', emailConfirmed: true, emailMode: 'smtp' } }, 'GET /api/events': { body: { emailMode: 'smtp', events: [] } } });
+    const calls = mockFetch({ 'POST /api/account/signin/redeem': { body: {} }, 'GET /api/account/session': { body: { name: 'A', email: 'a@x', language: 'en', emailConfirmed: true, emailMode: 'smtp' } }, 'GET /api/events': { body: { emailMode: 'smtp', events: [] } } });
     renderAt('/account/signin?token=abc');
     expect(calls.some((c) => c.url.includes('redeem'))).toBe(false);
     await userEvent.click(await screen.findByRole('button', { name: 'Sign in' }));

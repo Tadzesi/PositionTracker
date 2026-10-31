@@ -83,16 +83,22 @@ public sealed class OrganizerService(
         await tx.CommitAsync(ct);
     }
 
-    /// <summary>Redeems a confirmation link; on success the account's email is confirmed (idempotent).</summary>
-    public async Task<LinkStatus> ConfirmEmailAsync(string token, CancellationToken ct)
+    /// <summary>
+    /// Redeems a confirmation link; on success the account's email is confirmed (idempotent). The organizer is returned
+    /// (to start a session) only by the redemption that actually confirmed the address: the link is reusable, so a
+    /// reopened one must not log anybody in.
+    /// </summary>
+    public async Task<(LinkStatus Status, OrganizerEntity? Organizer)> ConfirmEmailAsync(string token, CancellationToken ct)
     {
         var result = await links.RedeemAsync(LinkPurpose.OrganizerEmailConfirm, token, singleUse: false, ct);
-        if (!result.IsOk) return result.Status;
+        if (!result.IsOk) return (result.Status, null);
         var now = clock.GetUtcNow();
-        await db.Organizers
+        var changed = await db.Organizers
             .Where(o => o.Id == result.SubjectId && o.EmailConfirmedAt == null)
             .ExecuteUpdateAsync(s => s.SetProperty(o => o.EmailConfirmedAt, now), ct);
-        return LinkStatus.Ok;
+        if (changed == 0) return (LinkStatus.Ok, null);
+        var organizer = await db.Organizers.AsNoTracking().SingleOrDefaultAsync(o => o.Id == result.SubjectId, ct);
+        return (LinkStatus.Ok, organizer);
     }
 
     /// <summary>

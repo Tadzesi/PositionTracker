@@ -19,6 +19,13 @@ export function RequireSession({ children }: { children: React.ReactNode }) {
 const stateLabel = (t: (a: string, b: string) => string, s: string) =>
   ({ draft: t('Návrh', 'Draft'), ready: t('Pripravené', 'Ready'), live: t('Naživo', 'Live'), finished: t('Skončené', 'Finished') })[s] ?? s;
 
+/** Events the organizer is planning or running come first (soonest start first); finished ones follow, newest first. */
+const EVENT_GROUPS = [
+  { key: 'live', sk: 'Naživo', en: 'Live', states: ['live'], finished: false },
+  { key: 'planned', sk: 'V príprave', en: 'Planned', states: ['draft', 'ready'], finished: false },
+  { key: 'finished', sk: 'Ukončené', en: 'Finished', states: ['finished'], finished: true },
+];
+
 export default function OrgEvents() {
   const { t, lang } = useI18n();
   const { me } = useSession();
@@ -35,19 +42,27 @@ export default function OrgEvents() {
       <EmailModeNotice mode={list.data?.emailMode} />
       <ErrorBanner error={list.error} />
       <div className="grid two">
-        <div className="card">
-          <h2>{t('Podujatia', 'Events')}</h2>
-          {list.loading && !list.data ? <Loading /> : list.data?.events.length === 0
-            ? <p className="mute">{t('Zatiaľ nemáte žiadne podujatie.', 'You have no events yet.')}</p>
-            : <div className="scroll"><table>
-                <thead><tr><th>{t('Názov', 'Name')}</th><th>{t('Začiatok', 'Start')}</th><th>{t('Stav', 'State')}</th></tr></thead>
-                <tbody>{list.data?.events.map((e) => (
-                  <tr key={e.eventId}>
-                    <td><Link to={`/org/events/${e.eventId}`}>{e.name}</Link><div className="mute">{e.location}</div></td>
-                    <td>{formatDateTime(e.startTime, lang)}</td>
-                    <td><StatusBadge value={e.state} label={stateLabel(t, e.state)} /></td>
-                  </tr>))}</tbody>
-              </table></div>}
+        <div className="stack">
+          {list.loading && !list.data ? <div className="card"><Loading /></div> : list.data?.events.length === 0
+            ? <div className="card"><h2>{t('Podujatia', 'Events')}</h2><p className="mute">{t('Zatiaľ nemáte žiadne podujatie.', 'You have no events yet.')}</p></div>
+            : EVENT_GROUPS.map((g) => {
+                const events = (list.data?.events ?? []).filter((e) => g.states.includes(e.state))
+                  .sort((x, y) => g.finished ? y.startTime.localeCompare(x.startTime) : x.startTime.localeCompare(y.startTime));
+                if (events.length === 0) return null;
+                return (
+                  <div className="card" key={g.key}>
+                    <h2>{t(g.sk, g.en)} <span className="mute">({events.length})</span></h2>
+                    <div className="scroll"><table>
+                      <thead><tr><th>{t('Názov', 'Name')}</th><th>{t('Začiatok', 'Start')}</th><th>{t('Stav', 'State')}</th></tr></thead>
+                      <tbody>{events.map((e) => (
+                        <tr key={e.eventId}>
+                          <td><Link to={`/org/events/${e.eventId}`}>{e.name}</Link><div className="mute">{e.location}</div></td>
+                          <td>{formatDateTime(e.startTime, lang)}</td>
+                          <td><StatusBadge value={e.state} label={stateLabel(t, e.state)} /></td>
+                        </tr>))}</tbody>
+                    </table></div>
+                  </div>);
+              })}
         </div>
         <CreateEvent />
       </div>
