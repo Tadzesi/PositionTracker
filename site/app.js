@@ -6,6 +6,11 @@
   const lang = root.lang === 'en' ? 'en' : 'sk';
   const t = (sk, en) => (lang === 'sk' ? sk : en);
 
+  // ----- language: remember the explicit choice for the whole origin (the app under /tracker/app/ reads the same key) -----
+  document.querySelectorAll('.seg a[hreflang]').forEach((a) => a.addEventListener('click', () => {
+    try { localStorage.setItem('pt-lang', a.hreflang); } catch (e) { /* storage blocked */ }
+  }));
+
   // ----- theme: two explicit choices; without a stored choice the system setting is shown as the active one -----
   const seg = document.getElementById('themeseg');
   const media = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
