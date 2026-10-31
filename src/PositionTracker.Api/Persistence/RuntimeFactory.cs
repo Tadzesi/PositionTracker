@@ -31,9 +31,12 @@ public sealed class RuntimeFactory(IFixStore store, TimeProvider clock)
     /// <summary>The runtime id of a database event: its Guid formatted <c>"D"</c> (controller ruling P5).</summary>
     public static string RuntimeId(Guid eventId) => eventId.ToString("D");
 
-    /// <summary>The runtime view of a participant row (the email never leaves the database).</summary>
+    /// <summary>
+    /// The runtime view of a participant row (the email never leaves the database; a nickname the organizer hid is not
+    /// passed on).
+    /// </summary>
     public static ParticipantInfo ParticipantInfoOf(ParticipantEntity p) =>
-        new(p.Id.ToString("D"), p.Bib, p.Name, p.Nickname, p.Category?.Name ?? "", p.ShowNameToSpectators, p.IsMinor);
+        new(p.Id.ToString("D"), p.Bib, p.Name, p.NicknameHidden ? null : p.Nickname, p.Category?.Name ?? "", p.ShowNameToSpectators, p.IsMinor);
 
     /// <summary>
     /// Builds the runtime of <paramref name="ev"/>, reading its participants through <paramref name="db"/> (so a caller

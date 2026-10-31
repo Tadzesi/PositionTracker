@@ -393,12 +393,14 @@ public sealed class EventService(
 
     private async Task<EventEntity?> FindAsync(Guid organizerId, string eventId, bool tracked, CancellationToken ct)
     {
-        // Only the canonical runtime id (Guid "D", lower case; ruling P5) names an event.
-        if (!Guid.TryParseExact(eventId, "D", out var id) || !string.Equals(eventId, RuntimeFactory.RuntimeId(id), StringComparison.Ordinal))
-            return null;
+        if (!TryParseId(eventId, out var id)) return null;
         var query = tracked ? db.Events : db.Events.AsNoTracking();
         return await query.SingleOrDefaultAsync(e => e.Id == id && e.OrganizerId == organizerId, ct);
     }
+
+    /// <summary>Only the canonical runtime id (Guid <c>"D"</c>, lower case; ruling P5) names an event or participant.</summary>
+    public static bool TryParseId(string? value, out Guid id) =>
+        Guid.TryParseExact(value, "D", out id) && string.Equals(value, id.ToString("D"), StringComparison.Ordinal);
 
     /// <summary>
     /// A failure of the database (connection, timeout, provider error, also when EF wraps it in an

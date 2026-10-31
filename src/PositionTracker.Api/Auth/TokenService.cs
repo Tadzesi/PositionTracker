@@ -7,9 +7,10 @@ namespace PositionTracker.Api.Auth;
 /// <summary>
 /// Issues and resolves participant bearer tokens. A token is 32 random bytes, base64url encoded, and is returned
 /// only once by <see cref="Issue"/>; only its SHA-256 hash is kept. Each participant has at most one active token:
-/// issuing again replaces the previous one. Thread-safe.
+/// issuing again replaces the previous one. Thread-safe. Holds the tokens of simulated (demo) events; the tokens of
+/// database events are in <see cref="DbTokenService"/> (controller ruling P4, routed by <see cref="DeviceTokens"/>).
 /// </summary>
-public sealed class TokenService
+public sealed class TokenService : ITokenService
 {
     private readonly object _lock = new();
     private readonly Dictionary<string, Entry> _byHash = new(StringComparer.Ordinal);
@@ -56,6 +57,18 @@ public sealed class TokenService
     public void Revoke(string eventId, string participantId)
     {
         lock (_lock) RevokeLocked(eventId, participantId);
+    }
+
+    Task<string> ITokenService.IssueAsync(string eventId, string participantId, CancellationToken ct) =>
+        Task.FromResult(Issue(eventId, participantId));
+
+    Task<(string EventId, string ParticipantId)?> ITokenService.ResolveAsync(string rawToken, CancellationToken ct) =>
+        Task.FromResult(Resolve(rawToken));
+
+    Task ITokenService.RevokeAsync(string eventId, string participantId, CancellationToken ct)
+    {
+        Revoke(eventId, participantId);
+        return Task.CompletedTask;
     }
 
     /// <summary>Hex SHA-256 of the raw token; safe to use as a key (for example a rate-limit partition).</summary>

@@ -562,6 +562,9 @@ namespace PositionTracker.Data.Migrations
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)");
 
+                    b.Property<bool>("NicknameHidden")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("ShowNameToSpectators")
                         .HasColumnType("boolean");
 

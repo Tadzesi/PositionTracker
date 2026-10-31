@@ -24,7 +24,8 @@ namespace PositionTracker.Api.Email;
 /// <item><b>deletes</b> finished rows older than <see cref="OutboxOptions.RetentionDays"/>.</item>
 /// </list>
 /// A failed invitation turns its participant from <see cref="ParticipantStatus.Invited"/> into
-/// <see cref="ParticipantStatus.EmailFailed"/> (other statuses are left alone). Finished rows lose their bodies.
+/// <see cref="ParticipantStatus.EmailFailed"/> (other statuses are left alone), unless the participant's address has
+/// changed since. Finished rows lose their bodies.
 /// <para>Delivery is at least once: if the process dies after the SMTP server accepted a message but before the
 /// outcome was saved, the row is claimed again after its lease and sent again. This is bounded: a due row whose
 /// attempts are used up is marked <c>Failed</c> ("outcome unknown") without another send, so a crash loop sends a
@@ -191,9 +192,15 @@ public sealed class EmailOutboxWorker(
         logger.LogWarning("Email outbox {OutboxId} ({Purpose}) failed after {Attempts} attempt(s): {Reason}",
             row.Id, row.Purpose, row.Attempts, row.LastError);
         if (row.Purpose == EmailPurpose.Invitation && row.ParticipantId is { } participantId)
+        {
+            // Only while the participant still has this address: a late failure of an invitation to an address the
+            // organizer has since corrected must not mark the new one failed. The delivery address in lower case is
+            // the normalized form (local part and ASCII domain lower-cased).
+            var recipient = row.ToAddress.ToLowerInvariant();
             await db.Participants
-                .Where(p => p.Id == participantId && p.Status == ParticipantStatus.Invited)
+                .Where(p => p.Id == participantId && p.Status == ParticipantStatus.Invited && p.EmailNormalized == recipient)
                 .ExecuteUpdateAsync(s => s.SetProperty(p => p.Status, ParticipantStatus.EmailFailed), ct);
+        }
     }
 
     private static void Finish(EmailOutboxEntity row, EmailOutboxStatus status, DateTimeOffset now)

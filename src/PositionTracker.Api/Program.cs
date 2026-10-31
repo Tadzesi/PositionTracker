@@ -7,6 +7,7 @@ using PositionTracker.Api.Endpoints;
 using PositionTracker.Api.Events;
 using PositionTracker.Api.Live;
 using PositionTracker.Api.Persistence;
+using PositionTracker.Api.Registration;
 using PositionTracker.Api.Simulation;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -18,6 +19,7 @@ builder.Services.AddPersistence();
 builder.Services.AddEmail();
 builder.Services.AddAccounts();
 builder.Services.AddEventManagement();
+builder.Services.AddRegistration();
 builder.Services.AddOptions<OrganizerOptions>()
     .BindConfiguration(OrganizerOptions.Section)
     .Validate(o => !string.IsNullOrWhiteSpace(o.ApiKey), "Configuration value 'Organizer:ApiKey' is required.")
@@ -46,6 +48,7 @@ app.UseAuthorization();
 app.MapGet("/healthz", () => "ok");
 app.MapAccountEndpoints();
 app.MapEventManagementEndpoints();
+app.MapRegistrationEndpoints();
 app.MapIngestEndpoints();
 app.MapLiveEndpoints();
 app.MapDemoEndpoints();

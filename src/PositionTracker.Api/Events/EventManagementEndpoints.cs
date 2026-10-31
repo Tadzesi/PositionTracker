@@ -47,24 +47,7 @@ public static class EventManagementEndpoints
     {
         var group = app.MapGroup("/api/events")
             .RequireAuthorization(CookieAuth.OrganizerSessionPolicy)
-            .AddEndpointFilter(async (context, next) =>
-            {
-                var http = context.HttpContext;
-                http.Response.Headers.CacheControl = "no-store";
-                if (!http.RequestServices.GetRequiredService<IOptions<PersistenceOptions>>().Value.Enabled)
-                    return EventErrors.Result(EventErrors.Unavailable);
-                try
-                {
-                    return await next(context);
-                }
-                catch (Exception ex) when (IsDatabaseFailure(ex) && !http.RequestAborted.IsCancellationRequested)
-                {
-                    http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger(LogCategory)
-                        .LogError("Event request {Method} {Route} failed ({ExceptionType}); answered 503.",
-                            http.Request.Method, (http.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText, ex.GetType().Name);
-                    return EventErrors.Result(EventErrors.Unavailable);
-                }
-            });
+            .WithDatabaseGuard(LogCategory);
 
         group.MapGet("", ListAsync);
         group.MapPost("", CreateAsync);
@@ -129,12 +112,39 @@ public static class EventManagementEndpoints
         return Answer(await events.SetStateAsync(organizer, eventId, body!.State, context.RequestAborted));
     }
 
+    /// <summary>
+    /// The organizer API guard: <c>Cache-Control: no-store</c>, 503 <c>unavailable</c> without a database, and a database
+    /// failure answered 503 <c>unavailable</c> (logged with the route and exception type only).
+    /// </summary>
+    internal static RouteGroupBuilder WithDatabaseGuard(this RouteGroupBuilder group, string logCategory)
+    {
+        group.AddEndpointFilter(async (context, next) =>
+        {
+            var http = context.HttpContext;
+            http.Response.Headers.CacheControl = "no-store";
+            if (!http.RequestServices.GetRequiredService<IOptions<PersistenceOptions>>().Value.Enabled)
+                return EventErrors.Result(EventErrors.Unavailable);
+            try
+            {
+                return await next(context);
+            }
+            catch (Exception ex) when (IsDatabaseFailure(ex) && !http.RequestAborted.IsCancellationRequested)
+            {
+                http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger(logCategory)
+                    .LogError("Event request {Method} {Route} failed ({ExceptionType}); answered 503.",
+                        http.Request.Method, (http.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText, ex.GetType().Name);
+                return EventErrors.Result(EventErrors.Unavailable);
+            }
+        });
+        return group;
+    }
+
     private static IResult Answer(EventResult<EventManageView> result) =>
         result.Error is { } e ? EventErrors.Result(e) : Results.Ok(result.Value);
 
     private static Guid? Organizer(HttpContext context) => CookieAuth.OrganizerId(context.User);
 
-    private static async Task<(T? Body, IResult? Error)> ReadAsync<T>(HttpContext context, IOptions<JsonOptions> json, long maxBytes)
+    internal static async Task<(T? Body, IResult? Error)> ReadAsync<T>(HttpContext context, IOptions<JsonOptions> json, long maxBytes)
         where T : class
     {
         var (body, readError) = await JsonBody.ReadAsync<T>(context, json.Value.SerializerOptions, maxBytes);

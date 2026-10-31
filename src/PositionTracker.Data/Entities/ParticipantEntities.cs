@@ -15,6 +15,8 @@ public sealed class ParticipantEntity
     public required string Bib { get; set; }
     public required string Name { get; set; }
     public string? Nickname { get; set; }
+    /// <summary>Set by the organizer (moderation): the nickname is not shown to spectators; the participant cannot undo it.</summary>
+    public bool NicknameHidden { get; set; }
     public required string Email { get; set; }
     public required string EmailNormalized { get; set; }
     public required string Gender { get; set; }
