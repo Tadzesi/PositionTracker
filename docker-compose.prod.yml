@@ -1,0 +1,54 @@
+# Production example: the API (with the web app) and its PostgreSQL. Put a reverse proxy with HTTPS in front
+# (see docs/ops/deployment.md). Every secret comes from the environment / an .env file that is NOT committed.
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: positiontracker
+      POSTGRES_USER: positiontracker
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+    volumes:
+      - pt-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U positiontracker -d positiontracker"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [internal]
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__Default: "Host=db;Port=5432;Database=positiontracker;Username=positiontracker;Password=${DB_PASSWORD}"
+      Persistence__MigrateOnStartup: "true"
+      Organizer__ApiKey: ${ORGANIZER_API_KEY:?set ORGANIZER_API_KEY}
+      Email__PublicBaseUrl: ${PUBLIC_BASE_URL:?set PUBLIC_BASE_URL, e.g. https://tracker.example.org}
+      Email__From: ${MAIL_FROM:?set MAIL_FROM}
+      Email__Smtp__Host: ${SMTP_HOST:-}
+      Email__Smtp__Port: ${SMTP_PORT:-587}
+      Email__Smtp__User: ${SMTP_USER:-}
+      Email__Smtp__Password: ${SMTP_PASSWORD:-}
+      Email__AllowSimulated: ${ALLOW_SIMULATED_EMAIL:-false}
+      Accounts__DataProtectionKeysPath: /keys
+      Accounts__RateLimitSalt: ${RATE_LIMIT_SALT:?set RATE_LIMIT_SALT}
+      # The reverse proxy's address(es) as the app sees them: the client address is taken from X-Forwarded-For only from these.
+      Proxy__KnownNetworks__0: ${PROXY_NETWORK:-172.16.0.0/12}
+      Retention__FixDays: "30"
+    volumes:
+      - pt-keys:/keys
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    networks: [internal]
+
+volumes:
+  pt-db:
+  pt-keys:
+
+networks:
+  internal:

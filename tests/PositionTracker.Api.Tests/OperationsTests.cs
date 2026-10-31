@@ -173,6 +173,26 @@ public sealed class OperationsTests(PostgresFixture postgres) : IClassFixture<Po
         _ = running;
     }
 
+    // ----- public course -----
+
+    [Fact]
+    public async Task The_public_course_describes_a_running_event_without_a_session_and_is_404_otherwise()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "org@example.org");
+        var (ev, _, _) = await LiveRiderAsync(host, org.OrganizerId);
+        var notRunning = await SeedEventAsync(host, EventState.Ready, org.OrganizerId);
+        using var anonymous = host.CreateClient();
+
+        using var json = JsonDocument.Parse(await anonymous.GetStringAsync($"/api/events/{ev}/course"));
+        Assert.Equal("Jarná časovka", json.RootElement.GetProperty("event").GetProperty("name").GetString());
+        Assert.Equal("cycling", json.RootElement.GetProperty("event").GetProperty("sport").GetString());
+        Assert.Equal(30, json.RootElement.GetProperty("event").GetProperty("spectatorDelaySeconds").GetInt32());
+        Assert.True(json.RootElement.GetProperty("points").GetArrayLength() >= 2);
+        Assert.Equal(2, json.RootElement.GetProperty("points")[0].GetArrayLength());
+        Assert.Equal(HttpStatusCode.NotFound, (await anonymous.GetAsync($"/api/events/{notRunning}/course")).StatusCode);
+    }
+
     // ----- organizer session for live read and hub -----
 
     [Fact]

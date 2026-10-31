@@ -5,6 +5,7 @@ using PositionTracker.Api.Auth;
 using PositionTracker.Api.Email;
 using PositionTracker.Api.Endpoints;
 using PositionTracker.Api.Events;
+using PositionTracker.Api.Hosting;
 using PositionTracker.Api.Live;
 using PositionTracker.Api.Operations;
 using PositionTracker.Api.OwnTracks;
@@ -17,6 +18,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 // The participant link token sits in the request path (/api/p/{token}): keep the path out of the host logs.
 builder.Services.AddRequestPathPrivacy();
+builder.Services.AddEdgeHardening(builder.Configuration);
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<TokenService>();
@@ -49,6 +51,9 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<SimulationService>
 
 var app = builder.Build();
 
+app.UseEdgeHardening(); // forwarded headers (when a proxy is configured) and security headers
+app.UseDefaultFiles();
+app.UseStaticFiles(); // the web app build (wwwroot), see web/
 app.UseBrowserApiHeaders(); // first: refused requests never reach a limiter
 app.UseDeviceAuthentication(); // before the limiter: it partitions by the resolved token
 app.UseRateLimiter();
@@ -66,6 +71,8 @@ app.MapLiveEndpoints();
 app.MapDemoEndpoints();
 app.MapOpsEndpoints();
 app.MapHub<LiveHub>(LiveHub.Path);
+// Pages of the web app (client-side routes); API and hub paths keep their own 404.
+app.MapFallbackToFile("{*path:regex(^(?!api/|hubs/)[^.]*$)}", "index.html");
 
 app.Run();
 

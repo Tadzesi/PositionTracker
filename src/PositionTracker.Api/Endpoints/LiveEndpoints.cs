@@ -25,6 +25,7 @@ public static class LiveEndpoints
         var group = app.MapGroup("/api/events/{eventId}");
         group.MapGet("/live", GetLive);
         group.MapGet("/public", GetPublic);
+        group.MapGet("/course", GetCourse);
         return app;
     }
 
@@ -42,6 +43,30 @@ public static class LiveEndpoints
         return registry.Get(eventId) is { } runtime
             ? Results.Ok(await acks.ApplyAsync(runtime.BuildLiveView(), context.RequestAborted))
             : Results.NotFound();
+    }
+
+    /// <summary>
+    /// The course and the event header for the public pages (anonymous; only events whose runtime exists, 404 otherwise):
+    /// <c>{event:{name,sport,startTime,spectatorDelaySeconds},laps,lapLengthM,closed,points:[[lat,lon]…],checkpoints:[{name,lapDistanceM}]}</c>.
+    /// The track is thinned to at most 1 500 points.
+    /// </summary>
+    private static IResult GetCourse(string eventId, EventRegistry registry)
+    {
+        if (registry.Get(eventId) is not { } runtime) return Results.NotFound();
+        var course = runtime.Course;
+        var step = Math.Max(1, (int)Math.Ceiling(course.Points.Count / 1500.0));
+        var points = course.Points.Where((_, i) => i % step == 0 || i == course.Points.Count - 1)
+            .Select(p => new[] { Math.Round(p.Lat, 6), Math.Round(p.Lon, 6) }).ToList();
+        return Results.Ok(new
+        {
+            @event = new
+            {
+                name = runtime.Settings.Name, sport = runtime.Settings.Sport.ToString().ToLowerInvariant(),
+                startTime = runtime.Settings.StartTime.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture),
+                spectatorDelaySeconds = (int)runtime.Settings.SpectatorDelay.TotalSeconds,
+            },
+            laps = course.Laps, lapLengthM = course.LapLengthM, closed = course.IsClosed, points, checkpoints = course.Checkpoints,
+        });
     }
 
     private static IResult GetPublic(string eventId, EventRegistry registry, SpectatorFeed feed)

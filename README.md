@@ -161,6 +161,7 @@ event and participant (in Plan 1 only the demo simulator issues them).
 | `Accounts:RateLimitSalt` | Secret salt of the per-email limiter keys; empty = random per process (the counters are in memory). |
 | `Accounts:ConfirmPath` / `Accounts:SignInPath` | Front-end pages the emailed links open (defaults `account/confirm`, `account/signin`, relative to `Email:PublicBaseUrl`). |
 | `Accounts:DataProtectionKeysPath` | Directory of the keys that encrypt session cookies. Set a persistent volume in a container, or every restart signs everyone out. |
+| `Proxy:{KnownProxies,KnownNetworks}` | Addresses / CIDR ranges of the reverse proxy: only from these `X-Forwarded-For/Proto` is trusted (required behind a proxy, see `docs/ops/deployment.md`). Empty: the headers are ignored. |
 | `Retention:{FixDays,CheckIntervalHours}` | Position fixes and device statuses are deleted `FixDays` (default 30) after the event ended; checked every `CheckIntervalHours` (default 24), first check one interval after start. The action log and results are kept. |
 | `Registration:{MaxParticipantsPerEvent,InvitationsGlobalPerHour,InvitationsPerOrganizerPerHour,InvitationsPerAddressPerHour,InvitationsPerAddressPerDay,RemindMinAgeHours,InvitePath}` | Participant registration: at most 2 000 participants per event; invitation mails 300 per hour in total (below the mailbox quota, with room for the 200 account mails), 100 per organizer per hour, 5 per recipient address per hour and 10 per day (in memory, per process); without a confirmation deadline reminders only for links older than 24 h; the invitation link opens `{Email:PublicBaseUrl}/p?token=…`. |
 
@@ -343,6 +344,25 @@ unavailable` without or on a failing database. Status values are `Invited`, `Con
 - Device tokens (ruling P4): `ITokenService` routes database events to `DbTokenService` (hashed rows in
   `DeviceTokens`) and demo events to the in-memory `TokenService`. The device ingest still resolves through the
   in-memory service; Task 7 switches it.
+
+## Web app
+
+`web/` is a React + Vite + TypeScript single-page app (Slovak/English, light/dark following the OS with a manual toggle, F1-broadcast look from
+`docs/design/mockups/`). Pages: landing, organizer sign-up/sign-in/confirm (`/account/*`), organizer events, event setup, participants and race control
+(`/org/*`), the participant's personal page from the invitation email (`/p?token=…`: confirm, nickname, consent, OwnTracks setup with deep link and QR) and
+the public spectator page (`/e/{eventId}`: search, follow, ETA, in-page finish alert, share). Live data is polled (organizer 2 s, spectators 3 s).
+
+```
+cd web
+npm install --legacy-peer-deps
+npm test                      # vitest (unit + page tests with a mocked fetch)
+npm run build                 # writes src/PositionTracker.Api/wwwroot (git-ignored); the API serves it
+npm run dev                   # Vite dev server on :5173, proxies /api and /hubs to http://localhost:5298
+```
+
+Open `http://localhost:5298/` after `dotnet run` (build the web app first). Without an SMTP host the e-mails are simulated; in Development read the
+links from the outbox (`select "TextBody" from "Outbox"` before the worker clears the bodies) or configure `Email:Smtp:*` with user-secrets.
+Deployment, the reverse proxy requirements and the pilot checklist: `docs/ops/deployment.md`; image: `Dockerfile`, `docker-compose.prod.yml`.
 
 ## Participant link and OwnTracks
 
