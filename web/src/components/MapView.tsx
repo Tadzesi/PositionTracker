@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { useI18n } from '../lib/i18n';
 
 export interface MapMarker { id: string; lat: number; lon: number; label: string; kind?: 'normal' | 'sos' | 'dim'; selected?: boolean }
 export interface MapCheckpoint { name: string; lat: number; lon: number }
@@ -11,11 +12,18 @@ interface Props {
   checkpoints?: MapCheckpoint[];
   selectedId?: string | null;
   onSelect?: (id: string) => void;
+  /** Marker ids of the followed riders: the map zooms to them and keeps them in view until the user moves the map. */
+  followIds?: string[];
   className?: string;
 }
 
+const FOLLOW_ZOOM = 15;
+const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+
 /** Leaflet map: the course as a line, riders as numbered markers. Colours follow the theme tokens. */
-export default function MapView({ points, markers, checkpoints, selectedId, onSelect, className }: Props) {
+export default function MapView({ points, markers, checkpoints, selectedId, onSelect, followIds, className }: Props) {
+  const { t } = useI18n();
+  const follow = followIds ?? NONE;
   const host = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
   const course = useRef<L.Polyline | null>(null);
@@ -23,6 +31,40 @@ export default function MapView({ points, markers, checkpoints, selectedId, onSe
   const fitted = useRef(false);
   const select = useRef(onSelect);
   select.current = onSelect;
+
+  // ----- following: zoom to the followed riders and keep them in view until the user moves the map -----
+  const [auto, setAutoState] = useState(follow.length > 0);
+  const autoRef = useRef(auto);
+  const pending = useRef(follow.length > 0); // a followed rider from a previous visit: zoom as soon as his marker arrives
+  const busy = useRef(false); // our own moves must not count as the user moving the map
+  const busyTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const followRef = useRef(follow);
+  followRef.current = follow;
+  const markersRef = useRef(markers);
+  markersRef.current = markers;
+  const setAuto = useCallback((v: boolean) => { autoRef.current = v; setAutoState(v); if (!v) pending.current = false; }, []);
+  const programmatic = useCallback((fn: () => void) => {
+    busy.current = true;
+    clearTimeout(busyTimer.current);
+    busyTimer.current = setTimeout(() => { busy.current = false; }, 1300);
+    fn();
+  }, []);
+  const fitCourse = useCallback(() => {
+    const m = map.current, c = course.current;
+    if (m && c) programmatic(() => m.fitBounds(c.getBounds(), { padding: [24, 24], animate: !reducedMotion() }));
+  }, [programmatic]);
+  const followView = useCallback((force: boolean) => {
+    const m = map.current;
+    if (!m || !followRef.current.length) return;
+    const pts = markersRef.current.filter((x) => followRef.current.includes(x.id)).map((x) => L.latLng(x.lat, x.lon));
+    if (!pts.length || (!force && (busy.current || pts.every((p) => m.getBounds().pad(-0.25).contains(p))))) return;
+    const animate = !reducedMotion();
+    programmatic(() => {
+      if (pts.length > 1) m.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 16, animate });
+      else if (force) m.setView(pts[0], Math.max(m.getZoom(), FOLLOW_ZOOM), { animate });
+      else m.panTo(pts[0], { animate });
+    });
+  }, [programmatic]);
 
   useEffect(() => {
     if (!host.current) return;
@@ -32,16 +74,21 @@ export default function MapView({ points, markers, checkpoints, selectedId, onSe
     }).addTo(m);
     layer.current = L.layerGroup().addTo(m);
     map.current = m;
+    const stop = () => { if (autoRef.current) setAuto(false); };
+    m.on('dragstart', stop);
+    m.on('zoomstart', () => { if (!busy.current) stop(); }); // the zoom buttons or a pinch; our own moves set "busy"
+    m.getContainer().addEventListener('wheel', stop, { passive: true });
     return () => { m.remove(); map.current = null; course.current = null; layer.current = null; fitted.current = false; };
-  }, []);
+  }, [setAuto]);
 
   useEffect(() => {
     const m = map.current;
     if (!m || points.length < 2) return;
     course.current?.remove();
     course.current = L.polyline(points, { color: '#FF1E3C', weight: 4, opacity: 0.85 }).addTo(m);
-    if (!fitted.current) { m.invalidateSize(); m.fitBounds(course.current.getBounds(), { padding: [24, 24] }); fitted.current = true; }
-  }, [points]);
+    // the first fit is not animated: a remembered rider zooms right after it, and two animated moves in one tick cancel each other
+    if (!fitted.current) { m.invalidateSize(); const c = course.current; programmatic(() => m.fitBounds(c.getBounds(), { padding: [24, 24], animate: false })); fitted.current = true; }
+  }, [points, programmatic]);
 
   useEffect(() => {
     const g = layer.current;
@@ -61,10 +108,40 @@ export default function MapView({ points, markers, checkpoints, selectedId, onSe
       const marker = L.marker([mk.lat, mk.lon], { icon, zIndexOffset: selected ? 1000 : 0, keyboard: false }).addTo(g);
       marker.on('click', () => select.current?.(mk.id));
     }
-  }, [markers, checkpoints, selectedId]);
+    // the polled positions keep the followed riders in view; the first arrival of a remembered rider zooms to him
+    if (pending.current && markers.some((x) => followRef.current.includes(x.id))) { pending.current = false; followView(true); }
+    else if (autoRef.current) followView(false);
+  }, [markers, checkpoints, selectedId, followView]);
 
-  return <div ref={host} className={className ?? 'map'} role="application" aria-label="map" />;
+  // a rider was followed: zoom to the followed ones; the last one was dropped: the whole course again
+  const was = useRef(follow);
+  const followKey = follow.join(',');
+  useEffect(() => {
+    const before = was.current;
+    was.current = follow;
+    if (!follow.length && before.length) { setAuto(false); fitCourse(); }
+    else if (follow.some((id) => !before.includes(id))) { setAuto(true); followView(true); }
+    else if (follow.length < before.length && autoRef.current) followView(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [followKey]);
+
+  const toggleAuto = () => {
+    if (autoRef.current) { setAuto(false); fitCourse(); } else { setAuto(true); followView(true); }
+  };
+
+  return (
+    <div className="mapwrap">
+      <div ref={host} className={className ?? 'map'} role="application" aria-label="map" />
+      {follow.length > 0 && (
+        <button type="button" className="btn small mapbtn" onClick={toggleAuto}>
+          <span>{auto ? t('Celá trať', 'Whole course') : t('Sledovať', 'Follow')}</span>
+        </button>
+      )}
+    </div>
+  );
 }
+
+const NONE: string[] = [];
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);

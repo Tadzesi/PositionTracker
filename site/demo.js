@@ -62,13 +62,53 @@
     }).addTo(map);
     const line = L.polyline(pts, { color: '#FF1E3C', weight: 4, opacity: 0.85 }).addTo(map);
     CHECKPOINTS.forEach((f) => L.circleMarker(at(lap * f), { radius: 5, color: '#FFD60A', weight: 2, fillOpacity: 0.9 }).addTo(map));
-    const fit = () => { map.invalidateSize(); map.fitBounds(line.getBounds(), { paddingTopLeft: [28, 28], paddingBottomRight: [28, 120] }); };
-    fit();
-    // the stage grows when the standings are filled in and when the window changes: keep the map fitted to its box
-    if (window.ResizeObserver) new ResizeObserver(fit).observe($('.map')); else window.addEventListener('resize', fit);
+    const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const fit = () => { map.invalidateSize(); map.fitBounds(line.getBounds(), { paddingTopLeft: [28, 28], paddingBottomRight: [28, 120], animate: !reduceMotion }); };
+    map.fitBounds(line.getBounds(), { paddingTopLeft: [28, 28], paddingBottomRight: [28, 120] });
 
     let sport = 'cycling', view = 'organizer', speedMul = 12, selected = 0, simT = 0, running = true, paused = false, finished = false, lastTs = 0;
     const followed = new Set(); // spectator view: the riders the visitor follows (in memory only; the real app keeps them in localStorage)
+
+    // ----- following: the map zooms to the followed riders and keeps them in view until the visitor moves the map himself -----
+    let auto = false, busy = false, busyTimer = 0, followBtn = null;
+    const active = () => view === 'spectator' && followed.size > 0;
+    const programmatic = (fn) => { busy = true; clearTimeout(busyTimer); busyTimer = setTimeout(() => { busy = false; }, 1300); fn(); };
+    function followView(force) {
+      if (!active() || !auto) return;
+      const pts = riders.filter((r) => followed.has(r.i)).map((r) => r.marker.getLatLng());
+      if (!pts.length || (!force && (busy || pts.every((p) => map.getBounds().pad(-0.25).contains(p))))) return;
+      programmatic(() => {
+        if (pts.length === 1) {
+          if (force) map.setView(pts[0], Math.max(map.getZoom(), 15), { animate: !reduceMotion }); else map.panTo(pts[0], { animate: !reduceMotion });
+        } else map.fitBounds(L.latLngBounds(pts), { paddingTopLeft: [40, 40], paddingBottomRight: [40, 130], maxZoom: 16, animate: !reduceMotion });
+      });
+    }
+    function updateFollowBtn() {
+      if (!followBtn) return;
+      followBtn.hidden = !active();
+      followBtn.textContent = auto ? t('Celá trať', 'Whole course') : t('Sledovať', 'Follow');
+    }
+    function stopAuto() { if (auto) { auto = false; updateFollowBtn(); } }
+    map.on('dragstart', stopAuto);
+    map.on('zoomstart', () => { if (!busy) stopAuto(); }); // a pinch or the zoom buttons; our own moves set "busy"
+    const FollowControl = L.Control.extend({
+      options: { position: 'topleft' },
+      onAdd() {
+        followBtn = L.DomUtil.create('button', 'mapbtn leaflet-control');
+        followBtn.type = 'button';
+        L.DomEvent.disableClickPropagation(followBtn);
+        L.DomEvent.on(followBtn, 'click', () => {
+          if (auto) { auto = false; programmatic(fit); } else { auto = true; followView(true); }
+          updateFollowBtn();
+        });
+        updateFollowBtn();
+        return followBtn;
+      },
+    });
+    new FollowControl().addTo(map);
+    // the stage grows when the standings are filled in and when the window changes: keep the map fitted to its box (or to the followed riders)
+    const onResize = () => { if (!followed.size) fit(); else { map.invalidateSize(); followView(true); } };
+    if (window.ResizeObserver) new ResizeObserver(onResize).observe($('.map')); else window.addEventListener('resize', onResize);
     let riders = [];
     const bestSector = Array(SECTORS).fill(Infinity);
 
@@ -97,8 +137,12 @@
     function select(i) { selected = i; draw(); }
     // like the application: following a rider selects him, and once someone is followed the others shrink on the map
     function toggleFollow(i) {
+      const had = followed.size;
       if (followed.has(i)) followed.delete(i); else { followed.add(i); selected = i; }
       draw();
+      if (followed.size > had || (followed.size && auto)) { auto = true; followView(true); } // a new rider: zoom to the followed ones
+      else if (!followed.size) { auto = false; programmatic(fit); } // nobody followed any more: the whole course again
+      updateFollowBtn();
     }
 
     function flag(cls, text) {
@@ -210,6 +254,7 @@
         }
         if (tower.children[pos] !== li) tower.insertBefore(li, tower.children[pos] || null);
       });
+      followView(false);
       if (view === 'spectator' && !flagsEl.querySelector('.note')) {
         flagsEl.innerHTML = '';
         const n = document.createElement('div');
@@ -255,6 +300,8 @@
     root.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {
       view = b.dataset.view; setPressed('[data-view]', b); flagsEl.innerHTML = '';
       draw();
+      if (active()) { auto = true; followView(true); } else if (followed.size) { auto = false; programmatic(fit); }
+      updateFollowBtn();
     }));
     root.querySelectorAll('[data-alarm]').forEach((b) => b.addEventListener('click', () => {
       const r = riders[selected], k = b.dataset.alarm;

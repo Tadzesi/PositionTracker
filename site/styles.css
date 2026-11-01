@@ -234,3 +234,8 @@ summary{padding:6px 0;min-height:44px;display:flex;align-items:center}
 .stage[data-view="spectator"] .tower .star{display:block}
 .mk.dim{opacity:.7;font-size:9px;border-width:1px}
 .mk.fol{box-shadow:0 0 0 3px var(--coral),0 1px 4px rgba(0,0,0,.5)}
+
+/* map button of the demo: "Whole course" while the map follows the starred riders, "Follow" after the visitor moved the map */
+.mapbtn{display:block;margin:8px 0 0 10px!important;padding:6px 10px;font:600 13px var(--font);background:#fff;color:#0A1F44;border:2px solid rgba(0,0,0,.25);border-radius:4px;cursor:pointer}
+.mapbtn:hover{background:#f0f2f6}
+.mapbtn[hidden]{display:none!important}

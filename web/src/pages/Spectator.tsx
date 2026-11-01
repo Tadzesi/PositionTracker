@@ -95,7 +95,7 @@ export default function Spectator() {
         </div>)}
       <div className="race">
         <div className="stack">
-          <MapView points={course.data.points} markers={markers} checkpoints={cps ?? []} selectedId={focus} onSelect={setFocus} className="map tall" />
+          <MapView points={course.data.points} markers={markers} checkpoints={cps ?? []} selectedId={focus} onSelect={setFocus} followIds={followed} className="map tall" />
           {sel && <Followed p={sel} sport={sport} followed={followed.includes(sel.participantId)} onToggle={() => toggle(sel.participantId)}
             notify={notify.has(sel.participantId)} onNotify={async () => {
               const next = new Set(notify);
