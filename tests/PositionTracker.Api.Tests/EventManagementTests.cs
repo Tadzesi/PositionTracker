@@ -214,6 +214,158 @@ public sealed class EventManagementTests(PostgresFixture postgres) : IClassFixtu
         await using (var db = Db(host)) Assert.Single(await db.Courses.Where(x => x.EventId == id).ToListAsync());
     }
 
+    // ----- update, course without a new GPX, course preview, list details -----
+
+    private static Task<HttpResponseMessage> UpdateAsync(Organizer org, Guid id, string name = "Nový názov", string location = "Nové miesto",
+        DateTimeOffset? start = null, string sport = "running") =>
+        org.PutAsync($"/api/events/{id}", new { name, location, startTime = Utc(start ?? Start), sport });
+
+    [Fact]
+    public async Task An_event_can_be_edited_until_it_starts_and_a_live_event_keeps_start_and_sport()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "anna@example.org");
+        var id = await CreatedAsync(org);
+
+        var moved = Start.AddHours(3);
+        var ok = await UpdateAsync(org, id, "  Jesenný beh ", "Martin", moved, "cycling");
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        using (var view = await JsonAsync(ok))
+        {
+            Assert.Equal("Jesenný beh", view.RootElement.GetProperty("name").GetString());
+            Assert.Equal("cycling", view.RootElement.GetProperty("sport").GetString());
+            Assert.Equal(Utc(moved), view.RootElement.GetProperty("startTime").GetString());
+        }
+        var stored = await EventAsync(host, id);
+        Assert.Equal(("Jesenný beh", "Martin", moved, Sport.Cycling), (stored.Name, stored.Location, stored.StartTime, stored.Sport));
+
+        await AssertErrorAsync(await UpdateAsync(org, id, name: " "), HttpStatusCode.BadRequest, "validation_failed", "name");
+        await AssertErrorAsync(await UpdateAsync(org, id, start: host.Clock.GetUtcNow().AddMinutes(-5)), HttpStatusCode.BadRequest, "validation_failed", "startTime");
+        await AssertErrorAsync(await UpdateAsync(org, id, sport: "swimming"), HttpStatusCode.BadRequest, "validation_failed", "sport");
+        await AssertErrorAsync(await UpdateAsync(org, Guid.NewGuid()), HttpStatusCode.NotFound, "not_found");
+        var stranger = await SessionAsync(host, "bob@example.org");
+        await AssertErrorAsync(await UpdateAsync(stranger, id), HttpStatusCode.NotFound, "not_found");
+
+        var live = await SeedEventAsync(host, org.OrganizerId, EventState.Live, LoopGpx);
+        Assert.Equal(HttpStatusCode.OK, (await UpdateAsync(org, live, "Prejmenované", "Inde", Start, "cycling")).StatusCode);
+        await AssertErrorAsync(await UpdateAsync(org, live, start: Start.AddHours(1), sport: "cycling"), HttpStatusCode.Conflict, "event_locked", "startTime");
+        await AssertErrorAsync(await UpdateAsync(org, live, start: Start, sport: "running"), HttpStatusCode.Conflict, "event_locked", "startTime");
+        Assert.Equal("Prejmenované", (await EventAsync(host, live)).Name);
+
+        var finished = await SeedEventAsync(host, org.OrganizerId, EventState.Finished, LoopGpx);
+        await AssertErrorAsync(await UpdateAsync(org, finished, sport: "cycling"), HttpStatusCode.Conflict, "event_locked");
+    }
+
+    [Fact]
+    public async Task A_new_start_that_would_leave_a_wave_or_the_deadline_out_of_range_is_refused()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "anna@example.org");
+        var id = await CreatedAsync(org);
+        Assert.Equal(HttpStatusCode.OK, (await org.PutAsync($"/api/events/{id}/waves", new[] { new { name = "A", startTime = Utc(Start.AddHours(1)) } })).StatusCode);
+
+        await AssertErrorAsync(await UpdateAsync(org, id, start: Start.AddHours(2)), HttpStatusCode.Conflict, "start_conflict", "startTime");
+        Assert.Equal(Start, (await EventAsync(host, id)).StartTime);
+        Assert.Equal(HttpStatusCode.OK, (await UpdateAsync(org, id, start: Start.AddMinutes(30))).StatusCode);
+
+        Assert.Equal(HttpStatusCode.OK, (await org.PutAsync($"/api/events/{id}/confirmation-deadline", new { confirmationDeadline = Utc(Start.AddMinutes(20)) })).StatusCode);
+        await AssertErrorAsync(await UpdateAsync(org, id, start: Start.AddMinutes(10)), HttpStatusCode.Conflict, "start_conflict", "startTime");
+    }
+
+    [Fact]
+    public async Task Laps_delay_and_checkpoints_can_be_saved_without_uploading_the_gpx_again()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "anna@example.org");
+        var id = await CreatedAsync(org);
+
+        // No course yet: nothing to reuse.
+        await AssertErrorAsync(await org.PutAsync($"/api/events/{id}/course", new { laps = 2 }), HttpStatusCode.BadRequest, "gpx_invalid", "gpxBase64");
+
+        Assert.Equal(HttpStatusCode.OK, (await PutCourseAsync(org, id)).StatusCode);
+        var first = await EventAsync(host, id);
+        DateTimeOffset uploaded;
+        await using (var db = Db(host)) uploaded = (await db.Courses.SingleAsync(c => c.EventId == id)).UploadedAt;
+        host.Clock.Advance(TimeSpan.FromHours(1));
+
+        var response = await org.PutAsync($"/api/events/{id}/course",
+            new { laps = 2, spectatorDelaySeconds = 60, checkpoints = new[] { new { name = "Bufet", lapDistanceM = 2_000.0 } } });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var stored = await EventAsync(host, id);
+        Assert.Equal(first.GpxBytes, stored.GpxBytes);
+        Assert.Equal((2, 60), (stored.Laps, stored.SpectatorDelaySeconds));
+        Assert.Contains("Bufet", stored.CheckpointsJson);
+        await using (var db = Db(host)) Assert.Equal(uploaded, (await db.Courses.SingleAsync(c => c.EventId == id)).UploadedAt);
+
+        await AssertErrorAsync(await org.PutAsync($"/api/events/{id}/course", new { laps = 1, checkpoints = new[] { new { name = "Daleko", lapDistanceM = 9_000_000.0 } } }),
+            HttpStatusCode.BadRequest, "checkpoint_invalid", "checkpoints");
+        Assert.Equal(2, (await EventAsync(host, id)).Laps);
+    }
+
+    [Fact]
+    public async Task The_course_preview_gives_the_map_line_the_elevation_profile_and_the_checkpoint_positions()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "anna@example.org");
+        var id = await CreatedAsync(org);
+        await AssertErrorAsync(await org.GetAsync($"/api/events/{id}/course-preview"), HttpStatusCode.NotFound, "not_found");
+
+        var gpx = Gpx(DemoCourses.Loop(elevationAtM: d => 300 + 20 * Math.Sin(d / 1000)));
+        Assert.Equal(HttpStatusCode.OK, (await PutCourseAsync(org, id, gpx, laps: 2, checkpoints: [new { name = "Bufet", lapDistanceM = 3_000.0 }])).StatusCode);
+        using (var preview = await JsonAsync(await org.GetAsync($"/api/events/{id}/course-preview")))
+        {
+            var root = preview.RootElement;
+            Assert.True(root.GetProperty("hasElevation").GetBoolean());
+            Assert.Equal(2, root.GetProperty("laps").GetInt32());
+            Assert.InRange(root.GetProperty("minElevationM").GetDouble(), 279, 301);
+            Assert.InRange(root.GetProperty("maxElevationM").GetDouble(), 299, 321);
+            var points = root.GetProperty("points");
+            Assert.InRange(points.GetArrayLength(), 2, EventService.MaxPreviewPoints + 1);
+            Assert.Equal(0, points[0][3].GetDouble());
+            Assert.Equal(root.GetProperty("lapLengthM").GetDouble(), points[points.GetArrayLength() - 1][3].GetDouble(), 0);
+            Assert.NotEqual(JsonValueKind.Null, points[0][2].ValueKind);
+            var cp = root.GetProperty("checkpoints").EnumerateArray().Single();
+            Assert.Equal("Bufet", cp.GetProperty("name").GetString());
+            Assert.Equal(3_000, cp.GetProperty("lapDistanceM").GetDouble());
+            Assert.InRange(cp.GetProperty("lat").GetDouble(), -90, 90);
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await PutCourseAsync(org, id)).StatusCode); // the loop without elevation
+        using var flat = await JsonAsync(await org.GetAsync($"/api/events/{id}/course-preview"));
+        Assert.False(flat.RootElement.GetProperty("hasElevation").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, flat.RootElement.GetProperty("minElevationM").ValueKind);
+        Assert.Equal(JsonValueKind.Null, flat.RootElement.GetProperty("points")[0][2].ValueKind);
+
+        var stranger = await SessionAsync(host, "bob@example.org");
+        await AssertErrorAsync(await stranger.GetAsync($"/api/events/{id}/course-preview"), HttpStatusCode.NotFound, "not_found");
+    }
+
+    [Fact]
+    public async Task The_event_list_carries_the_laps_the_lap_length_and_the_participant_counts()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "anna@example.org");
+        var withCourse = await CreatedAsync(org, "S trasou");
+        var bare = await CreatedAsync(org, "Bez trasy");
+        Assert.Equal(HttpStatusCode.OK, (await PutCourseAsync(org, withCourse, laps: 2)).StatusCode);
+        await SeedParticipantAsync(host, withCourse, ParticipantStatus.Confirmed);
+        await SeedParticipantAsync(host, withCourse, ParticipantStatus.Invited);
+        await SeedParticipantAsync(host, withCourse, ParticipantStatus.Invited);
+        await SeedParticipantAsync(host, withCourse, ParticipantStatus.Declined);
+
+        using var list = await JsonAsync(await org.GetAsync("/api/events"));
+        var events = list.RootElement.GetProperty("events").EnumerateArray().ToDictionary(e => e.GetProperty("name").GetString()!);
+        var a = events["S trasou"];
+        Assert.Equal(2, a.GetProperty("laps").GetInt32());
+        Assert.True(a.GetProperty("lapLengthM").GetDouble() > 50);
+        var counts = a.GetProperty("participants");
+        Assert.Equal((2, 1, 1, 0), (counts.GetProperty("invited").GetInt32(), counts.GetProperty("confirmed").GetInt32(),
+            counts.GetProperty("declined").GetInt32(), counts.GetProperty("emailFailed").GetInt32()));
+        var b = events["Bez trasy"];
+        Assert.Equal(JsonValueKind.Null, b.GetProperty("lapLengthM").ValueKind);
+        Assert.Equal(0, b.GetProperty("participants").GetProperty("confirmed").GetInt32());
+    }
+
     public static TheoryData<string, string> InvalidCourses => new()
     {
         { "gpx_invalid", "not-base64" },

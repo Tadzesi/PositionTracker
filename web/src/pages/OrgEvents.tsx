@@ -65,11 +65,16 @@ export default function OrgEvents() {
             <div className="card" key={g.key}>
               <h2>{t(g.sk, g.en)} <span className="mute">({rows.length})</span></h2>
               <div className="scroll"><table>
-                <thead><tr><th>{t('Názov', 'Name')}</th><th>{t('Začiatok', 'Start')}</th><th>{t('Stav', 'State')}</th></tr></thead>
+                <thead><tr><th>{t('Názov', 'Name')}</th><th>{t('Začiatok', 'Start')}</th><th>{t('Účastníci', 'Participants')}</th><th>{t('Stav', 'State')}</th></tr></thead>
                 <tbody>{rows.map((e) => (
                   <tr key={e.eventId} className="click" onClick={() => navigate(`/org/events/${e.eventId}`)}>
-                    <td><Link to={`/org/events/${e.eventId}`} onClick={(x) => x.stopPropagation()}>{e.name}</Link><div className="mute">{e.location}</div></td>
+                    <td>
+                      <Link to={`/org/events/${e.eventId}`} onClick={(x) => x.stopPropagation()}>{e.name}</Link>
+                      <div className="mute">{e.location}</div>
+                      <span className="sub">{sportLabel(t, e.sport)} · {e.lapLengthM ? `${e.laps > 1 ? `${e.laps} × ` : ''}${(e.lapLengthM / 1000).toFixed(1)} km` : t('bez trasy', 'no course')}</span>
+                    </td>
                     <td>{formatDateTime(e.startTime, lang)}</td>
+                    <td><Participants e={e} /></td>
                     <td>
                       <div className="row">
                         <StatusBadge value={e.state} label={stateLabel(t, e.state)} />
@@ -84,6 +89,23 @@ export default function OrgEvents() {
         })}
       </div>
     </>
+  );
+}
+
+const sportLabel = (t: (a: string, b: string) => string, s: string) => (s === 'running' ? t('Beh', 'Running') : t('Cyklistika', 'Cycling'));
+
+/** Confirmed out of everybody invited, with a bar and the number still waiting. */
+function Participants({ e }: { e: EventSummary }) {
+  const { t } = useI18n();
+  const p = e.participants;
+  const total = p.invited + p.confirmed + p.declined + p.emailFailed;
+  if (total === 0) return <span className="mute">{t('Nikto nepozvaný', 'Nobody invited')}</span>;
+  return (
+    <div title={t(`${p.confirmed} potvrdilo, ${p.invited} čaká, ${p.declined} odmietlo, ${p.emailFailed} e-mail zlyhal`, `${p.confirmed} confirmed, ${p.invited} waiting, ${p.declined} declined, ${p.emailFailed} email failed`)}>
+      <b>{p.confirmed}</b> / {total} {t('potvrdených', 'confirmed')}
+      <div className="bar" aria-hidden="true"><span style={{ width: `${(p.confirmed / total) * 100}%` }} /></div>
+      {p.invited > 0 && <span className="sub">{t(`${p.invited} čaká`, `${p.invited} waiting`)}</span>}
+    </div>
   );
 }
 

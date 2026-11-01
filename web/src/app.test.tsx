@@ -94,10 +94,99 @@ describe('web app', () => {
     const first = renderAt('/org');
     expect(await screen.findByText('Create your first event')).toBeInTheDocument();
     first.unmount();
-    mockFetch({ 'GET /api/account/session': { body: me }, 'GET /api/events': { body: { emailMode: 'smtp', events: [{ eventId: 'e1', name: 'Derby', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling', state: 'live' }] } } });
+    mockFetch({ 'GET /api/account/session': { body: me }, 'GET /api/events': { body: { emailMode: 'smtp', events: [{ eventId: 'e1', name: 'Derby', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling', state: 'live', laps: 2, lapLengthM: 12400, participants: { invited: 3, confirmed: 9, declined: 0, emailFailed: 0 } }] } } });
     renderAt('/org');
     expect(await screen.findByRole('link', { name: 'Race control' })).toHaveAttribute('href', '/org/events/e1/control');
     expect(screen.getByRole('button', { name: '+ New event' })).toBeInTheDocument();
+  });
+
+  it('the events list shows laps, length and how many of the invited have confirmed', async () => {
+    const me = { name: 'Anna', email: 'a@x', language: 'en', emailConfirmed: true, emailMode: 'smtp' };
+    mockFetch({ 'GET /api/account/session': { body: me }, 'GET /api/events': { body: { emailMode: 'smtp', events: [
+      { eventId: 'e1', name: 'Derby', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling', state: 'ready', laps: 2, lapLengthM: 12400, participants: { invited: 3, confirmed: 9, declined: 1, emailFailed: 0 } },
+      { eventId: 'e2', name: 'Prázdne', location: 'Martin', startTime: '2026-11-09T10:00:00Z', sport: 'running', state: 'draft', laps: 1, lapLengthM: null, participants: { invited: 0, confirmed: 0, declined: 0, emailFailed: 0 } }] } } });
+    renderAt('/org');
+    expect(await screen.findByText('Cycling · 2 × 12.4 km')).toBeInTheDocument();
+    expect(screen.getByText('9')).toBeInTheDocument();
+    expect(screen.getByText(/\/ 13 confirmed/)).toBeInTheDocument();
+    expect(screen.getByText('3 waiting')).toBeInTheDocument();
+    expect(screen.getByText('Nobody invited')).toBeInTheDocument();
+    expect(screen.getByText('Running · no course')).toBeInTheDocument();
+  });
+
+  const ME = { name: 'Anna', email: 'a@x', language: 'en', emailConfirmed: true, emailMode: 'smtp' };
+  const manage = (over: Record<string, unknown> = {}) => ({
+    eventId: 'e1', name: 'Derby', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling', state: 'draft', laps: 1, spectatorDelaySeconds: 30,
+    course: { lapLengthM: 12400, ascentM: 310, descentM: 305, pointCount: 4, closed: true, uploadedAt: '2026-10-30T10:00:00Z', checkpoints: [{ name: 'Bufet', lapDistanceM: 3000 }] },
+    categories: [], waves: [], participants: { invited: 3, confirmed: 9, declined: 1, emailFailed: 2 }, running: false, emailMode: 'smtp',
+    createdAt: '2026-10-30T10:00:00Z', endedAt: null, confirmationDeadline: null, ...over,
+  });
+  const PREVIEW = {
+    lapLengthM: 12400, laps: 1, closed: true, hasElevation: true, minElevationM: 290, maxElevationM: 340, ascentM: 310, descentM: 305,
+    points: [[49, 18, 300, 0], [49.01, 18, 340, 4000], [49.02, 18, 290, 8000], [49.03, 18, 300, 12400]], checkpoints: [{ name: 'Bufet', lapDistanceM: 6200, lat: 49.015, lon: 18 }],
+  };
+
+  it('the event page shows the participant counts, the next step and the course numbers with the elevation profile', async () => {
+    mockFetch({ 'GET /api/account/session': { body: ME }, 'GET /api/events/e1/manage': { body: manage() }, 'GET /api/events/e1/course-preview': { body: PREVIEW } });
+    renderAt('/org/events/e1');
+    expect(await screen.findByText('What next')).toBeInTheDocument();
+    expect(screen.getByText('Invited in total').previousSibling).toHaveTextContent('15');
+    expect(screen.getByText('Confirmed', { selector: 'span' }).previousSibling).toHaveTextContent('9');
+    expect(screen.getByText('Email failed')).toBeInTheDocument();
+    expect(screen.getByText('Waiting').closest('a')).toHaveAttribute('href', '/org/events/e1/participants?status=Invited');
+    expect(await screen.findByRole('img', { name: 'Elevation profile of one lap' })).toBeInTheDocument();
+    expect(screen.getByText('290–340 m')).toBeInTheDocument();
+  });
+
+  it('a course without elevation says why there is no profile and no ascent', async () => {
+    mockFetch({ 'GET /api/account/session': { body: ME }, 'GET /api/events/e1/manage': { body: manage() },
+      'GET /api/events/e1/course-preview': { body: { ...PREVIEW, hasElevation: false, minElevationM: null, maxElevationM: null, points: PREVIEW.points.map((p) => [p[0], p[1], null, p[3]]) } } });
+    renderAt('/org/events/e1');
+    expect(await screen.findByText(/no elevation data/)).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Elevation profile of one lap' })).toBeNull();
+  });
+
+  it('edits the event and shows the server message when the new start does not fit the waves', async () => {
+    const calls = mockFetch({ 'GET /api/account/session': { body: ME }, 'GET /api/events/e1/manage': { body: manage() }, 'GET /api/events/e1/course-preview': { body: PREVIEW },
+      'PUT /api/events/e1': { status: 409, body: { code: 'start_conflict', field: 'startTime', message: { sk: 'Vlny nesedia', en: 'The waves do not fit' } } } });
+    renderAt('/org/events/e1');
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const name = screen.getByLabelText('Name');
+    await userEvent.clear(name);
+    await userEvent.type(name, 'Derby 2026');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('The waves do not fit')).toBeInTheDocument();
+    const put = calls.find((c) => c.method === 'PUT' && c.url === '/api/events/e1')!;
+    expect(JSON.parse(put.body!)).toMatchObject({ name: 'Derby 2026', location: 'Žilina', sport: 'cycling' });
+  });
+
+  it('checkpoints are entered in km with a visible unit, validated, and saved without uploading the GPX again', async () => {
+    const calls = mockFetch({ 'GET /api/account/session': { body: ME }, 'GET /api/events/e1/manage': { body: manage() }, 'GET /api/events/e1/course-preview': { body: PREVIEW },
+      'PUT /api/events/e1/course': { body: manage({ course: { ...manage().course, checkpoints: [{ name: 'Bufet', lapDistanceM: 3000 }, { name: 'Kopec', lapDistanceM: 9000 }] } }) } });
+    renderAt('/org/events/e1');
+    await screen.findByText('Checkpoints');
+    expect(screen.getByLabelText('Distance from the lap start (km)')).toHaveValue('3');
+    expect(screen.getAllByText('km from start').length).toBe(1);
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add a point at half of the lap' }));
+    const km = screen.getAllByLabelText('Distance from the lap start (km)');
+    expect(km).toHaveLength(2);
+    await userEvent.clear(km[1]);
+    await userEvent.type(km[1], '99');
+    expect(await screen.findByText(/must lie inside the lap/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+
+    await userEvent.clear(km[1]);
+    await userEvent.type(km[1], '9,0');
+    const names = screen.getAllByLabelText('Checkpoint name');
+    await userEvent.clear(names[1]);
+    await userEvent.type(names[1], 'Kopec');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/events/e1/course')).toBe(true));
+    const body = JSON.parse(calls.find((c) => c.method === 'PUT' && c.url === '/api/events/e1/course')!.body!);
+    expect(body.gpxBase64).toBeUndefined();
+    expect(body.checkpoints).toEqual([{ name: 'Bufet', lapDistanceM: 3000 }, { name: 'Kopec', lapDistanceM: 9000 }]);
   });
 
   it('the participant page shows the invitation state and a link problem for an expired link', async () => {

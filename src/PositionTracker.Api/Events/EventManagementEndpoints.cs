@@ -19,7 +19,13 @@ namespace PositionTracker.Api.Events;
 /// <item><c>GET /api/events</c> → <c>{emailMode, events:[{eventId,name,location,startTime,sport,state}]}</c>, own
 /// events only.</item>
 /// <item><c>GET /api/events/{id}/manage</c> → <see cref="EventManageView"/> (with <c>emailMode</c>).</item>
-/// <item><c>PUT /api/events/{id}/course {gpxBase64, laps, checkpoints:[{name,lapDistanceM}], spectatorDelaySeconds}</c>
+/// <item><c>PUT /api/events/{id} {name, location, startTime, sport}</c> → 200 view; a finished event is 409
+/// <c>event_locked</c>, a live one takes only name and location (409 <c>event_locked</c> for another start or sport), a
+/// new start that leaves a wave or the confirmation deadline out of range is 409 <c>start_conflict</c>.</item>
+/// <item><c>GET /api/events/{id}/course-preview</c> → the lap line <c>[lat,lon,ele|null,distM]</c> (thinned), elevation range and the
+/// checkpoints with their positions (map and profile); 404 without a course.</item>
+/// <item><c>PUT /api/events/{id}/course {gpxBase64?, laps, checkpoints:[{name,lapDistanceM}], spectatorDelaySeconds}</c>
+/// (without <c>gpxBase64</c> the stored GPX is kept and only laps, delay and checkpoints change)
 /// → 200 view; 400 <c>gpx_invalid|course_too_short|course_not_closed|checkpoint_invalid|delay_invalid|laps_invalid</c>,
 /// 413 <c>gpx_too_large</c>, 409 <c>event_locked|conflict</c>.</item>
 /// <item><c>PUT /api/events/{id}/categories [{name, gender?, minAge?, maxAge?}]</c> and
@@ -54,12 +60,29 @@ public static class EventManagementEndpoints
         group.MapGet("", ListAsync);
         group.MapPost("", CreateAsync);
         group.MapGet("/{eventId}/manage", ManageAsync);
+        group.MapPut("/{eventId}", UpdateAsync).RequireAuthorization(CookieAuth.EmailConfirmedOrganizerPolicy);
+        group.MapGet("/{eventId}/course-preview", CoursePreviewAsync);
         group.MapPut("/{eventId}/course", PutCourseAsync).RequireAuthorization(CookieAuth.EmailConfirmedOrganizerPolicy);
         group.MapPut("/{eventId}/categories", PutCategoriesAsync).RequireAuthorization(CookieAuth.EmailConfirmedOrganizerPolicy);
         group.MapPut("/{eventId}/waves", PutWavesAsync).RequireAuthorization(CookieAuth.EmailConfirmedOrganizerPolicy);
         group.MapPost("/{eventId}/state", SetStateAsync).RequireAuthorization(CookieAuth.EmailConfirmedOrganizerPolicy);
         group.MapPut("/{eventId}/confirmation-deadline", PutDeadlineAsync).RequireAuthorization(CookieAuth.EmailConfirmedOrganizerPolicy);
         return app;
+    }
+
+    private static async Task<IResult> UpdateAsync(string eventId, HttpContext context, EventService events, IOptions<JsonOptions> json)
+    {
+        if (Organizer(context) is not { } organizer) return AccountErrors.Unauthorized();
+        var (body, error) = await ReadAsync<UpdateEventRequest>(context, json, SmallBodyBytes);
+        if (error is not null) return error;
+        return Answer(await events.UpdateAsync(organizer, eventId, body!, context.RequestAborted));
+    }
+
+    private static async Task<IResult> CoursePreviewAsync(string eventId, HttpContext context, EventService events)
+    {
+        if (Organizer(context) is not { } organizer) return AccountErrors.Unauthorized();
+        var result = await events.GetCoursePreviewAsync(organizer, eventId, context.RequestAborted);
+        return result.Error is { } e ? EventErrors.Result(e) : Results.Ok(result.Value);
     }
 
     private static async Task<IResult> PutDeadlineAsync(string eventId, HttpContext context, EventService events, IOptions<JsonOptions> json)

@@ -120,3 +120,34 @@ tr.sel td{background:var(--panel2)}tr.click{cursor:pointer}
 .seg button[aria-pressed="true"]{background:var(--text);color:var(--deep);cursor:default}
 @media (max-width:600px){.seg button{padding:0 9px}.seg .lbl{display:none}}
 @media (max-width:480px){.topbar .wrap{flex-wrap:wrap;padding-top:6px;padding-bottom:6px}.topbar .spacer{display:none}.toggles{margin-left:auto}}
+
+/* organizer: event setup */
+.steps{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.steps li{display:flex;gap:12px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:3px;background:var(--panel2);flex-wrap:wrap}
+.steps li.current{border-color:var(--red)}
+.steps li.done{opacity:.75}
+.steps .mark{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;border:2px solid var(--line);font-weight:700;font-size:.85rem;flex:none}
+.steps li.done .mark{border-color:var(--green);color:var(--green)}
+.steps li.current .mark{border-color:var(--red);color:var(--red)}
+.steps .txt{flex:1;min-width:180px}
+.steps .txt small{display:block;color:var(--mute)}
+.help{border-left:4px solid var(--blue);padding:6px 12px;background:var(--panel2);border-radius:0 3px 3px 0}
+.profile{margin:0}
+.profile svg{width:100%;height:auto;display:block;background:var(--panel2);border-radius:3px;touch-action:none}
+.profile .area{fill:var(--line);opacity:.55}
+.profile .line{stroke:var(--red);stroke-width:2}
+.profile .axis{fill:var(--mute);font-size:11px}
+.profile .cp{stroke:var(--yellow);stroke-width:1.5;stroke-dasharray:3 3}
+.profile .cpdot{fill:var(--yellow)}
+.profile .cursor{stroke:var(--text);stroke-width:1;opacity:.6}
+.profile figcaption{min-height:1.4em;font-size:.9rem}
+.cprow{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto;gap:8px;align-items:start}
+.cprow .km{display:flex;align-items:center;gap:6px}
+.cprow .km input{min-width:0}
+.cprow .note{grid-column:1 / -1;color:var(--red);font-size:.85rem;margin-top:-4px}
+.bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;min-width:70px}
+.bar>span{display:block;height:100%;background:var(--green)}
+.sub{display:block;color:var(--mute);font-size:.9rem}
+@media (max-width:600px){.cprow{grid-template-columns:1fr auto}.cprow .km{grid-column:1}}
+a.stat{display:block;color:inherit;text-decoration:none;border:1px solid transparent}a.stat:hover{border-color:var(--mute)}
+@media (max-width:600px){.profile .axis{font-size:19px}}

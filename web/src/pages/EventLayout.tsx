@@ -1,11 +1,12 @@
 import { createContext, useContext, useState } from 'react';
-import { NavLink, Outlet, useParams } from 'react-router-dom';
+import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
 import { BASE, get, post, put } from '../lib/api';
 import { formatDateTime, localInputToUtc, utcToLocalInput } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 import { useLoad, type Loaded } from '../lib/hooks';
-import type { CategoryView, Checkpoint, ManageView, WaveView } from '../lib/types';
-import { EmailModeNotice, ErrorBanner, Field, Loading, StatusBadge } from '../components/Ui';
+import type { CategoryView, ManageView, WaveView } from '../lib/types';
+import { EmailModeNotice, ErrorBanner, Field, Loading, StatusBadge, bannerError } from '../components/Ui';
+import CourseSection from './CourseSection';
 import { useSession } from '../components/Layout';
 
 const ManageCtx = createContext<{ event: ManageView; reload: () => void; setEvent: (e: ManageView) => void } | null>(null);
@@ -17,7 +18,7 @@ export const useManage = () => {
 
 export default function EventLayout() {
   const { id } = useParams();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const manage: Loaded<ManageView> = useLoad(() => get<ManageView>(`/api/events/${id}/manage`), [id]);
   if (manage.error) return <ErrorBanner error={manage.error} />;
   if (!manage.data) return <Loading />;
@@ -28,6 +29,10 @@ export default function EventLayout() {
         <h1>{e.name}</h1>
         <StatusBadge value={e.state} />
       </div>
+      <p className="mute" style={{ marginTop: -8 }}>
+        {sportLabel(t, e.sport)} · {e.location} · {formatDateTime(e.startTime, lang)}
+        {e.course ? ` · ${e.laps > 1 ? `${e.laps} × ` : ''}${(e.course.lapLengthM / 1000).toFixed(2)} km` : ''}
+      </p>
       <EmailModeNotice mode={e.emailMode} />
       <nav className="tabs" aria-label="event">
         <NavLink to={`/org/events/${e.eventId}`} end>{t('Nastavenie', 'Setup')}</NavLink>
@@ -39,17 +44,13 @@ export default function EventLayout() {
   );
 }
 
-const toBase64 = (buffer: ArrayBuffer) => {
-  let s = '';
-  const bytes = new Uint8Array(buffer);
-  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(s);
-};
+const sportLabel = (t: (a: string, b: string) => string, s: string) => (s === 'running' ? t('Beh', 'Running') : t('Cyklistika', 'Cycling'));
 
 export function Setup() {
   const { event, setEvent } = useManage();
   const { t, lang } = useI18n();
   const { me } = useSession();
+  const navigate = useNavigate();
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const run = async (fn: () => Promise<ManageView>) => {
@@ -61,32 +62,79 @@ export function Setup() {
   const locked = event.state === 'live' || event.state === 'finished';
   const next = ({ draft: 'ready', ready: 'live', live: 'finished' } as Record<string, string>)[event.state];
   const nextLabel = ({ ready: t('Označiť ako pripravené', 'Mark as ready'), live: t('Spustiť naživo', 'Go live'), finished: t('Ukončiť podujatie', 'Finish event') } as Record<string, string>)[next ?? ''];
+  const advance = () => {
+    if (!next) return;
+    if (next === 'live' && !window.confirm(t('Spustiť podujatie naživo? Po spustení už nemožno meniť trasu.', 'Go live? The course cannot be changed afterwards.'))) return;
+    if (next === 'finished' && !window.confirm(t('Ukončiť podujatie? Polohy sa už nebudú prijímať.', 'Finish the event? Positions are no longer accepted.'))) return;
+    run(() => post<ManageView>(`/api/events/${event.eventId}/state`, { state: next }));
+  };
+  const p = event.participants;
+  const total = p.invited + p.confirmed + p.declined + p.emailFailed;
+  const base = `/org/events/${event.eventId}`;
+  const toCourse = () => document.getElementById('course')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  const steps = [
+    { done: !!event.course, title: t('Nahrajte trasu', 'Upload the course'), hint: event.course ? t(`${(event.course.lapLengthM / 1000).toFixed(2)} km na kolo`, `${(event.course.lapLengthM / 1000).toFixed(2)} km per lap`) : t('Súbor GPX s trasou jedného kola.', 'A GPX file with the route of one lap.'),
+      action: <button type="button" className="btn small" onClick={toCourse}><span>{t('Prejsť na trasu', 'Go to the course')}</span></button> },
+    { done: total > 0, title: t('Pozvite účastníkov', 'Invite participants'), hint: total > 0 ? t(`${total} pozvaných`, `${total} invited`) : t('Každý dostane e-mail s odkazom na potvrdenie.', 'Everybody gets an email with a link to confirm.'),
+      action: <Link className="btn small" to={`${base}/participants`}><span>{t('Účastníci', 'Participants')}</span></Link> },
+    { done: p.confirmed > 0, title: t('Počkajte na potvrdenia', 'Wait for confirmations'), hint: t(`${p.confirmed} z ${total} potvrdilo`, `${p.confirmed} of ${total} confirmed`) + (p.invited > 0 ? t(` · ${p.invited} čaká`, ` · ${p.invited} waiting`) : ''),
+      action: p.invited > 0 ? <Link className="btn small" to={`${base}/participants?status=Invited`}><span>{t('Kto ešte nepotvrdil', 'Who has not confirmed')}</span></Link> : null },
+    { done: event.state !== 'draft', title: t('Označte podujatie ako pripravené', 'Mark the event as ready'), hint: t('Po tomto kroku sa už dá spustiť naživo.', 'After this step you can go live.'),
+      action: event.state === 'draft' ? <button type="button" className="btn small primary" disabled={busy || !confirmed || !event.course} onClick={advance}><span>{t('Označiť ako pripravené', 'Mark as ready')}</span></button> : null },
+    { done: event.state === 'live' || event.state === 'finished', title: t('Spustite naživo v deň podujatia', 'Go live on the day'), hint: t('Účastníci začnú vysielať polohu, diváci uvidia mapu.', 'Participants start sending positions and spectators see the map.'),
+      action: event.state === 'ready' ? <button type="button" className="btn small green" disabled={busy || !confirmed || p.confirmed === 0} onClick={advance}><span>{t('Spustiť naživo', 'Go live')}</span></button> : null },
+  ];
+  const current = steps.findIndex((s) => !s.done);
 
   return (
     <div className="stack">
       <ErrorBanner error={error} />
       {!confirmed && <div className="banner">{t('Potvrďte e-mail, aby ste mohli nahrať trasu a meniť podujatie.', 'Confirm your email to upload a course and change the event.')}</div>}
-      <div className="card">
-        <h2>{t('Podujatie', 'Event')}</h2>
+
+      {event.state !== 'finished' && event.state !== 'live' && (
+        <div className="card">
+          <h2>{t('Čo ďalej', 'What next')}</h2>
+          <ol className="steps">
+            {steps.map((s, i) => (
+              <li key={i} className={s.done ? 'done' : i === current ? 'current' : ''} aria-current={i === current ? 'step' : undefined}>
+                <span className="mark" aria-hidden="true">{s.done ? '✓' : i + 1}</span>
+                <span className="txt"><b>{s.title}</b><small>{s.hint}</small></span>
+                {i === current && s.action}
+              </li>))}
+          </ol>
+        </div>
+      )}
+
+      <div className="card stack">
+        <div className="row between">
+          <h2>{t('Podujatie', 'Event')}</h2>
+          {event.state !== 'finished' && <EditEvent confirmed={confirmed} />}
+        </div>
         <div className="stats">
           <div className="stat"><b>{formatDateTime(event.startTime, lang)}</b><span>{t('Štart', 'Start')}</span></div>
           <div className="stat"><b>{event.location}</b><span>{t('Miesto', 'Location')}</span></div>
-          <div className="stat"><b>{event.participants.confirmed}/{event.participants.invited + event.participants.confirmed + event.participants.declined + event.participants.emailFailed}</b><span>{t('Potvrdení', 'Confirmed')}</span></div>
+          <div className="stat"><b>{sportLabel(t, event.sport)}</b><span>{t('Šport', 'Sport')}</span></div>
+          <div className="stat"><b>{event.course ? `${event.laps} × ${(event.course.lapLengthM / 1000).toFixed(2)} km` : '–'}</b><span>{t('Kolá × dĺžka', 'Laps × length')}</span></div>
+          <div className="stat"><b>{event.course ? `${Math.round(event.course.ascentM)} m` : '–'}</b><span>{t('Stúpanie / kolo', 'Ascent / lap')}</span></div>
         </div>
-        {next && (
-          <div className="row" style={{ marginTop: 14 }}>
-            <button className={`btn ${next === 'live' ? 'green' : 'primary'}`} disabled={busy || !confirmed}
-              onClick={() => {
-                if (next === 'live' && !window.confirm(t('Spustiť podujatie naživo? Po spustení už nemožno meniť trasu.', 'Go live? The course cannot be changed afterwards.'))) return;
-                if (next === 'finished' && !window.confirm(t('Ukončiť podujatie? Polohy sa už nebudú prijímať.', 'Finish the event? Positions are no longer accepted.'))) return;
-                run(() => post<ManageView>(`/api/events/${event.eventId}/state`, { state: next }));
-              }}><span>{nextLabel}</span></button>
-            <span className="mute">{event.state === 'draft' ? t('Najprv nahrajte trasu.', 'Upload the course first.') : ''}</span>
+        <h3>{t('Účastníci', 'Participants')}</h3>
+        <div className="stats">
+          <Link className="stat" to={`${base}/participants`}><b>{total}</b><span>{t('Pozvaných celkom', 'Invited in total')}</span></Link>
+          <Link className="stat" to={`${base}/participants?status=Confirmed`}><b>{p.confirmed}</b><span>{t('Potvrdili', 'Confirmed')}</span></Link>
+          <Link className="stat" to={`${base}/participants?status=Invited`}><b>{p.invited}</b><span>{t('Čakajú na odpoveď', 'Waiting')}</span></Link>
+          <Link className="stat" to={`${base}/participants?status=Declined`}><b>{p.declined}</b><span>{t('Odmietli', 'Declined')}</span></Link>
+          {p.emailFailed > 0 && <Link className="stat" to={`${base}/participants?status=EmailFailed`}><b>{p.emailFailed}</b><span>{t('E-mail zlyhal', 'Email failed')}</span></Link>}
+        </div>
+        {event.state === 'live' && (
+          <div className="row">
+            <button type="button" className="btn primary" onClick={() => navigate(`${base}/control`)}><span>{t('Riadiť preteky', 'Race control')}</span></button>
+            <button type="button" className="btn danger" disabled={busy} onClick={advance}><span>{nextLabel}</span></button>
           </div>
         )}
         {event.state === 'live' && <p className="mute">{t('Verejný odkaz pre divákov:', 'Public link for spectators:')} <a href={`${BASE}/e/${event.eventId}`}>{`${location.origin}${BASE}/e/${event.eventId}`}</a></p>}
       </div>
-      <CourseForm disabled={!confirmed || locked} run={run} />
+      <CourseSection disabled={!confirmed || locked} />
       <Categories disabled={!confirmed || locked} run={run} />
       <Waves disabled={!confirmed || locked} run={run} />
       <Deadline disabled={!confirmed || event.state === 'finished'} run={run} />
@@ -94,49 +142,56 @@ export function Setup() {
   );
 }
 
-type Run = (fn: () => Promise<ManageView>) => Promise<void>;
-
-function CourseForm({ disabled, run }: { disabled: boolean; run: Run }) {
-  const { event } = useManage();
+/** Name, location, start and sport. A live event keeps its start and sport (the server refuses a change; the fields are locked here). */
+function EditEvent({ confirmed }: { confirmed: boolean }) {
+  const { event, setEvent } = useManage();
   const { t } = useI18n();
-  const [file, setFile] = useState<File | null>(null);
-  const [laps, setLaps] = useState(event.laps);
-  const [delay, setDelay] = useState(event.spectatorDelaySeconds);
-  const [cps, setCps] = useState<Checkpoint[]>(event.course?.checkpoints ?? []);
-  const c = event.course;
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(event.name);
+  const [loc, setLoc] = useState(event.location);
+  const [start, setStart] = useState(utcToLocalInput(event.startTime));
+  const [sport, setSport] = useState<string>(event.sport);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const live = event.state === 'live';
+  const show = () => { setName(event.name); setLoc(event.location); setStart(utcToLocalInput(event.startTime)); setSport(event.sport); setError(null); setOpen(true); };
+  if (!open) return <button type="button" className="btn small" disabled={!confirmed} onClick={show}><span>{t('Upraviť', 'Edit')}</span></button>;
   return (
-    <form className="card stack" onSubmit={async (e) => {
+    <form className="stack editevent" style={{ flexBasis: '100%' }} onSubmit={async (e) => {
       e.preventDefault();
-      if (!file) return;
-      const gpxBase64 = toBase64(await file.arrayBuffer());
-      await run(() => put<ManageView>(`/api/events/${event.eventId}/course`,
-        { gpxBase64, laps, spectatorDelaySeconds: delay, checkpoints: cps.filter((x) => x.name.trim()) }));
+      setBusy(true); setError(null);
+      try {
+        setEvent(await put<ManageView>(`/api/events/${event.eventId}`, { name, location: loc, startTime: localInputToUtc(start) ?? start, sport }));
+        setOpen(false);
+      } catch (x) { setError(x); }
+      setBusy(false);
     }}>
-      <h2>{t('Trasa', 'Course')}</h2>
-      {c && <p className="mute">{t(`Nahraná trasa: ${(c.lapLengthM / 1000).toFixed(2)} km na kolo, stúpanie ${Math.round(c.ascentM)} m, ${c.closed ? 'uzavretá' : 'otvorená'}.`,
-        `Uploaded course: ${(c.lapLengthM / 1000).toFixed(2)} km per lap, ascent ${Math.round(c.ascentM)} m, ${c.closed ? 'closed' : 'open'}.`)}</p>}
-      <Field label={t('Súbor GPX', 'GPX file')} name="gpxBase64"><input id="gpxBase64" type="file" accept=".gpx,application/gpx+xml,text/xml" disabled={disabled} onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Field>
+      <ErrorBanner error={bannerError(error, ['name', 'location', 'startTime', 'sport'])} />
       <div className="grid two">
-        <Field label={t('Počet kôl (1–10)', 'Laps (1–10)')} name="laps"><input id="laps" type="number" min={1} max={10} value={laps} disabled={disabled} onChange={(e) => setLaps(Number(e.target.value))} /></Field>
-        <Field label={t('Oneskorenie pre divákov (5–300 s)', 'Spectator delay (5–300 s)')} name="spectatorDelaySeconds"><input id="spectatorDelaySeconds" type="number" min={5} max={300} value={delay} disabled={disabled} onChange={(e) => setDelay(Number(e.target.value))} /></Field>
+        <Field label={t('Názov', 'Name')} name="name" error={error}><input id="name" value={name} onChange={(e) => setName(e.target.value)} required /></Field>
+        <Field label={t('Miesto', 'Location')} name="location" error={error}><input id="location" value={loc} onChange={(e) => setLoc(e.target.value)} required /></Field>
+        <Field label={t('Dátum a čas štartu (vaše miestne)', 'Start date and time (your local time)')} name="startTime" error={error}>
+          <input id="startTime" type="datetime-local" value={start} disabled={live} onChange={(e) => setStart(e.target.value)} required />
+        </Field>
+        <Field label={t('Šport', 'Sport')} name="sport" error={error}>
+          <select id="sport" value={sport} disabled={live} onChange={(e) => setSport(e.target.value)}>
+            <option value="cycling">{t('Cyklistika', 'Cycling')}</option>
+            <option value="running">{t('Beh', 'Running')}</option>
+          </select>
+        </Field>
       </div>
-      <h3>{t('Kontrolné body', 'Checkpoints')}</h3>
-      {cps.map((cp, i) => (
-        <div className="row" key={i}>
-          <input aria-label={t('Názov', 'Name')} placeholder={t('Názov', 'Name')} value={cp.name} disabled={disabled} style={{ flex: 2 }}
-            onChange={(e) => setCps(cps.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} />
-          <input aria-label={t('Vzdialenosť v kole (m)', 'Distance in lap (m)')} type="number" min={1} value={cp.lapDistanceM} disabled={disabled} style={{ flex: 1 }}
-            onChange={(e) => setCps(cps.map((x, j) => (j === i ? { ...x, lapDistanceM: Number(e.target.value) } : x)))} />
-          <button type="button" className="btn small danger" disabled={disabled} onClick={() => setCps(cps.filter((_, j) => j !== i))}><span>×</span></button>
-        </div>))}
+      {live
+        ? <p className="mute">{t('Podujatie už beží: štart a šport sa už nedajú zmeniť, názov a miesto áno.', 'The event is live: the start and sport can no longer be changed, the name and location can.')}</p>
+        : <p className="mute">{t('Pri zmene štartu skontrolujte štartové vlny a termín potvrdenia – musia ostať po novom štarte. Účastníkom sa e-mail o zmene neposiela.', 'When you change the start, check the start waves and the confirmation deadline – they must stay after the new start. Participants are not emailed about the change.')}</p>}
       <div className="row">
-        <button type="button" className="btn small" disabled={disabled} onClick={() => setCps([...cps, { name: '', lapDistanceM: 1000 }])}><span>{t('Pridať kontrolný bod', 'Add checkpoint')}</span></button>
-        <button className="btn primary" disabled={disabled || !file}><span>{c ? t('Nahradiť trasu', 'Replace course') : t('Nahrať trasu', 'Upload course')}</span></button>
+        <button className="btn primary" disabled={busy}><span>{t('Uložiť', 'Save')}</span></button>
+        <button type="button" className="btn ghost" onClick={() => setOpen(false)}><span>{t('Zrušiť', 'Cancel')}</span></button>
       </div>
-      <p className="mute">{t('Pri zmene nahrajte GPX znova.', 'Upload the GPX again when you change anything here.')}</p>
     </form>
   );
 }
+
+type Run = (fn: () => Promise<ManageView>) => Promise<void>;
 
 function Categories({ disabled, run }: { disabled: boolean; run: Run }) {
   const { event } = useManage();

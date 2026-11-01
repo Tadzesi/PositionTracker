@@ -15,6 +15,8 @@ interface Props {
   /** Marker ids of the followed riders: the map zooms to them and keeps them in view until the user moves the map. */
   followIds?: string[];
   className?: string;
+  /** A click on the map (not on a marker): used to place checkpoints on the course. */
+  onMapClick?: (lat: number, lon: number) => void;
 }
 
 const FOLLOW_ZOOM = 15;
@@ -23,7 +25,7 @@ const AHEAD_S = 4; // positions arrive every ~3 s: keep the point the rider is h
 const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
 /** Leaflet map: the course as a line, riders as numbered markers. Colours follow the theme tokens. */
-export default function MapView({ points, markers, checkpoints, selectedId, onSelect, followIds, className }: Props) {
+export default function MapView({ points, markers, checkpoints, selectedId, onSelect, followIds, className, onMapClick }: Props) {
   const { t } = useI18n();
   const follow = followIds ?? NONE;
   const host = useRef<HTMLDivElement>(null);
@@ -33,6 +35,8 @@ export default function MapView({ points, markers, checkpoints, selectedId, onSe
   const fitted = useRef(false);
   const select = useRef(onSelect);
   select.current = onSelect;
+  const click = useRef(onMapClick);
+  click.current = onMapClick;
 
   // ----- following: zoom to the followed riders and keep them in view until the user moves the map -----
   const [auto, setAutoState] = useState(follow.length > 0);
@@ -91,6 +95,7 @@ export default function MapView({ points, markers, checkpoints, selectedId, onSe
     }).addTo(m);
     layer.current = L.layerGroup().addTo(m);
     map.current = m;
+    m.on('click', (e: L.LeafletMouseEvent) => click.current?.(e.latlng.lat, e.latlng.lng));
     const stop = () => { if (autoRef.current) setAuto(false); };
     // only the user's own gestures stop the following (not 'zoomstart': our own zooms fire it too)
     const box = m.getContainer();

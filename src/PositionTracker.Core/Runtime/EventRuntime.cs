@@ -41,7 +41,17 @@ public sealed class EventRuntime
         _clock = clock;
     }
 
-    public EventSettings Settings { get; }
+    private volatile EventSettings _settings = null!;
+
+    /// <summary>The settings; only the name can change while the event runs (<see cref="Rename"/>).</summary>
+    public EventSettings Settings { get => _settings; private set => _settings = value; }
+
+    /// <summary>The organizer renamed the event: spectators see the new name from now on.</summary>
+    public void Rename(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        Settings = Settings with { Name = name };
+    }
 
     public Course Course { get; }
 

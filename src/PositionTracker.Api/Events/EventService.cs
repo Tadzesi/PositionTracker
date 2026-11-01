@@ -46,6 +46,8 @@ public sealed class EventService(
     /// <summary>A start further ahead is a typo, not a plan.</summary>
     public static readonly TimeSpan MaxStartAhead = TimeSpan.FromDays(5 * 366);
     private const int StateAttempts = 3;
+    /// <summary>The lap line of <see cref="GetCoursePreviewAsync"/> is thinned to about this many points.</summary>
+    public const int MaxPreviewPoints = 1200;
 
     // ----- read -----
 
@@ -53,10 +55,23 @@ public sealed class EventService(
     {
         var events = await db.Events.AsNoTracking().Where(e => e.OrganizerId == organizerId)
             .OrderByDescending(e => e.StartTime).ThenBy(e => e.Id)
-            .Select(e => new { e.Id, e.Name, e.Location, e.StartTime, e.Sport, e.State })
+            .Select(e => new { e.Id, e.Name, e.Location, e.StartTime, e.Sport, e.State, e.Laps, HasGpx = e.GpxBytes != null })
             .ToListAsync(ct);
+        var ids = events.Select(e => e.Id).ToList();
+        var lapLengths = await db.Courses.AsNoTracking().Where(c => ids.Contains(c.EventId))
+            .Select(c => new { c.EventId, c.LapLengthM }).ToDictionaryAsync(c => c.EventId, c => c.LapLengthM, ct);
+        var counts = (await db.Participants.AsNoTracking().Where(p => ids.Contains(p.EventId))
+            .GroupBy(p => new { p.EventId, p.Status }).Select(g => new { g.Key.EventId, g.Key.Status, Count = g.Count() }).ToListAsync(ct))
+            .ToLookup(c => c.EventId);
+        ParticipantCounts CountsOf(Guid id)
+        {
+            int Of(ParticipantStatus s) => counts[id].SingleOrDefault(c => c.Status == s)?.Count ?? 0;
+            return new ParticipantCounts(Of(ParticipantStatus.Invited), Of(ParticipantStatus.Confirmed),
+                Of(ParticipantStatus.Declined), Of(ParticipantStatus.EmailFailed));
+        }
         return new EventList(emailMode.Mode, events
-            .Select(e => new EventSummary(RuntimeFactory.RuntimeId(e.Id), e.Name, e.Location, e.StartTime, e.Sport, e.State))
+            .Select(e => new EventSummary(RuntimeFactory.RuntimeId(e.Id), e.Name, e.Location, e.StartTime, e.Sport, e.State, e.Laps,
+                e.HasGpx && lapLengths.TryGetValue(e.Id, out var lap) ? lap : null, CountsOf(e.Id)))
             .ToList());
     }
 
@@ -88,7 +103,81 @@ public sealed class EventService(
         return new EventResult<CreatedEvent>(new CreatedEvent(RuntimeFactory.RuntimeId(ev.Id)), null);
     }
 
+    // ----- update -----
+
+    /// <summary>
+    /// Replaces name, location, start and sport. A finished event is locked; a live one takes only a new name and
+    /// location (start and sport must stay as they are). A changed start must be in the future and must keep every
+    /// start wave inside [start, start + 24 h] and the confirmation deadline not after the start (409
+    /// <c>start_conflict</c>: the waves and the deadline are never moved silently).
+    /// </summary>
+    public async Task<EventResult<EventManageView>> UpdateAsync(Guid organizerId, string eventId, UpdateEventRequest request, CancellationToken ct)
+    {
+        if (!TextRules.TryLine(request.Name, MaxNameLength, out var name)) return EventErrors.InvalidName("name");
+        if (!TextRules.TryLine(request.Location, MaxNameLength, out var location)) return EventErrors.InvalidLocation("location");
+        if (!UtcTimestampConverter.TryParse(request.StartTime, out var start)) return EventErrors.StartNotInFuture("startTime");
+        if (ParseSport(request.Sport) is not { } sport) return EventErrors.InvalidSport("sport");
+
+        if (await FindAsync(organizerId, eventId, tracked: true, ct) is not { } ev) return EventErrors.NotFound;
+        if (ev.State == EventState.Finished) return EventErrors.EventLocked;
+        var startChanged = start != ev.StartTime;
+        if (ev.State == EventState.Live && (startChanged || sport != ev.Sport)) return EventErrors.StartLocked;
+        if (startChanged)
+        {
+            var now = clock.GetUtcNow();
+            if (start <= now || start > now + MaxStartAhead) return EventErrors.StartNotInFuture("startTime");
+            var waves = await db.Waves.AsNoTracking().Where(w => w.EventId == ev.Id).Select(w => w.StartTime).ToListAsync(ct);
+            if (waves.Any(w => w < start || w > start + MaxWaveAfterStart) || ev.ConfirmationDeadline > start)
+                return EventErrors.StartConflict;
+        }
+        ev.Name = name;
+        ev.Location = location;
+        ev.StartTime = start;
+        ev.Sport = sport;
+        ev.Version = Guid.NewGuid();
+        var saved = await SaveAndViewAsync(ev, ct);
+        // A running (or finished) event shows the new name to spectators at once.
+        if (saved.Error is null) registry.Get(RuntimeFactory.RuntimeId(ev.Id))?.Rename(name);
+        return saved;
+    }
+
     // ----- course -----
+
+    /// <summary>The uploaded course for the organizer's map and elevation profile (404 without a course).</summary>
+    public async Task<EventResult<CoursePreview>> GetCoursePreviewAsync(Guid organizerId, string eventId, CancellationToken ct)
+    {
+        if (await FindAsync(organizerId, eventId, tracked: false, ct) is not { GpxBytes: { Length: > 0 } } ev) return EventErrors.NotFound;
+        Course course;
+        try
+        {
+            course = RuntimeFactory.CourseOf(ev);
+        }
+        catch (Exception ex) when (ex is GpxFormatException or ArgumentException)
+        {
+            logger.LogError("Stored course of event {EventId} could not be read ({ExceptionType}).", RuntimeFactory.RuntimeId(ev.Id), ex.GetType().Name);
+            return EventErrors.NotFound;
+        }
+        var n = course.Points.Count;
+        var step = Math.Max(1, (int)Math.Ceiling(n / (double)MaxPreviewPoints));
+        double?[] Row(int i)
+        {
+            var p = course.Points[i];
+            return [Math.Round(p.Lat, 6), Math.Round(p.Lon, 6), p.Ele is { } e ? Math.Round(e, 1) : null, Math.Round(course.CumulativeM[i], 1)];
+        }
+        var points = new List<double?[]>();
+        for (var i = 0; i < n; i += step) points.Add(Row(i));
+        if ((n - 1) % step != 0) points.Add(Row(n - 1));
+        var elevations = course.HasElevation ? course.Points.Select(p => p.Ele!.Value).ToList() : [];
+        var places = course.Checkpoints.Select(c =>
+        {
+            var at = course.PointAt(c.LapDistanceM);
+            return new CheckpointPlace(c.Name, c.LapDistanceM, Math.Round(at.Lat, 6), Math.Round(at.Lon, 6));
+        }).ToList();
+        return new EventResult<CoursePreview>(new CoursePreview(
+            course.LapLengthM, ev.Laps, course.IsClosed, course.HasElevation,
+            elevations.Count > 0 ? Math.Round(elevations.Min(), 1) : null, elevations.Count > 0 ? Math.Round(elevations.Max(), 1) : null,
+            course.AscentPerLapM, course.DescentPerLapM, points, places), null);
+    }
 
     public async Task<EventResult<EventManageView>> PutCourseAsync(Guid organizerId, string eventId, CourseRequest request, CancellationToken ct)
     {
@@ -98,36 +187,29 @@ public sealed class EventService(
         if (TimeSpan.FromSeconds(delay) < EventSettings.MinSpectatorDelay || TimeSpan.FromSeconds(delay) > EventSettings.MaxSpectatorDelay)
             return EventErrors.DelayInvalid;
         if (ParseCheckpoints(request.Checkpoints) is not { } checkpoints) return EventErrors.CheckpointInvalid;
-        var (gpx, gpxError) = DecodeGpx(request.GpxBase64);
-        if (gpxError is not null) return gpxError;
-        IReadOnlyList<GeoPoint> points;
-        try
+        // No GPX in the request: laps, delay and checkpoints are changed on the course already stored.
+        var reuse = string.IsNullOrWhiteSpace(request.GpxBase64);
+        byte[]? gpx = null;
+        if (!reuse)
         {
-            using var stream = new MemoryStream(gpx!, writable: false);
-            points = GpxParser.Parse(stream);
-        }
-        catch (GpxFormatException)
-        {
-            return EventErrors.GpxInvalid;
-        }
-        Course course;
-        try
-        {
-            course = Course.Create(points, laps, checkpoints);
-        }
-        catch (ArgumentException ex)
-        {
-            return ex.ParamName switch
-            {
-                "laps" => EventErrors.CourseNotClosed,
-                "checkpoints" => EventErrors.CheckpointInvalid,
-                _ => EventErrors.CourseTooShort,
-            };
+            var (decoded, gpxError) = DecodeGpx(request.GpxBase64);
+            if (gpxError is not null) return gpxError;
+            gpx = decoded;
+            var checkedCourse = BuildCourse(gpx!, laps, checkpoints);
+            if (checkedCourse.Error is { } buildError) return buildError;
         }
 
         // Valid: now (and only now) the database.
         if (await FindAsync(organizerId, eventId, tracked: true, ct) is not { } ev) return EventErrors.NotFound;
         if (IsFrozen(ev)) return EventErrors.EventLocked;
+        if (reuse)
+        {
+            if (ev.GpxBytes is not { Length: > 0 } storedGpx) return EventErrors.GpxInvalid;
+            gpx = storedGpx;
+        }
+        var built = BuildCourse(gpx!, laps, checkpoints);
+        if (built.Error is { } storedError) return storedError;
+        var course = built.Value!;
         var now = clock.GetUtcNow();
         ev.GpxBytes = gpx;
         ev.Laps = laps;
@@ -141,8 +223,35 @@ public sealed class EventService(
         stored.DescentM = course.DescentPerLapM;
         stored.PointCount = course.Points.Count;
         stored.IsClosed = course.IsClosed;
-        stored.UploadedAt = now;
+        if (!reuse) stored.UploadedAt = now;
         return await SaveAndViewAsync(ev, ct);
+    }
+
+    private static EventResult<Course> BuildCourse(byte[] gpx, int laps, IReadOnlyList<Checkpoint> checkpoints)
+    {
+        IReadOnlyList<GeoPoint> points;
+        try
+        {
+            using var stream = new MemoryStream(gpx, writable: false);
+            points = GpxParser.Parse(stream);
+        }
+        catch (GpxFormatException)
+        {
+            return EventErrors.GpxInvalid;
+        }
+        try
+        {
+            return new EventResult<Course>(Course.Create(points, laps, checkpoints), null);
+        }
+        catch (ArgumentException ex)
+        {
+            return ex.ParamName switch
+            {
+                "laps" => EventErrors.CourseNotClosed,
+                "checkpoints" => EventErrors.CheckpointInvalid,
+                _ => EventErrors.CourseTooShort,
+            };
+        }
     }
 
     // ----- categories and waves -----

@@ -9,6 +9,9 @@ namespace PositionTracker.Api.Events;
 
 public sealed record CreateEventRequest(string? Name, string? Location, string? StartTime, string? Sport);
 
+/// <summary>All four fields are required; the whole description of the event is replaced.</summary>
+public sealed record UpdateEventRequest(string? Name, string? Location, string? StartTime, string? Sport);
+
 public sealed record CheckpointRequest(string? Name, double? LapDistanceM);
 
 public sealed record CourseRequest(string? GpxBase64, int? Laps, List<CheckpointRequest?>? Checkpoints, int? SpectatorDelaySeconds);
@@ -29,7 +32,7 @@ public sealed record CreatedEvent(string EventId);
 public sealed record EventSummary(
     string EventId, string Name, string Location,
     [property: JsonConverter(typeof(UtcTimestampConverter))] DateTimeOffset StartTime,
-    Sport Sport, EventState State);
+    Sport Sport, EventState State, int Laps, double? LapLengthM, ParticipantCounts Participants);
 
 /// <param name="EmailMode"><c>simulated</c> or <c>smtp</c> (controller ruling P8): whether mails really go out.</param>
 public sealed record EventList(string EmailMode, IReadOnlyList<EventSummary> Events);
@@ -79,3 +82,14 @@ public sealed class NullableUtcTimestampConverter : JsonConverter<DateTimeOffset
         else writer.WriteNullValue();
     }
 }
+
+/// <summary>A checkpoint with its position on the map.</summary>
+public sealed record CheckpointPlace(string Name, double LapDistanceM, double Lat, double Lon);
+
+/// <summary>
+/// The organizer's view of the uploaded course (<c>GET /api/events/{id}/course</c>): the lap line, thinned to at most
+/// <see cref="EventService.MaxPreviewPoints"/> points, each <c>[lat, lon, elevationM|null, distanceFromLapStartM]</c>.
+/// </summary>
+public sealed record CoursePreview(
+    double LapLengthM, int Laps, bool Closed, bool HasElevation, double? MinElevationM, double? MaxElevationM,
+    double AscentM, double DescentM, IReadOnlyList<double?[]> Points, IReadOnlyList<CheckpointPlace> Checkpoints);

@@ -37,6 +37,15 @@ public static class EventErrors
         "Podujatie už beží alebo skončilo; trasu, kategórie a vlny už nemožno meniť.",
         "The event is live or finished; its course, categories and waves can no longer be changed.");
 
+    public static readonly EventError StartLocked = new(StatusCodes.Status409Conflict, "event_locked",
+        "Podujatie už beží alebo skončilo; začiatok a šport už nemožno meniť (názov a miesto áno, kým neskončí).",
+        "The event is live or finished; its start and sport can no longer be changed (name and location can until it finishes).", "startTime");
+
+    public static readonly EventError StartConflict = new(StatusCodes.Status409Conflict, "start_conflict",
+        "Nový začiatok by dal niektorú štartovú vlnu alebo termín potvrdenia mimo povoleného rozsahu. Najprv upravte vlny alebo termín.",
+        "The new start would put a start wave or the confirmation deadline outside the allowed range. Change the waves or the deadline first.",
+        "startTime");
+
     public static readonly EventError EventFinished = new(StatusCodes.Status409Conflict, "event_finished",
         "Podujatie už skončilo; polohy a akcie sa už neprijímajú.",
         "The event has finished; positions and actions are no longer accepted.");

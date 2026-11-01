@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { del, get, post, put } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { useLoad } from '../lib/hooks';
@@ -13,7 +14,8 @@ export default function Participants() {
   const { event } = useManage();
   const { t } = useI18n();
   const { me } = useSession();
-  const [status, setStatus] = useState<string>('');
+  const [params] = useSearchParams();
+  const [status, setStatus] = useState<string>(() => (FILTERS as readonly string[]).includes(params.get('status') ?? '') ? params.get('status') ?? '' : '');
   const [q, setQ] = useState('');
   const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState<string | null>(null);

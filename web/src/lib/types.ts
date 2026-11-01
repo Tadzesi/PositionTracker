@@ -2,7 +2,17 @@ export type EventState = 'draft' | 'ready' | 'live' | 'finished';
 export type Sport = 'running' | 'cycling';
 
 export interface Me { name: string; email: string; language: string; emailConfirmed: boolean; emailMode: string }
-export interface EventSummary { eventId: string; name: string; location: string; startTime: string; sport: Sport; state: EventState }
+export interface ParticipantCounts { invited: number; confirmed: number; declined: number; emailFailed: number }
+export interface EventSummary {
+  eventId: string; name: string; location: string; startTime: string; sport: Sport; state: EventState;
+  laps: number; lapLengthM: number | null; participants: ParticipantCounts;
+}
+export interface CheckpointPlace { name: string; lapDistanceM: number; lat: number; lon: number }
+/** GET /api/events/{id}/course-preview: points are [lat, lon, elevation|null, distance from the lap start]. */
+export interface CoursePreview {
+  lapLengthM: number; laps: number; closed: boolean; hasElevation: boolean; minElevationM: number | null; maxElevationM: number | null;
+  ascentM: number; descentM: number; points: [number, number, number | null, number][]; checkpoints: CheckpointPlace[];
+}
 export interface Checkpoint { name: string; lapDistanceM: number }
 export interface CourseView { lapLengthM: number; ascentM: number; descentM: number; pointCount: number; closed: boolean; uploadedAt: string; checkpoints: Checkpoint[] }
 export interface CategoryView { id: string; name: string; gender: string | null; minAge: number | null; maxAge: number | null }
@@ -10,7 +20,7 @@ export interface WaveView { id: string; name: string; startTime: string }
 export interface ManageView {
   eventId: string; name: string; location: string; startTime: string; sport: Sport; state: EventState; laps: number;
   spectatorDelaySeconds: number; course: CourseView | null; categories: CategoryView[]; waves: WaveView[];
-  participants: { invited: number; confirmed: number; declined: number; emailFailed: number };
+  participants: ParticipantCounts;
   running: boolean; emailMode: string; createdAt: string; endedAt: string | null; confirmationDeadline: string | null;
 }
 export interface ParticipantRow {
