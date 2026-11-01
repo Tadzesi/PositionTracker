@@ -239,3 +239,6 @@ summary{padding:6px 0;min-height:44px;display:flex;align-items:center}
 .mapbtn{display:block;margin:8px 0 0 10px!important;padding:6px 10px;font:600 13px var(--font);background:#fff;color:#0A1F44;border:2px solid rgba(0,0,0,.25);border-radius:4px;cursor:pointer}
 .mapbtn:hover{background:#f0f2f6}
 .mapbtn[hidden]{display:none!important}
+
+/* the note under the demo uses the whole width of the page instead of a 62-character column */
+.stage + .small{max-width:none;font-size:.82rem;line-height:1.4;margin-top:10px!important}

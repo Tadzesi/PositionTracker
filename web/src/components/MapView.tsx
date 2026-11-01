@@ -18,6 +18,8 @@ interface Props {
 }
 
 const FOLLOW_ZOOM = 15;
+const MAX_FOLLOW_ZOOM = 16;
+const AHEAD_S = 4; // positions arrive every ~3 s: keep the point the rider is heading to in view too
 const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
 /** Leaflet map: the course as a line, riders as numbered markers. Colours follow the theme tokens. */
@@ -36,35 +38,50 @@ export default function MapView({ points, markers, checkpoints, selectedId, onSe
   const [auto, setAutoState] = useState(follow.length > 0);
   const autoRef = useRef(auto);
   const pending = useRef(follow.length > 0); // a followed rider from a previous visit: zoom as soon as his marker arrives
-  const busy = useRef(false); // our own moves must not count as the user moving the map
-  const busyTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const followRef = useRef(follow);
   followRef.current = follow;
   const markersRef = useRef(markers);
   markersRef.current = markers;
+  const motion = useRef(new Map<string, { lat: number; lon: number; t: number; vLat: number; vLon: number }>()); // per rider: speed from the last two polls
   const setAuto = useCallback((v: boolean) => { autoRef.current = v; setAutoState(v); if (!v) pending.current = false; }, []);
-  const programmatic = useCallback((fn: () => void) => {
-    busy.current = true;
-    clearTimeout(busyTimer.current);
-    busyTimer.current = setTimeout(() => { busy.current = false; }, 1300);
-    fn();
-  }, []);
   const fitCourse = useCallback(() => {
     const m = map.current, c = course.current;
-    if (m && c) programmatic(() => m.fitBounds(c.getBounds(), { padding: [24, 24], animate: !reducedMotion() }));
-  }, [programmatic]);
+    if (m && c) m.fitBounds(c.getBounds(), { padding: [24, 24], animate: !reducedMotion() });
+  }, []);
+  // Keeps the followed riders in view with the best zoom: zooms out at once when they (or where they are heading) no longer fit in the middle of
+  // the map, zooms in only when they would fit a whole zoom level closer, otherwise just pans.
   const followView = useCallback((force: boolean) => {
     const m = map.current;
     if (!m || !followRef.current.length) return;
-    const pts = markersRef.current.filter((x) => followRef.current.includes(x.id)).map((x) => L.latLng(x.lat, x.lon));
-    if (!pts.length || (!force && (busy.current || pts.every((p) => m.getBounds().pad(-0.25).contains(p))))) return;
+    const now = Date.now();
+    const pairs: L.LatLng[][] = [];
+    for (const x of markersRef.current) {
+      if (!followRef.current.includes(x.id)) continue;
+      const prev = motion.current.get(x.id);
+      let e = prev ?? { lat: x.lat, lon: x.lon, t: now, vLat: 0, vLon: 0 };
+      if (prev && (prev.lat !== x.lat || prev.lon !== x.lon)) {
+        const dt = (now - prev.t) / 1000;
+        e = dt > 0.2 ? { lat: x.lat, lon: x.lon, t: now, vLat: (x.lat - prev.lat) / dt, vLon: (x.lon - prev.lon) / dt } : { ...prev, lat: x.lat, lon: x.lon };
+      }
+      motion.current.set(x.id, e);
+      pairs.push([L.latLng(x.lat, x.lon), L.latLng(x.lat + e.vLat * AHEAD_S, x.lon + e.vLon * AHEAD_S)]);
+    }
+    if (!pairs.length) return;
+    const all = pairs.flat(), bounds = L.latLngBounds(all), multi = pairs.length > 1;
+    const size = m.getSize(), zoom = m.getZoom();
+    const hidden = (ll: L.LatLng) => {
+      const p = m.latLngToContainerPoint(ll);
+      return p.x < size.x * 0.15 || p.x > size.x * 0.85 || p.y < size.y * 0.15 || p.y > size.y * 0.85;
+    };
+    const best = Math.min(MAX_FOLLOW_ZOOM, m.getBoundsZoom(bounds, false, L.point(size.x * 0.4, size.y * 0.4)));
+    const zoomChange = best < zoom - 0.01 || (multi && best >= zoom + 1);
+    if (!force && !zoomChange && !all.some(hidden)) return;
     const animate = !reducedMotion();
-    programmatic(() => {
-      if (pts.length > 1) m.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 16, animate });
-      else if (force) m.setView(pts[0], Math.max(m.getZoom(), FOLLOW_ZOOM), { animate });
-      else m.panTo(pts[0], { animate });
-    });
-  }, [programmatic]);
+    if (force && multi) m.fitBounds(bounds, { padding: [40, 40], maxZoom: MAX_FOLLOW_ZOOM, animate });
+    else if (zoomChange && multi) m.setView(bounds.getCenter(), best, { animate });
+    else if (force) m.setView(bounds.getCenter(), Math.max(zoom, FOLLOW_ZOOM), { animate });
+    else m.panTo(bounds.getCenter(), { animate });
+  }, []);
 
   useEffect(() => {
     if (!host.current) return;
@@ -75,9 +92,14 @@ export default function MapView({ points, markers, checkpoints, selectedId, onSe
     layer.current = L.layerGroup().addTo(m);
     map.current = m;
     const stop = () => { if (autoRef.current) setAuto(false); };
+    // only the user's own gestures stop the following (not 'zoomstart': our own zooms fire it too)
+    const box = m.getContainer();
     m.on('dragstart', stop);
-    m.on('zoomstart', () => { if (!busy.current) stop(); }); // the zoom buttons or a pinch; our own moves set "busy"
-    m.getContainer().addEventListener('wheel', stop, { passive: true });
+    m.on('dblclick', stop);
+    box.addEventListener('wheel', stop, { passive: true });
+    box.addEventListener('touchstart', (e) => { if (e.touches.length > 1) stop(); }, { passive: true }); // a pinch
+    box.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest?.('.leaflet-control-zoom')) stop(); }, true);
+    box.addEventListener('keydown', (e) => { if (/^(\+|-|=|_|Arrow\w+)$/.test(e.key)) stop(); });
     return () => { m.remove(); map.current = null; course.current = null; layer.current = null; fitted.current = false; };
   }, [setAuto]);
 
@@ -87,8 +109,8 @@ export default function MapView({ points, markers, checkpoints, selectedId, onSe
     course.current?.remove();
     course.current = L.polyline(points, { color: '#FF1E3C', weight: 4, opacity: 0.85 }).addTo(m);
     // the first fit is not animated: a remembered rider zooms right after it, and two animated moves in one tick cancel each other
-    if (!fitted.current) { m.invalidateSize(); const c = course.current; programmatic(() => m.fitBounds(c.getBounds(), { padding: [24, 24], animate: false })); fitted.current = true; }
-  }, [points, programmatic]);
+    if (!fitted.current) { m.invalidateSize(); m.fitBounds(course.current.getBounds(), { padding: [24, 24], animate: false }); fitted.current = true; }
+  }, [points]);
 
   useEffect(() => {
     const g = layer.current;

@@ -69,19 +69,45 @@
     let sport = 'cycling', view = 'organizer', speedMul = 12, selected = 0, simT = 0, running = true, paused = false, finished = false, lastTs = 0;
     const followed = new Set(); // spectator view: the riders the visitor follows (in memory only; the real app keeps them in localStorage)
 
-    // ----- following: the map zooms to the followed riders and keeps them in view until the visitor moves the map himself -----
-    let auto = false, busy = false, busyTimer = 0, followBtn = null;
+    // ----- following: the map keeps the followed riders in view, with the best zoom, until the visitor moves the map himself -----
+    // Every few hundred ms it looks where the followed riders are and where they will be in AHEAD_S seconds (so a fast rider does not
+    // outrun the map); if any of those points leaves the middle of the map (or hides under the callout) or the zoom could be better, it
+    // zooms out at once, zooms in only when the riders are a whole zoom level closer together, and otherwise just pans.
+    let auto = false, followBtn = null, lastMove = 0;
+    const AHEAD_S = 1.5, MOVE_EVERY_MS = 350, FOLLOW_ZOOM = 15, MAX_FOLLOW_ZOOM = 16;
+    const mapEl = $('.map');
     const active = () => view === 'spectator' && followed.size > 0;
-    const programmatic = (fn) => { busy = true; clearTimeout(busyTimer); busyTimer = setTimeout(() => { busy = false; }, 1300); fn(); };
+    const followPoints = () => riders.filter((r) => followed.has(r.i)).map((r) => {
+      const d = seen(r), cur = L.latLng(pointFor(r, d));
+      return [cur, r.finishT === null ? L.latLng(pointFor(r, d + r.v * speedMul * AHEAD_S)) : cur]; // r.v m/s of race time, speedMul race s per real s
+    });
+    const underCallout = (p) => {
+      if (getComputedStyle(callout).position !== 'absolute') return false; // on narrow screens the callout is under the map
+      const c = callout.getBoundingClientRect(), m = mapEl.getBoundingClientRect();
+      return p.x > c.left - m.left - 20 && p.x < c.right - m.left + 20 && p.y > c.top - m.top - 20 && p.y < c.bottom - m.top + 20;
+    };
     function followView(force) {
       if (!active() || !auto) return;
-      const pts = riders.filter((r) => followed.has(r.i)).map((r) => r.marker.getLatLng());
-      if (!pts.length || (!force && (busy || pts.every((p) => map.getBounds().pad(-0.25).contains(p))))) return;
-      programmatic(() => {
-        if (pts.length === 1) {
-          if (force) map.setView(pts[0], Math.max(map.getZoom(), 15), { animate: !reduceMotion }); else map.panTo(pts[0], { animate: !reduceMotion });
-        } else map.fitBounds(L.latLngBounds(pts), { paddingTopLeft: [40, 40], paddingBottomRight: [40, 130], maxZoom: 16, animate: !reduceMotion });
-      });
+      const now = Date.now();
+      if (!force && now - lastMove < MOVE_EVERY_MS) return;
+      const pairs = followPoints();
+      if (!pairs.length) return;
+      const all = pairs.flat(), bounds = L.latLngBounds(all), multi = pairs.length > 1;
+      const size = map.getSize(), zoom = map.getZoom();
+      const hidden = (ll) => {
+        const p = map.latLngToContainerPoint(ll);
+        return p.x < size.x * 0.15 || p.x > size.x * 0.85 || p.y < size.y * 0.15 || p.y > size.y * 0.85 || underCallout(p);
+      };
+      // the zoom at which all of them (and where they are heading) sit comfortably inside the middle of the map, so a zoom-in leaves room
+      const best = Math.min(MAX_FOLLOW_ZOOM, map.getBoundsZoom(bounds, false, L.point(size.x * 0.4, size.y * 0.4 + 60)));
+      const zoomChange = best < zoom - 0.01 || (multi && best >= zoom + 1);
+      if (!force && !zoomChange && !all.some(hidden)) return;
+      lastMove = now;
+      const animate = !reduceMotion;
+      if (force && multi) map.fitBounds(bounds, { paddingTopLeft: [40, 40], paddingBottomRight: [40, 140], maxZoom: MAX_FOLLOW_ZOOM, animate });
+      else if (zoomChange && multi) map.setView(bounds.getCenter(), best, { animate });
+      else if (force) map.setView(bounds.getCenter(), Math.max(zoom, FOLLOW_ZOOM), { animate });
+      else map.panTo(bounds.getCenter(), { animate });
     }
     function updateFollowBtn() {
       if (!followBtn) return;
@@ -89,8 +115,13 @@
       followBtn.textContent = auto ? t('Celá trať', 'Whole course') : t('Sledovať', 'Follow');
     }
     function stopAuto() { if (auto) { auto = false; updateFollowBtn(); } }
+    // only the visitor's own gestures stop it (not map.on('zoomstart'): that also fires for our zooms)
+    const box = map.getContainer();
     map.on('dragstart', stopAuto);
-    map.on('zoomstart', () => { if (!busy) stopAuto(); }); // a pinch or the zoom buttons; our own moves set "busy"
+    map.on('dblclick', stopAuto);
+    box.addEventListener('touchstart', (e) => { if (e.touches.length > 1) stopAuto(); }, { passive: true }); // a pinch
+    box.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('.leaflet-control-zoom')) stopAuto(); }, true);
+    box.addEventListener('keydown', (e) => { if (/^(\+|-|=|_|Arrow\w+)$/.test(e.key)) stopAuto(); });
     const FollowControl = L.Control.extend({
       options: { position: 'topleft' },
       onAdd() {
@@ -98,7 +129,7 @@
         followBtn.type = 'button';
         L.DomEvent.disableClickPropagation(followBtn);
         L.DomEvent.on(followBtn, 'click', () => {
-          if (auto) { auto = false; programmatic(fit); } else { auto = true; followView(true); }
+          if (auto) { auto = false; fit(); } else { auto = true; followView(true); }
           updateFollowBtn();
         });
         updateFollowBtn();
@@ -141,7 +172,7 @@
       if (followed.has(i)) followed.delete(i); else { followed.add(i); selected = i; }
       draw();
       if (followed.size > had || (followed.size && auto)) { auto = true; followView(true); } // a new rider: zoom to the followed ones
-      else if (!followed.size) { auto = false; programmatic(fit); } // nobody followed any more: the whole course again
+      else if (!followed.size) { auto = false; fit(); } // nobody followed any more: the whole course again
       updateFollowBtn();
     }
 
@@ -300,7 +331,7 @@
     root.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {
       view = b.dataset.view; setPressed('[data-view]', b); flagsEl.innerHTML = '';
       draw();
-      if (active()) { auto = true; followView(true); } else if (followed.size) { auto = false; programmatic(fit); }
+      if (active()) { auto = true; followView(true); } else if (followed.size) { auto = false; fit(); }
       updateFollowBtn();
     }));
     root.querySelectorAll('[data-alarm]').forEach((b) => b.addEventListener('click', () => {
