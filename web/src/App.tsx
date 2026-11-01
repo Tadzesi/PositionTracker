@@ -1,12 +1,17 @@
+import { lazy } from 'react';
 import { Route, Routes, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import { ConfirmEmail, Home, SignIn, SignUp } from './pages/Account';
 import OrgEvents, { RequireSession } from './pages/OrgEvents';
-import EventLayout, { Setup } from './pages/EventLayout';
-import Participants from './pages/Participants';
-import RaceControl from './pages/RaceControl';
-import ParticipantPage from './pages/Participant';
-import Spectator from './pages/Spectator';
+
+// Route-level code splitting: the home and account pages are in the entry bundle; everything else (and with it Leaflet, which only
+// the map pages use, and the QR code library, which only the participant page uses) is fetched when its route is opened.
+const EventLayout = lazy(() => import('./pages/EventLayout'));
+const Setup = lazy(() => import('./pages/EventLayout').then((m) => ({ default: m.Setup })));
+const Participants = lazy(() => import('./pages/Participants'));
+const RaceControl = lazy(() => import('./pages/RaceControl'));
+const ParticipantPage = lazy(() => import('./pages/Participant'));
+const Spectator = lazy(() => import('./pages/Spectator'));
 
 export default function App() {
   return (

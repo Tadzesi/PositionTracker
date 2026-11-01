@@ -7,6 +7,8 @@ read both languages without running JavaScript.
 ```
 python build.py                      # -> site/dist
 python -m http.server 8099 --directory dist
+python optimize_images.py            # shots-src/ -> assets/shots/*-<width>.avif|webp (responsive screenshots, committed)
+python make_fonts.py                 # fonts/*.woff2 (self-hosted Archivo subset) and web/src/fonts (app), committed
 python gen_og.py                     # re-creates assets/og-image.jpg (1200x630 link preview) from a screenshot
 ```
 
@@ -17,7 +19,7 @@ for the shared sitemap. A missing English string fails the build.
 - Page behaviour: `app.js` (theme control, guide tabs with permalinks `#guide-organizer|participant|spectator`, copy-link), `demo.js` (the race demo, needs Leaflet in `vendor/`).
 - `config.js`: `window.PT_APP_URL`, the address of the application (shows the "open the app" links).
 - Add a text: put the Slovak text in `index.html` with `data-i="key"` (and `data-i-aria` / `data-i-alt` for attributes) and the English one in `i18n.en.json`.
-- Screenshots in `assets/shots/` come from the running application with sample data; badges in `assets/badges/` are the official store badges.
+- Screenshots: the originals in `shots-src/` come from the running application with sample data; `optimize_images.py` makes the responsive AVIF/WebP in `assets/shots/` and `build.py` writes `<picture>`/`srcset`. The images are `loading="lazy"` in the markup and `app.js` fetches all of them (low priority) right after the page has loaded; badges in `assets/badges/` are the official store badges.
 
 Deploy (see `docs/ops/deployment-home-server.md`): build, then replace `~/server/stacks/web/site/tracker/` with `dist/` (without `seo/`).
 The shared `sitemap.xml`, `robots.txt`, `llms.txt` and `llms-full.txt` of lab463.com live in `~/server/stacks/web/site/` and already list /tracker/ and /tracker/en/.

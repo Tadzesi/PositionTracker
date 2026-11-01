@@ -4,7 +4,7 @@
 Output: dist/index.html (Slovak, https://www.lab463.com/tracker/) and dist/en/index.html (English, .../tracker/en/), both fully
 pre-rendered so that search engines and AI crawlers read the text of each language without running JavaScript. Adds canonical,
 hreflang, Open Graph/Twitter tags and JSON-LD (SoftwareApplication, FAQPage, HowTo for the three guides), and puts a content
-hash on every local asset URL (?v=...) so that a CDN never serves a stale file. Also writes the fragments for the shared
+hash on every local asset URL (?v=...) so that a CDN never serves a stale file (the assets are cached as immutable), and turns the screenshots into <picture> (AVIF/WebP + srcset from optimize_images.py). Also writes the fragments for the shared
 sitemap.xml, robots.txt and llms.txt of lab463.com (dist/seo/).
 """
 import hashlib, html, json, os, re, shutil, sys
@@ -130,22 +130,50 @@ def jsonld(h, lang):
     return '<script type="application/ld+json">\n' + json.dumps(data, ensure_ascii=False, indent=1).replace('</', '<\\/') + '\n  </script>'
 
 
+def css_text():
+    """styles.css with a content hash on the font URLs, so the immutable cache of the fonts never serves a stale file."""
+    css = open(os.path.join(HERE, 'styles.css'), encoding='utf-8').read()
+    return re.sub(r'url\((fonts/[^)?]+)\)', lambda m: 'url(%s?v=%s)' % (m.group(1), file_hash(m.group(1))), css)
+
+
 def file_hash(rel):
+    if rel == 'styles.css':
+        return hashlib.sha256(css_text().encode('utf-8')).hexdigest()[:8]
     p = os.path.join(HERE, rel)
     return hashlib.sha256(open(p, 'rb').read()).hexdigest()[:8]
+
+
+def pictureize(h, prefix):
+    """Replaces every <img> of a screenshot by <picture> (AVIF, WebP fallback) with a srcset of the sizes made by optimize_images.py."""
+    def sub(m):
+        name, w, hgt, rest = m.group(1), int(m.group(2)), int(m.group(3)), m.group(4)
+        widths = sorted(int(re.search(r'-(\d+)\.avif$', f).group(1)) for f in os.listdir(os.path.join(HERE, 'assets', 'shots'))
+                        if f.startswith(name + '-') and f.endswith('.avif'))
+        assert widths, 'no responsive images for ' + name + ' (run optimize_images.py)'
+        sizes = '300px' if hgt > w else '(max-width: 900px) 100vw, 800px'
+
+        def srcset(ext):
+            return ', '.join('%sassets/shots/%s-%d.%s?v=%s %dw' % (prefix, name, x, ext, file_hash('assets/shots/%s-%d.%s' % (name, x, ext)), x)
+                             for x in widths)
+        fallback = [x for x in widths if x <= 1280][-1]
+        return ('<picture><source type="image/avif" srcset="%s" sizes="%s"><source type="image/webp" srcset="%s" sizes="%s">'
+                '<img src="%sassets/shots/%s-%d.webp?v=%s" srcset="%s" sizes="%s" width="%d" height="%d" loading="lazy" decoding="async"%s></picture>'
+                % (srcset('avif'), sizes, srcset('webp'), sizes, prefix, name, fallback,
+                   file_hash('assets/shots/%s-%d.webp' % (name, fallback)), srcset('webp'), sizes, w, hgt, rest))
+    return re.sub(r'<img src="assets/shots/([\w-]+)\.\w+" width="(\d+)" height="(\d+)" loading="lazy"([^>]*)>', sub, h)
 
 
 def version_assets(h):
     def sub(m):
         rel = m.group(2)
         return '%s="%s?v=%s"' % (m.group(1), rel, file_hash(rel))
-    return re.sub(r'(href|src)="((?:vendor|assets)/[^"?#]+|styles\.css|app\.js|demo\.js|theme\.js|config\.js)"', sub, h)
+    return re.sub(r'(href|src)="((?:vendor|assets|fonts)/[^"?#]+|styles\.css|app\.js|demo\.js|theme\.js|config\.js)"', sub, h)
 
 
 def prefix_paths(h, prefix):
     if not prefix:
         return h
-    return re.sub(r'(href|src)="((?:vendor|assets)/[^"]+|styles\.css[^"]*|app\.js[^"]*|demo\.js[^"]*|theme\.js[^"]*|config\.js[^"]*)"',
+    return re.sub(r'(href|src)="((?:vendor|assets|fonts)/[^"]+|styles\.css[^"]*|app\.js[^"]*|demo\.js[^"]*|theme\.js[^"]*|config\.js[^"]*)"',
                   lambda m: '%s="%s%s"' % (m.group(1), prefix, m.group(2)), h)
 
 
@@ -156,8 +184,9 @@ def render(lang):
     # data-i attributes are build-time only
     h = re.sub(r'\sdata-i(?:-aria|-alt)?="[^"]*"', '', h)
     m = META[lang]
-    h = version_assets(h)
     prefix = '' if lang == 'sk' else '../'
+    h = pictureize(h, prefix)
+    h = version_assets(h)
     h = prefix_paths(h, prefix)
     alt = ('<link rel="alternate" hreflang="sk" href="%s">\n  <link rel="alternate" hreflang="en" href="%s">\n'
            '  <link rel="alternate" hreflang="x-default" href="%s">') % (URL['sk'], URL['en'], URL['sk'])
@@ -178,8 +207,10 @@ def main():
     if os.path.isdir(DIST):
         shutil.rmtree(DIST)
     os.makedirs(os.path.join(DIST, 'en'))
-    for f in ('styles.css', 'app.js', 'demo.js', 'theme.js', 'config.js'):
+    for f in ('app.js', 'demo.js', 'theme.js', 'config.js'):
         shutil.copy(os.path.join(HERE, f), DIST)
+    open(os.path.join(DIST, 'styles.css'), 'w', encoding='utf-8').write(css_text())
+    shutil.copytree(os.path.join(HERE, 'fonts'), os.path.join(DIST, 'fonts'))
     shutil.copytree(os.path.join(HERE, 'vendor'), os.path.join(DIST, 'vendor'))
     shutil.copytree(os.path.join(HERE, 'assets'), os.path.join(DIST, 'assets'))
     for lang, path in (('sk', 'index.html'), ('en', 'en/index.html')):

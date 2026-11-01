@@ -11,14 +11,14 @@ namespace PositionTracker.Api.Hosting;
 /// is trusted and the real client address (and scheme) reach the per-IP limiters. Behind a reverse proxy this is required: otherwise
 /// every client shares the proxy's address and one attacker could use up the sign-up and sign-in budget of everyone.</item>
 /// <item><b>Security headers</b> on every response: <c>X-Content-Type-Options</c>, <c>Referrer-Policy</c>, <c>X-Frame-Options</c>,
-/// a CSP that allows only the app itself, OpenStreetMap tiles and the Google Fonts stylesheet/fonts, and (over HTTPS) HSTS.</item>
+/// a CSP that allows only the app itself, OpenStreetMap tiles (the fonts are self-hosted), and (over HTTPS) HSTS.</item>
 /// </list>
 /// </summary>
 public static class EdgeHardening
 {
     public const string ContentSecurityPolicy =
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        + "font-src https://fonts.gstatic.com; img-src 'self' data: https://*.tile.openstreetmap.org https://tile.openstreetmap.org; "
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        + "font-src 'self'; img-src 'self' data: https://*.tile.openstreetmap.org https://tile.openstreetmap.org; "
         + "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
 
     public static IServiceCollection AddEdgeHardening(this IServiceCollection services, IConfiguration config)

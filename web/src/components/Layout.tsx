@@ -1,8 +1,9 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, Suspense, type ReactNode } from 'react';
 import { Link, Outlet, useNavigate } from 'react-router-dom';
 import { ApiError, get, post } from '../lib/api';
 import { applyTheme, effectiveTheme, useI18n } from '../lib/i18n';
 import type { Me } from '../lib/types';
+import { Loading } from './Ui';
 
 interface Session {
   me: Me | null;
@@ -86,7 +87,7 @@ export default function Layout() {
           <Toggles />
         </div>
       </header>
-      <main><div className="wrap"><Outlet /></div></main>
+      <main><div className="wrap"><Suspense fallback={<Loading />}><Outlet /></Suspense></div></main>
     </>
   );
 }

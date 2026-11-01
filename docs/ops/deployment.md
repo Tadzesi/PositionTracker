@@ -27,7 +27,7 @@ Without `SMTP_HOST` the app refuses to start unless `ALLOW_SIMULATED_EMAIL=true`
 - Cloudflare Tunnel (the lab463.com setup): point a hostname or a path at the app; set `PUBLIC_BASE_URL` to that origin. A sub-path
   deployment is not supported (the app uses absolute paths).
 - The app sets `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` and (over
-  HTTPS) HSTS itself. The CSP allows OpenStreetMap tile images and the Google Fonts stylesheet/fonts only.
+  HTTPS) HSTS itself. The CSP allows OpenStreetMap tile images only; the fonts are self-hosted.
 
 ## Operations
 

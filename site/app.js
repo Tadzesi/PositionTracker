@@ -28,6 +28,7 @@
   const tabs = [...document.querySelectorAll('[role="tab"]')];
   const slugs = ['organizer', 'participant', 'spectator'];
   function show(tab, focus) {
+    root.removeAttribute('data-guide'); // set by theme.js for a #guide-* link; from here on the real attributes decide
     tabs.forEach((x) => {
       const on = x === tab;
       x.setAttribute('aria-selected', String(on)); x.tabIndex = on ? 0 : -1;
@@ -46,11 +47,40 @@
     const m = /^#guide-(organizer|participant|spectator)$/.exec(location.hash);
     if (!m) return;
     show(tabs[slugs.indexOf(m[1])]);
-    const g = document.getElementById('guides');
-    if (g) g.scrollIntoView();
+    loadImages(document.getElementById(tabs[slugs.indexOf(m[1])].getAttribute('aria-controls')), 'high');
+    scrollToGuides();
   }
+  function scrollToGuides() {
+    const g = document.getElementById('guides');
+    if (g) g.scrollIntoView({ behavior: 'instant' });
+  }
+
+  // ----- images: lazy in the markup (so they never compete with the first paint), but ALL of them are fetched right after the page
+  // has loaded, also those in hidden guide tabs, so that every part of the page is ready even for a visitor who never scrolls to it -----
+  function loadImages(scope, priority) {
+    scope.querySelectorAll('img[loading="lazy"]').forEach((img) => {
+      img.fetchPriority = priority;
+      img.loading = 'eager';
+    });
+  }
+  function loadAllImages() { loadImages(document, 'low'); }
+  const afterLoad = (fn) => {
+    const run = () => (window.requestIdleCallback ? window.requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 200));
+    if (document.readyState === 'complete') run(); else window.addEventListener('load', run, { once: true });
+  };
+  afterLoad(loadAllImages);
+
   fromHash();
   window.addEventListener('hashchange', fromHash);
+  // a link to a guide: the fonts and images arriving later move the layout, so jump again once everything settled, unless the visitor already scrolled
+  if (/^#guide-/.test(location.hash)) {
+    let moved = false;
+    const stop = () => { moved = true; };
+    ['wheel', 'touchstart', 'keydown', 'mousedown'].forEach((e) => window.addEventListener(e, stop, { once: true, passive: true }));
+    const again = () => { if (!moved && /^#guide-/.test(location.hash)) scrollToGuides(); };
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(again);
+    afterLoad(again);
+  }
 
   const copy = document.getElementById('copylink');
   copy.addEventListener('click', async () => {

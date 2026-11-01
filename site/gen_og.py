@@ -4,7 +4,7 @@ import os
 HERE = os.path.dirname(os.path.abspath(__file__))
 W, H = 1200, 630
 im = Image.new('RGB', (W, H), (10, 31, 68))
-shot = Image.open(os.path.join(HERE, 'assets/shots/control-light.png')).convert('RGB')
+shot = Image.open(os.path.join(HERE, 'shots-src/control-light.png')).convert('RGB')
 # the map and the standings of the race-control view, scaled to the right 60 % of the card
 target_w = 640
 crop = shot.crop((200, 520, 1700, 520 + int(1500 * H / target_w))).resize((target_w, H), Image.LANCZOS)

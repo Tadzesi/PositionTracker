@@ -1,9 +1,13 @@
 /* PositionTracker: marketing site. Hero is a dark "broadcast stage" in both themes; the rest follows the theme. */
+/* Self-hosted Archivo (subset, see make_fonts.py). The fallback is Arial scaled to Archivo's metrics so the swap does not move the layout. */
+@font-face{font-family:'Archivo';font-style:normal;font-weight:400 900;font-stretch:100%;font-display:swap;src:url(fonts/archivo-roman.woff2) format('woff2')}
+@font-face{font-family:'Archivo';font-style:italic;font-weight:400 900;font-stretch:62% 75%;font-display:swap;src:url(fonts/archivo-italic.woff2) format('woff2')}
+@font-face{font-family:'Archivo Fallback';src:local('Arial'),local('Helvetica'),local('Liberation Sans');size-adjust:102%;ascent-override:86%;descent-override:20.5%;line-gap-override:0%}
 :root{
   --ink:#0A1F44; --ink2:#10295A; --ink3:#1A3A74; --paper:#FFFFFF; --paper2:#EEF1F6; --paper3:#DDE3EE;
   --coral:#FF4B2B; --coral-d:#B82A10; --coral-btn:#D4341A; --link:#C92A0C; --purple:#A855F7; --green:#22C55E; --yellow:#FACC15;
   --bg:var(--paper); --bg2:var(--paper2); --line:var(--paper3); --text:#0A1F44; --mute:#4B5B78; --on-accent:#fff;
-  --font:'Archivo',system-ui,sans-serif; color-scheme:light;
+  --font:'Archivo','Archivo Fallback',system-ui,sans-serif; color-scheme:light;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#081733;--bg2:#0D2149;--line:#1F3566;--text:#EAF0FF;--mute:#9DB0D6;--link:#FF7A5E;color-scheme:dark}}
 :root[data-theme="dark"]{--bg:#081733;--bg2:#0D2149;--line:#1F3566;--text:#EAF0FF;--mute:#9DB0D6;--link:#FF7A5E;color-scheme:dark}
@@ -11,6 +15,7 @@
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:72px}
 body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-stretch:100%;font-size:18px;line-height:1.55;-webkit-text-size-adjust:100%}
+picture{display:contents}
 img{max-width:100%;height:auto;display:block}
 a{color:inherit}
 .wrap{max-width:1240px;margin:0 auto;padding:0 20px}
@@ -141,6 +146,11 @@ figcaption b{color:var(--text);display:block;font-stretch:75%;font-weight:800;fo
 .steps .phoneimg img{width:100%;max-width:270px;height:auto;border-radius:20px;border:5px solid var(--ink);margin:0 auto}
 .tip{border-left:6px solid var(--yellow);background:var(--bg2);padding:12px 16px;margin:14px 0 0;max-width:62ch;font-size:.95rem}
 .panel[hidden]{display:none}
+/* #guide-* in the URL: theme.js sets data-guide on <html> before the first paint, so the right guide is shown at once (app.js then takes over and removes it) */
+html[data-guide] .panel{display:none}
+html[data-guide="organizer"] #p-org,html[data-guide="participant"] #p-par,html[data-guide="spectator"] #p-spe{display:block}
+html[data-guide] .tabs button{background:transparent;color:var(--mute)}
+html[data-guide="organizer"] #t-org,html[data-guide="participant"] #t-par,html[data-guide="spectator"] #t-spe{background:var(--ink);color:#fff}
 kbd{font:inherit;font-weight:700;background:var(--bg2);border:1px solid var(--line);padding:0 6px}
 
 /* story */
