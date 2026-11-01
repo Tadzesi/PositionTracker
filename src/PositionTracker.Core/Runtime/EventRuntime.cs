@@ -21,7 +21,7 @@ public sealed class EventRuntime
 {
     private const double LowBatteryBelowPct = 20;
     /// <summary>A fix more than this ahead of the event clock is rejected: a wrong device clock, not a position.</summary>
-    public static readonly TimeSpan MaxFixAhead = TimeSpan.FromSeconds(60);
+    public static readonly TimeSpan MaxFixAhead = TimeSpan.FromMinutes(5);
     /// <summary>A fix more than this before the start time is rejected (warm-up is only shown, never older data).</summary>
     public static readonly TimeSpan MaxFixBeforeStart = TimeSpan.FromHours(1);
 
