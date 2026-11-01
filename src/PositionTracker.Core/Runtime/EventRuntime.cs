@@ -287,7 +287,7 @@ public sealed class EventRuntime
                     entry.Info.Id, entry.Info.Bib, entry.Info.Name, entry.Info.Nickname, entry.Info.Category, entry.Info.IsMinor,
                     view.Rank, s.State, start, finished ? s.FinishTime : null, finished ? s.FinishTime!.Value - start : null,
                     finished ? r.GapToLeader : null, s.TotalDistanceM, finished ? Course.Laps : laps, s.AvgSpeedMps, s.MaxSpeedMps,
-                    s.MovingTime, s.StoppedTime, s.AscentM, s.DescentM, view.Segments);
+                    s.MovingTime, s.StoppedTime, s.AscentM, s.DescentM, view.Segments, s.StartObservedM);
             }).ToList();
         }
     }

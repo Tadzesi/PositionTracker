@@ -18,7 +18,13 @@ public sealed record ResultLine(
     string ParticipantId, int? Rank, int? CategoryRank, int? GenderRank, string Bib, string Name, string? Nickname, string? Gender,
     string? Category, string? Wave, bool IsMinor, bool NameConsent, string Status, DateTimeOffset Start, DateTimeOffset? FinishTime,
     TimeSpan? NetTime, TimeSpan? GapToLeader, double DistanceM, int Laps, double AvgSpeedMps, double MaxSpeedMps, TimeSpan MovingTime,
-    TimeSpan StoppedTime, double AscentM, double DescentM, IReadOnlyList<SplitLine> Splits);
+    TimeSpan StoppedTime, double AscentM, double DescentM, IReadOnlyList<SplitLine> Splits, double StartObservedM = 0)
+{
+    /// <summary>The first position lay this far along the course (m) or more: the rider was not seen at the start.</summary>
+    public const double StartMissedM = 500;
+
+    public bool StartMissed => StartObservedM >= StartMissedM;
+}
 
 /// <param name="Provisional">True while the event is not finished: the lines are the standing now, not the results.</param>
 public sealed record ResultsView(
@@ -48,7 +54,7 @@ public sealed class ResultsService(AppDbContext db, EventRegistry registry)
             Status = l.Status, Rank = l.Rank, CategoryRank = l.CategoryRank, GenderRank = l.GenderRank, Start = l.Start, FinishTime = l.FinishTime,
             NetTime = l.NetTime, GapToLeader = l.GapToLeader, DistanceM = l.DistanceM, Laps = l.Laps, AvgSpeedMps = l.AvgSpeedMps,
             MaxSpeedMps = l.MaxSpeedMps, MovingTime = l.MovingTime, StoppedTime = l.StoppedTime, AscentM = l.AscentM, DescentM = l.DescentM,
-            SplitsJson = JsonSerializer.Serialize(l.Splits, Json),
+            StartObservedM = l.StartObservedM, SplitsJson = JsonSerializer.Serialize(l.Splits, Json),
         }).ToList();
     }
 
@@ -77,7 +83,7 @@ public sealed class ResultsService(AppDbContext db, EventRegistry registry)
                 person?.WaveId is { } w && waves.TryGetValue(w, out var wave) ? wave : null, r.IsMinor, person?.ShowNameToSpectators ?? false,
                 status, r.Start, r.FinishTime, r.NetTime, r.GapToLeader, r.TotalDistanceM, r.Laps, r.AvgSpeedMps, r.MaxSpeedMps,
                 r.MovingTime, r.StoppedTime, r.AscentM, r.DescentM,
-                r.Segments.Select(s => new SplitLine(s.Lap, s.SegmentIndex, s.Time, s.Colour.ToString().ToLowerInvariant())).ToList()));
+                r.Segments.Select(s => new SplitLine(s.Lap, s.SegmentIndex, s.Time, s.Colour.ToString().ToLowerInvariant())).ToList(), r.StartObservedM));
         }
         return lines;
     }
@@ -99,7 +105,7 @@ public sealed class ResultsService(AppDbContext db, EventRegistry registry)
                     r.ParticipantId.ToString("D"), r.Rank, r.CategoryRank, r.GenderRank, r.Bib, r.Name, r.Nickname, r.Gender, r.Category, r.Wave,
                     r.IsMinor, r.NameConsent, r.Status, r.Start, r.FinishTime, r.NetTime, r.GapToLeader, r.DistanceM, r.Laps, r.AvgSpeedMps,
                     r.MaxSpeedMps, r.MovingTime, r.StoppedTime, r.AscentM, r.DescentM,
-                    JsonSerializer.Deserialize<List<SplitLine>>(r.SplitsJson, Json) ?? []))
+                    JsonSerializer.Deserialize<List<SplitLine>>(r.SplitsJson, Json) ?? [], r.StartObservedM))
                 .ToList();
         }
         else if (registry.Get(RuntimeFactory.RuntimeId(ev.Id)) is { } runtime)
@@ -131,7 +137,7 @@ public sealed class ResultsService(AppDbContext db, EventRegistry registry)
         {
             "Poradie", "Poradie v kategórii", "Poradie podľa pohlavia", "Číslo", "Meno", "Kategória", "Vlna", "Pohlavie", "Stav", "Štart", "Cieľ",
             "Čistý čas", "Strata", "Vzdialenosť (km)", "Kolá", "Priemerná rýchlosť (km/h)", "Najvyššia rýchlosť (km/h)", "Čas v pohybe",
-            "Čas státia", "Stúpanie (m)", "Klesanie (m)",
+            "Čas státia", "Stúpanie (m)", "Klesanie (m)", "Poznámka",
         }.Concat(splitKeys.Select(k => $"Kolo {k.Lap}, úsek {k.SegmentIndex + 1}")));
         foreach (var r in view.Rows)
         {
@@ -144,6 +150,7 @@ public sealed class ResultsService(AppDbContext db, EventRegistry registry)
                 r.Start.ToString("d. M. yyyy H:mm:ss", c), r.FinishTime?.ToString("d. M. yyyy H:mm:ss", c), Span(r.NetTime), Span(r.GapToLeader),
                 (r.DistanceM / 1000).ToString("0.00", c), r.Laps.ToString(c), (r.AvgSpeedMps * 3.6).ToString("0.0", c),
                 (r.MaxSpeedMps * 3.6).ToString("0.0", c), Span(r.MovingTime), Span(r.StoppedTime), r.AscentM.ToString("0", c), r.DescentM.ToString("0", c),
+                r.StartMissed ? $"Štart nezaznamenaný (prvá poloha na {(r.StartObservedM / 1000).ToString("0.0", c)} km)" : null,
             }.Concat(splitKeys.Select(k => Span(r.Splits.FirstOrDefault(s => s.Lap == k.Lap && s.SegmentIndex == k.SegmentIndex)?.Time))));
         }
         return sb.ToString();

@@ -263,7 +263,7 @@ describe('web app', () => {
       splits: [{ lap: 1, segmentIndex: 0, time: '00:10:00', colour: 'green' }], ...o });
     const view = { eventId: 'e1', name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T09:00:00Z', sport: 'cycling', state: 'finished', provisional: false, endedAt: '2026-11-08T10:30:00Z',
       laps: 3, finished: 2, dnf: 1, dns: 0,
-      rows: [line({}), line({ participantId: 'q', rank: 2, categoryRank: 2, bib: '9', name: 'Peter Kráľ', nameConsent: true, netTime: '01:20:00', gapToLeader: '00:05:00' }),
+      rows: [line({}), line({ participantId: 'q', rank: 2, categoryRank: 2, bib: '9', name: 'Peter Kráľ', nameConsent: true, netTime: '01:20:00', gapToLeader: '00:05:00', startObservedM: 10600, startMissed: true }),
         line({ participantId: 'r', rank: null, categoryRank: null, bib: '11', name: 'Adam Nový', status: 'dnf', netTime: null, distanceM: 12000, nameConsent: true })] };
     mockFetch({ 'GET /api/account/session': { body: ME }, 'GET /api/events/e1/manage': { body: { ...manage(), state: 'finished' } }, 'GET /api/events/e1/course-preview': { body: PREVIEW },
       'GET /api/events/e1/results': { body: view } });
@@ -272,6 +272,7 @@ describe('web app', () => {
     expect(screen.getByText('Jana Nováková')).toBeInTheDocument();
     expect(screen.getByText(/Without consent: 1/)).toBeInTheDocument();
     expect(screen.getByText('Winner')).toBeInTheDocument();
+    expect(screen.getByText(/start not recorded \(first position at 10.6 km\)/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download CSV' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'DNF' }));
     expect(screen.queryByText('Jana Nováková')).toBeNull();

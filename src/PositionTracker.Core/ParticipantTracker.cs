@@ -65,7 +65,7 @@ public sealed record ParticipantSnapshot(
     ParticipantState State, DateTimeOffset? FinishTime, DateTimeOffset? StoppedSince, DateTimeOffset? OffCourseSince,
     DateTimeOffset? LastRaceFixTime = null, double? FinishLat = null, double? FinishLon = null,
     double EtaSpeedMps = 0, double EtaWindowFromM = 0, bool LapsInferred = false,
-    DateTimeOffset? LapsInferredAt = null, bool FinishPending = false);
+    DateTimeOffset? LapsInferredAt = null, bool FinishPending = false, double StartObservedM = 0);
 
 /// <param name="Accepted">Whether the fix was new and passed the filter (see <see cref="ParticipantTracker.ApplyMany"/>).</param>
 public sealed record ApplyResult(ParticipantSnapshot Snapshot, IReadOnlyList<SegmentCompletion> Completed, bool Accepted);
@@ -163,6 +163,7 @@ public sealed class ParticipantTracker
     private DateTimeOffset _observedTime;     // newest accepted race fix that went through matching
     private double _observedPositionM;        // race position believed at _observedTime (see WholeLaps)
     private TimeSpan _movingTime;
+    private double? _firstObservedM;          // the race position of the first matched fix: what lies before it was not observed
     private TimeSpan _stoppedTime;
     private double _maxSpeedMps;
     private DateTimeOffset? _finishTime;
@@ -349,6 +350,14 @@ public sealed class ParticipantTracker
     /// <summary>Marks the participant as DNF from <paramref name="at"/> on; the earliest mark wins.</summary>
     public void MarkDnf(DateTimeOffset at) => _dnfAt = _dnfAt < at ? _dnfAt : at;
 
+    /// <summary>
+    /// The distance observed (from the first matched fix) over the moving time. A rider whose first fix is far along the course
+    /// (the phone was switched on late, or the rider joined mid-course) did not ride the part before it under observation, so
+    /// that part is not counted: otherwise the average would be the whole course over a fraction of the time.
+    /// </summary>
+    private double AverageMovingSpeed() =>
+        _movingTime > TimeSpan.Zero ? Math.Max(0, _totalM - (_firstObservedM ?? 0)) / _movingTime.TotalSeconds : 0;
+
     /// <summary>Snapshot of the current state. Speeds are evaluated at the newest accepted fix.</summary>
     public ParticipantSnapshot GetSnapshot(DateTimeOffset now)
     {
@@ -356,7 +365,7 @@ public sealed class ParticipantTracker
         var speed = last is null ? 0 : SpeedAt(last.Time, _options.SpeedWindow);
         var movingSpeed = last is null ? 0 : SpeedAt(last.Time, _options.MovingSpeedWindow);
         double? pace = movingSpeed > 0 && movingSpeed >= _options.StoppedSpeedMps ? 1000 / movingSpeed : null;
-        var avgSpeed = _movingTime > TimeSpan.Zero ? _totalM / _movingTime.TotalSeconds : 0;
+        var avgSpeed = AverageMovingSpeed();
         var (etaSpeed, etaFromM) = last is null
             ? (0, 0)
             : History.MovingSpeed(last.Time, EtaSpeedWindow, _options.StoppedSpeedMps, PausedWithin);
@@ -379,7 +388,7 @@ public sealed class ParticipantTracker
             IsFinished ? _finishTime : null, stoppedSince, offCourseSince,
             last?.Time, finish?.Lat, finish?.Lon,
             Math.Min(etaSpeed, _options.Filter.MaxSpeedMps), etaFromM,
-            _firstInferenceAt is not null, _firstInferenceAt, IsFinishPending);
+            _firstInferenceAt is not null, _firstInferenceAt, IsFinishPending, _firstObservedM ?? 0);
     }
 
     /// <summary>
@@ -514,6 +523,7 @@ public sealed class ParticipantTracker
         _observedTime = _startTime;
         _observedPositionM = 0;
         _movingTime = TimeSpan.Zero;
+        _firstObservedM = null;
         _stoppedTime = TimeSpan.Zero;
         _maxSpeedMps = 0;
         _finishTime = null;
@@ -554,6 +564,7 @@ public sealed class ParticipantTracker
         if (offCourse) _offCourseSince ??= fix.Time;
         else _offCourseSince = null;
         if (!_lastAcceptedMatched) return true;
+        _firstObservedM ??= _totalM;
 
         if (_finishTime is null && _totalM >= _course.TotalLengthM)
         {
@@ -704,7 +715,7 @@ public sealed class ParticipantTracker
     {
         var recent = History.MovingSpeed(_lastMatchedTime, EtaSpeedWindow, _options.StoppedSpeedMps, PausedWithin).SpeedMps;
         if (recent > 0) return Math.Min(recent, _options.Filter.MaxSpeedMps);
-        var average = _movingTime > TimeSpan.Zero ? _totalM / _movingTime.TotalSeconds : 0;
+        var average = AverageMovingSpeed();
         if (average >= _options.StoppedSpeedMps) return Math.Min(average, _options.Filter.MaxSpeedMps);
         return _sport == Sport.Running ? 3.0 : 7.0;
     }

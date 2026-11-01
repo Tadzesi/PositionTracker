@@ -733,6 +733,9 @@ namespace PositionTracker.Data.Migrations
                     b.Property<DateTimeOffset>("Start")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<double>("StartObservedM")
+                        .HasColumnType("double precision");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(16)

@@ -110,7 +110,8 @@ function Line({ r, sport }: { r: ResultLine; sport: 'running' | 'cycling' }) {
   return (
     <tr>
       <td>{r.rank ?? '–'}</td><td>{r.categoryRank ?? '–'}</td><td>{r.bib}</td>
-      <td>{r.name}{r.nickname && <div className="mute">„{r.nickname}“</div>}{r.isMinor && <div className="mute">{t('maloletý', 'minor')}</div>}</td>
+      <td>{r.name}{r.nickname && <div className="mute">„{r.nickname}“</div>}{r.isMinor && <div className="mute">{t('maloletý', 'minor')}</div>}
+        {r.startMissed && <div className="warn-note" title={t('Prvá poloha bola ďaleko od štartu: čas aj vzdialenosť pred ňou sa nesledovali, preto môže byť čas dokončenia nespoľahlivý.', 'The first position was far from the start: the time and distance before it were not observed, so the finish time may be unreliable.')}>⚠ {t(`štart nezaznamenaný (prvá poloha na ${((r.startObservedM ?? 0) / 1000).toFixed(1)} km)`, `start not recorded (first position at ${((r.startObservedM ?? 0) / 1000).toFixed(1)} km)`)}</div>}</td>
       <td>{r.category ?? '–'}</td>
       <td className="num">{net === null ? '–' : formatDuration(net)}</td>
       <td className="num">{r.rank === 1 ? t('Víťaz', 'Winner') : r.status === 'finished' ? formatGap(r.gapToLeader) : '–'}</td>

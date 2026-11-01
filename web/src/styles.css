@@ -172,6 +172,7 @@ tr.sel td{background:var(--panel2)}tr.click{cursor:pointer}
   .results .status{border:0;color:#000}
   .sector{print-color-adjust:exact;-webkit-print-color-adjust:exact}
 }
+.warn-note{color:var(--yellow);font-size:.82rem;font-weight:600}
 .profile{margin:0}
 .profile svg{width:100%;height:auto;display:block;background:var(--panel2);border-radius:3px;touch-action:none}
 .profile .area{fill:var(--line);opacity:.55}

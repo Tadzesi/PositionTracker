@@ -53,6 +53,40 @@ public class ResultsTests
     }
 
     [Fact]
+    public void A_rider_first_seen_mid_course_has_his_average_over_the_distance_he_was_observed_not_the_whole_course()
+    {
+        var clock = new TestClock(T0.AddMinutes(60));
+        var runtime = new EventRuntime(Settings, Loop, clock);
+        runtime.AddParticipant(new ParticipantInfo("late", "1", "Late", null, "Open", true, false));
+        // the phone was switched on 20 minutes after the start, 6 km into the course; from there 8 m/s for 10 minutes
+        var fixes = new List<PositionFix>();
+        for (var s = 0; s <= 600; s += 5)
+        {
+            var p = Loop.PointAt((6_000 + s * 8.0) % Loop.LapLengthM);
+            fixes.Add(new PositionFix(T0.AddMinutes(20).AddSeconds(s), p.Lat, p.Lon, 5));
+        }
+        runtime.Ingest("late", new PositionBatch(fixes, null));
+
+        var row = Assert.Single(runtime.BuildResults());
+        Assert.InRange(row.StartObservedM, 5_800, 6_200);
+        Assert.InRange(row.AvgSpeedMps, 7, 9); // 4.8 km over 10 minutes; 10.8 km over the same time would be 18 m/s
+        Assert.InRange(row.TotalDistanceM, 10_500, 11_000);
+    }
+
+    [Fact]
+    public void A_rider_seen_at_the_start_has_no_unobserved_part()
+    {
+        var clock = new TestClock(T0.AddMinutes(30));
+        var runtime = new EventRuntime(Settings, Loop, clock);
+        runtime.AddParticipant(new ParticipantInfo("a", "1", "A", null, "Open", true, false));
+        runtime.Ingest("a", new PositionBatch(Ride(T0, 8, 1_500), null));
+
+        var row = Assert.Single(runtime.BuildResults());
+        Assert.InRange(row.StartObservedM, 0, 100);
+        Assert.InRange(row.AvgSpeedMps, 7.5, 8.5);
+    }
+
+    [Fact]
     public void A_rider_still_on_the_course_has_no_net_time()
     {
         var clock = new TestClock(T0.AddMinutes(30));

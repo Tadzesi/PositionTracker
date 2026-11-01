@@ -64,7 +64,7 @@ export interface ResultLine {
   participantId: string; rank: number | null; categoryRank: number | null; genderRank: number | null; bib: string; name: string; nickname: string | null;
   gender: string | null; category: string | null; wave: string | null; isMinor: boolean; nameConsent: boolean; status: 'finished' | 'dnf' | 'dns';
   start: string; finishTime: string | null; netTime: string | null; gapToLeader: string | null; distanceM: number; laps: number; avgSpeedMps: number;
-  maxSpeedMps: number; movingTime: string; stoppedTime: string; ascentM: number; descentM: number; splits: SplitLine[];
+  maxSpeedMps: number; movingTime: string; stoppedTime: string; ascentM: number; descentM: number; splits: SplitLine[]; startObservedM?: number; startMissed?: boolean;
 }
 export interface ResultsView {
   eventId: string; name: string; location: string; startTime: string; sport: Sport; state: string; provisional: boolean; endedAt: string | null;

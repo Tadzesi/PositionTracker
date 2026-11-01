@@ -35,6 +35,8 @@ public sealed class ResultRowEntity
     public TimeSpan StoppedTime { get; set; }
     public double AscentM { get; set; }
     public double DescentM { get; set; }
+    /// <summary>Where on the course the first position was matched; far from 0 means the start was not observed.</summary>
+    public double StartObservedM { get; set; }
     /// <summary>The checkpoint times and sector colours, <c>[{lap,segmentIndex,time,colour}]</c>.</summary>
     public string SplitsJson { get; set; } = "[]";
 }
