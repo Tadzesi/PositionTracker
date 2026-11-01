@@ -17,7 +17,7 @@ namespace PositionTracker.Api.Live;
 /// <see cref="SpectatorGroup"/>. Groups are only joined through these methods.
 /// </summary>
 public sealed class LiveHub(EventRegistry registry, IOptions<OrganizerOptions> organizer, IDbContextFactory<AppDbContext> contexts,
-    IOptions<PersistenceOptions> persistence) : Hub
+    IOptions<PersistenceOptions> persistence, IOptions<PositionTracker.Api.Admin.AdminOptions> admins) : Hub
 {
     public const string Path = "/hubs/live";
     public const string LiveUpdateMethod = "LiveUpdate";
@@ -35,9 +35,10 @@ public sealed class LiveHub(EventRegistry registry, IOptions<OrganizerOptions> o
     {
         if (!organizer.Value.IsValidKey(apiKey ?? ""))
         {
+            var isAdmin = Context.GetHttpContext() is { } http && CookieAuth.CurrentOrganizer(http) is { } who && admins.Value.IsAdmin(who);
             var owner = Context.User is { } user ? CookieAuth.OrganizerId(user) : null;
-            if (owner is not { } organizerId
-                || !await OperationsEndpoints.OwnsEventAsync(contexts, persistence, organizerId, eventId, Context.ConnectionAborted))
+            if (!isAdmin && (owner is not { } organizerId
+                || !await OperationsEndpoints.OwnsEventAsync(contexts, persistence, organizerId, eventId, Context.ConnectionAborted)))
                 throw new HubException("Invalid key");
         }
         EnsureEvent(eventId);

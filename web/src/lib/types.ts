@@ -1,7 +1,7 @@
 export type EventState = 'draft' | 'ready' | 'live' | 'finished';
 export type Sport = 'running' | 'cycling';
 
-export interface Me { name: string; email: string; language: string; emailConfirmed: boolean; emailMode: string }
+export interface Me { name: string; email: string; language: string; emailConfirmed: boolean; emailMode: string; isAdmin?: boolean }
 export interface ParticipantCounts { invited: number; confirmed: number; declined: number; emailFailed: number }
 export interface EventSummary {
   eventId: string; name: string; location: string; startTime: string; sport: Sport; state: EventState;
@@ -58,3 +58,13 @@ export interface LinkView {
   me: { name: string; bib: string; category: string | null; gender: string; nickname: string | null; status: string; locked: { gender: boolean } };
   language: string;
 }
+
+export interface AdminEvent {
+  eventId: string; name: string; location: string; startTime: string; sport: string; state: string; laps: number; lapLengthM: number | null;
+  createdAt: string; endedAt: string | null; organizerId: string; organizerName: string; organizerEmail: string; participants: ParticipantCounts;
+}
+export interface AdminOrganizer {
+  organizerId: string; name: string; email: string; createdAt: string; emailConfirmed: boolean; events: number;
+  activeSeconds: number; activeSecondsLast30Days: number; lastSeenAt: string | null;
+}
+export interface AuditRow { at: string; adminEmail: string; organizerEmail: string; method: string; path: string }

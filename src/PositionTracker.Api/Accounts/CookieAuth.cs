@@ -37,6 +37,9 @@ public static class CookieAuth
     public const string CookieName = "__Secure-pt-session";
     public const string OrganizerSessionPolicy = "OrganizerSession";
     public const string EmailConfirmedOrganizerPolicy = "EmailConfirmedOrganizer";
+    public const string AdminPolicy = "Admin";
+    /// <summary>HttpContext item holding the organizer an administrator acts as (set only by the act-as middleware).</summary>
+    public const string ActAsItemKey = "pt.actAs";
     public const string OrganizerIdClaim = "oid";
     public const string SecurityStampClaim = "stamp";
     public static readonly TimeSpan SessionLifetime = TimeSpan.FromDays(30);
@@ -59,6 +62,13 @@ public static class CookieAuth
     /// <summary>The organizer of the validated session of this request (loaded once per request), or null.</summary>
     public static OrganizerEntity? CurrentOrganizer(HttpContext context) =>
         context.Items.TryGetValue(OrganizerItemKey, out var value) ? value as OrganizerEntity : null;
+
+    /// <summary>
+    /// The organizer a request works on: the one an administrator acts as (see <c>X-Act-As-Organizer</c>), otherwise the signed-in
+    /// organizer. Use it for access to events; use <see cref="OrganizerId"/> for who the caller really is.
+    /// </summary>
+    public static Guid? ActingOrganizerId(HttpContext context) =>
+        context.Items.TryGetValue(ActAsItemKey, out var value) && value is Guid id ? id : OrganizerId(context.User);
 
     public static Guid? OrganizerId(ClaimsPrincipal user) =>
         Guid.TryParse(user.FindFirstValue(OrganizerIdClaim), CultureInfo.InvariantCulture, out var id) ? id : null;
@@ -98,6 +108,9 @@ public static class CookieAuth
             .AddPolicy(EmailConfirmedOrganizerPolicy, p => p
                 .AddAuthenticationSchemes(Scheme).RequireAuthenticatedUser().RequireClaim(OrganizerIdClaim)
                 .AddRequirements(new EmailConfirmedRequirement()));
+        services.AddAuthorizationBuilder().AddPolicy(AdminPolicy, p => p
+            .AddAuthenticationSchemes(Scheme).RequireAuthenticatedUser().RequireClaim(OrganizerIdClaim)
+            .AddRequirements(new PositionTracker.Api.Admin.AdminRequirement()));
         services.AddSingleton<IAuthorizationHandler, EmailConfirmedHandler>();
         services.AddSingleton<IAuthorizationMiddlewareResultHandler, JsonAuthorizationResultHandler>();
         return services;

@@ -17,8 +17,15 @@ export const useManage = () => {
   return v;
 };
 
+/** Where the event pages live: the organizer's own route, or the administrator's one (which acts as the organizer). */
+export function useEventBase(eventId: string): string {
+  const { oid } = useParams();
+  return oid ? `/admin/organizers/${oid}/events/${eventId}` : `/org/events/${eventId}`;
+}
+
 export default function EventLayout() {
   const { id } = useParams();
+  const base = useEventBase(id ?? '');
   const { t, lang } = useI18n();
   const manage: Loaded<ManageView> = useLoad(() => get<ManageView>(`/api/events/${id}/manage`), [id]);
   if (manage.error) return <ErrorBanner error={manage.error} />;
@@ -36,9 +43,9 @@ export default function EventLayout() {
       </p>
       <EmailModeNotice mode={e.emailMode} />
       <nav className="tabs" aria-label="event">
-        <NavLink to={`/org/events/${e.eventId}`} end>{t('Nastavenie', 'Setup')}</NavLink>
-        <NavLink to={`/org/events/${e.eventId}/participants`}>{t('Účastníci', 'Participants')}</NavLink>
-        <NavLink to={`/org/events/${e.eventId}/control`}>{t('Riadenie pretekov', 'Race control')}</NavLink>
+        <NavLink to={base} end>{t('Nastavenie', 'Setup')}</NavLink>
+        <NavLink to={`${base}/participants`}>{t('Účastníci', 'Participants')}</NavLink>
+        <NavLink to={`${base}/control`}>{t('Riadenie pretekov', 'Race control')}</NavLink>
       </nav>
       <Outlet />
     </ManageCtx.Provider>
@@ -71,7 +78,7 @@ export function Setup() {
   };
   const p = event.participants;
   const total = p.invited + p.confirmed + p.declined + p.emailFailed;
-  const base = `/org/events/${event.eventId}`;
+  const base = useEventBase(event.eventId);
   const toCourse = () => document.getElementById('course')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   const steps = [

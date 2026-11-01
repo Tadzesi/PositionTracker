@@ -15,6 +15,8 @@ namespace PositionTracker.Data;
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
     public DbSet<OrganizerEntity> Organizers => Set<OrganizerEntity>();
+    public DbSet<OrganizerActivityEntity> OrganizerActivity => Set<OrganizerActivityEntity>();
+    public DbSet<AdminAuditEntity> AdminAudit => Set<AdminAuditEntity>();
     public DbSet<EventEntity> Events => Set<EventEntity>();
     public DbSet<CourseEntity> Courses => Set<CourseEntity>();
     public DbSet<CategoryEntity> Categories => Set<CategoryEntity>();
@@ -47,6 +49,19 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.Property(o => o.Language).HasMaxLength(2);
             e.Property(o => o.SecurityStamp).HasDefaultValueSql("gen_random_uuid()");
             e.HasIndex(o => o.EmailNormalized).IsUnique();
+        });
+
+        model.Entity<OrganizerActivityEntity>(e =>
+        {
+            e.HasKey(a => new { a.OrganizerId, a.Day });
+            e.HasOne<OrganizerEntity>().WithMany().HasForeignKey(a => a.OrganizerId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        model.Entity<AdminAuditEntity>(e =>
+        {
+            e.Property(a => a.Method).HasMaxLength(10);
+            e.Property(a => a.Path).HasMaxLength(300);
+            e.HasIndex(a => a.At);
         });
 
         model.Entity<EventEntity>(e =>

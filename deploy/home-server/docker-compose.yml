@@ -38,6 +38,7 @@ services:
       Persistence__MigrateOnStartup: "true"
       Organizer__ApiKey: ${ORGANIZER_API_KEY}
       Accounts__RateLimitSalt: ${RATE_LIMIT_SALT}
+      Admin__Emails: ${ADMIN_EMAILS:-}
       Accounts__DataProtectionKeysPath: /keys
       Email__PublicBaseUrl: https://www.lab463.com/tracker/app
       Email__From: ${MAIL_FROM}

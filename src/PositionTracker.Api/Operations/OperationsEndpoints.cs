@@ -47,16 +47,16 @@ public static class OperationsEndpoints
             .WithDatabaseGuard(LogCategory);
         group.MapPost("/alarms/ack", async (string eventId, HttpContext context, OperationsService ops, IOptions<JsonOptions> json) =>
         {
-            if (CookieAuth.OrganizerId(context.User) is not { } organizer) return AccountErrors.Unauthorized();
+            if (CookieAuth.ActingOrganizerId(context) is not { } organizer) return AccountErrors.Unauthorized();
             var (body, error) = await EventManagementEndpoints.ReadAsync<AckRequest>(context, json, 2048);
             return error ?? Answer(await ops.AckAsync(organizer, eventId, body!, context.RequestAborted));
         });
         group.MapPost("/participants/{participantId}/dnf", async (string eventId, string participantId, HttpContext context, OperationsService ops) =>
-            CookieAuth.OrganizerId(context.User) is { } organizer
+            CookieAuth.ActingOrganizerId(context) is { } organizer
                 ? Answer(await ops.DnfAsync(organizer, eventId, participantId, context.RequestAborted))
                 : AccountErrors.Unauthorized());
         group.MapDelete("/participants/{participantId}/data", async (string eventId, string participantId, HttpContext context, OperationsService ops) =>
-            CookieAuth.OrganizerId(context.User) is { } organizer
+            CookieAuth.ActingOrganizerId(context) is { } organizer
                 ? Answer(await ops.DeleteDataAsync(organizer, eventId, participantId, context.RequestAborted))
                 : AccountErrors.Unauthorized());
         return app;

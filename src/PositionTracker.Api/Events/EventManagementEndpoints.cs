@@ -176,7 +176,7 @@ public static class EventManagementEndpoints
     private static IResult Answer(EventResult<EventManageView> result) =>
         result.Error is { } e ? EventErrors.Result(e) : Results.Ok(result.Value);
 
-    private static Guid? Organizer(HttpContext context) => CookieAuth.OrganizerId(context.User);
+    private static Guid? Organizer(HttpContext context) => CookieAuth.ActingOrganizerId(context);
 
     internal static async Task<(T? Body, IResult? Error)> ReadAsync<T>(HttpContext context, IOptions<JsonOptions> json, long maxBytes)
         where T : class

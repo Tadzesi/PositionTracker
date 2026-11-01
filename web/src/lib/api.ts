@@ -20,10 +20,15 @@ function takeEarly(path: string): Promise<Response> | undefined {
   return Date.now() - e.t < 15000 ? e.p : undefined;
 }
 
+let actAs: string | null = null;
+/** An administrator working on an organizer's event: every organizer request then carries the organizer's id (not the account and admin calls). */
+export function setActAs(organizerId: string | null) { actAs = organizerId; }
+
 /** JSON API wrapper: sends the browser headers every unsafe request needs and turns the error shape into ApiError. */
 export async function api<T = void>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
   const init: RequestInit = { method, credentials: 'same-origin', headers };
+  if (actAs && !path.startsWith('/api/account/') && !path.startsWith('/api/admin/')) headers['X-Act-As-Organizer'] = actAs;
   if (method !== 'GET') {
     headers['X-Requested-With'] = 'PositionTracker';
     headers['Content-Type'] = 'application/json';

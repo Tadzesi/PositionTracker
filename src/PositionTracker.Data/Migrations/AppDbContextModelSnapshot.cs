@@ -54,6 +54,40 @@ namespace PositionTracker.Data.Migrations
                     b.ToTable("ActionLog", (string)null);
                 });
 
+            modelBuilder.Entity("PositionTracker.Data.Entities.AdminAuditEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("AdminId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<Guid>("OrganizerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Path")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("At");
+
+                    b.ToTable("AdminAudit");
+                });
+
             modelBuilder.Entity("PositionTracker.Data.Entities.AlarmAckEntity", b =>
                 {
                     b.Property<Guid>("EventId")
@@ -468,6 +502,25 @@ namespace PositionTracker.Data.Migrations
                     b.ToTable("LinkTokens");
                 });
 
+            modelBuilder.Entity("PositionTracker.Data.Entities.OrganizerActivityEntity", b =>
+                {
+                    b.Property<Guid>("OrganizerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("Day")
+                        .HasColumnType("date");
+
+                    b.Property<DateTimeOffset>("LastBeatAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Seconds")
+                        .HasColumnType("integer");
+
+                    b.HasKey("OrganizerId", "Day");
+
+                    b.ToTable("OrganizerActivity");
+                });
+
             modelBuilder.Entity("PositionTracker.Data.Entities.OrganizerEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -722,6 +775,15 @@ namespace PositionTracker.Data.Migrations
                     b.HasOne("PositionTracker.Data.Entities.ParticipantEntity", null)
                         .WithMany()
                         .HasForeignKey("ParticipantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PositionTracker.Data.Entities.OrganizerActivityEntity", b =>
+                {
+                    b.HasOne("PositionTracker.Data.Entities.OrganizerEntity", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizerId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

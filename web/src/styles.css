@@ -85,8 +85,9 @@ td{padding:8px;border-bottom:1px solid var(--panel2);vertical-align:middle}
 .sector.purple{background:var(--purple)}.sector.green{background:var(--green)}.sector.yellow{background:var(--yellow)}
 
 .tabs{display:flex;gap:4px;margin:0 0 16px;border-bottom:1px solid var(--line);overflow-x:auto}
-.tabs a{padding:10px 16px;color:var(--mute);text-decoration:none;font-family:var(--display);font-style:italic;font-weight:800;text-transform:uppercase;font-size:1.1rem;white-space:nowrap;border-bottom:3px solid transparent}
-.tabs a[aria-current="page"]{color:var(--text);border-bottom-color:var(--red)}
+.tabs a,.tabs button{padding:10px 16px;color:var(--mute);text-decoration:none;font-family:var(--display);font-style:italic;font-weight:800;text-transform:uppercase;font-size:1.1rem;white-space:nowrap;border-bottom:3px solid transparent}
+.tabs button{background:none;border:0;border-radius:0;cursor:pointer}
+.tabs a[aria-current="page"],.tabs button[aria-current="page"]{color:var(--text);border-bottom-color:var(--red)}
 
 .map{height:420px;border:1px solid var(--line);border-radius:4px;background:var(--panel)}
 .map.tall{height:60vh;min-height:320px}
@@ -152,3 +153,4 @@ tr.sel td{background:var(--panel2)}tr.click{cursor:pointer}
 a.stat{display:block;color:inherit;text-decoration:none;border:1px solid transparent}a.stat:hover{border-color:var(--mute)}
 @media (max-width:600px){.profile .axis{font-size:19px}}
 .dtf .err{color:var(--red)}
+.admin-banner{border-color:var(--red)}

@@ -40,6 +40,7 @@ services:
       Email__AllowSimulated: ${ALLOW_SIMULATED_EMAIL:-false}
       Accounts__DataProtectionKeysPath: /keys
       Accounts__RateLimitSalt: ${RATE_LIMIT_SALT:?set RATE_LIMIT_SALT}
+      Admin__Emails: ${ADMIN_EMAILS:-}
       # The reverse proxy's address(es) as the app sees them: the client address is taken from X-Forwarded-For only from these.
       Proxy__KnownNetworks__0: ${PROXY_NETWORK:-172.16.0.0/12}
       Retention__FixDays: "30"

@@ -36,7 +36,7 @@ public static class LiveEndpoints
         if (!organizer.Value.IsValidKey(context.Request.Headers[OrganizerOptions.ApiKeyHeader].ToString()))
         {
             // No operator key: an organizer session may read its own event only.
-            if (CookieAuth.OrganizerId(context.User) is not { } organizerId) return Results.Unauthorized();
+            if (CookieAuth.ActingOrganizerId(context) is not { } organizerId) return Results.Unauthorized();
             if (!await OperationsEndpoints.OwnsEventAsync(contexts, persistence, organizerId, eventId, context.RequestAborted))
                 return Results.NotFound();
         }

@@ -36,6 +36,80 @@ public sealed class EventManagementTests(PostgresFixture postgres) : IClassFixtu
     private static readonly byte[] LoopGpx = Gpx(DemoCourses.Loop());
     private int _ip;
 
+    // ----- administrator -----
+
+    [Fact]
+    public async Task An_administrator_sees_all_events_and_edits_one_as_its_organizer_with_an_audit_trail()
+    {
+        await using var host = Host();
+        host.Settings["Admin:Emails"] = "boss@example.org";
+        var anna = await SessionAsync(host, "anna@example.org");
+        var boss = await SessionAsync(host, "boss@example.org");
+        var id = await CreatedAsync(anna, "Anna race");
+
+        using (var me = await JsonAsync(await boss.GetAsync("/api/account/me"))) Assert.True(me.RootElement.GetProperty("isAdmin").GetBoolean());
+        using (var me = await JsonAsync(await anna.GetAsync("/api/account/me"))) Assert.False(me.RootElement.GetProperty("isAdmin").GetBoolean());
+
+        using (var all = await JsonAsync(await boss.GetAsync("/api/admin/events")))
+        {
+            var row = Assert.Single(all.RootElement.EnumerateArray());
+            Assert.Equal("Anna race", row.GetProperty("name").GetString());
+            Assert.Equal(anna.OrganizerId.ToString("D"), row.GetProperty("organizerId").GetString());
+        }
+
+        // without the header the event is somebody else's: 404; with it the administrator works as Anna
+        Assert.Equal(HttpStatusCode.NotFound, (await boss.GetAsync($"/api/events/{id}/manage")).StatusCode);
+        var edit = await boss.SendAsync(HttpMethod.Put, $"/api/events/{id}",
+            Body(new { name = "Renamed by admin", location = "Žilina", startTime = Utc(Start), sport = "running" }), actAs: anna.OrganizerId);
+        Assert.Equal(HttpStatusCode.OK, edit.StatusCode);
+        Assert.Equal("Renamed by admin", (await EventAsync(host, id)).Name);
+
+        using (var audit = await JsonAsync(await boss.GetAsync("/api/admin/audit")))
+        {
+            var row = Assert.Single(audit.RootElement.EnumerateArray());
+            Assert.Equal("boss@example.org", row.GetProperty("adminEmail").GetString());
+            Assert.Equal("anna@example.org", row.GetProperty("organizerEmail").GetString());
+            Assert.Equal("PUT", row.GetProperty("method").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task Only_an_administrator_may_use_the_admin_pages_and_the_act_as_header()
+    {
+        await using var host = Host();
+        host.Settings["Admin:Emails"] = "boss@example.org";
+        var anna = await SessionAsync(host, "anna@example.org");
+        var bob = await SessionAsync(host, "bob@example.org");
+        var id = await CreatedAsync(bob, "Bob race");
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await anna.GetAsync("/api/admin/events")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await anna.GetAsync("/api/admin/organizers")).StatusCode);
+        var sneaky = await anna.SendAsync(HttpMethod.Put, $"/api/events/{id}",
+            Body(new { name = "Hijacked", location = "x", startTime = Utc(Start), sport = "running" }), actAs: bob.OrganizerId);
+        Assert.Equal(HttpStatusCode.Forbidden, sneaky.StatusCode);
+        Assert.Equal("Bob race", (await EventAsync(host, id)).Name);
+    }
+
+    [Fact]
+    public async Task Heartbeats_add_up_the_time_an_organizer_spent_on_the_site_with_a_cap_per_beat()
+    {
+        await using var host = Host();
+        host.Settings["Admin:Emails"] = "boss@example.org";
+        var anna = await SessionAsync(host, "anna@example.org");
+        var boss = await SessionAsync(host, "boss@example.org");
+
+        Assert.Equal(HttpStatusCode.NoContent, (await anna.PostAsync("/api/account/activity", new { })).StatusCode); // first beat: 0 s
+        host.Clock.Advance(TimeSpan.FromSeconds(30));
+        await anna.PostAsync("/api/account/activity", new { });                                                         // +30 s
+        host.Clock.Advance(TimeSpan.FromMinutes(20));                                                                   // tab was closed
+        await anna.PostAsync("/api/account/activity", new { });                                                         // + cap (45 s)
+
+        using var list = await JsonAsync(await boss.GetAsync("/api/admin/organizers"));
+        var row = list.RootElement.EnumerateArray().Single(o => o.GetProperty("email").GetString() == "anna@example.org");
+        Assert.Equal(75, row.GetProperty("activeSeconds").GetInt64());
+        Assert.Equal(75, row.GetProperty("activeSecondsLast30Days").GetInt64());
+    }
+
     // ----- creation -----
 
     [Fact]
@@ -1068,9 +1142,10 @@ public sealed class EventManagementTests(PostgresFixture postgres) : IClassFixtu
         public Task<HttpResponseMessage> PostRawAsync(string path, string json) =>
             SendAsync(HttpMethod.Post, path, new StringContent(json, Encoding.UTF8, "application/json"));
 
-        public Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, HttpContent? content, bool header = true)
+        public Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, HttpContent? content, bool header = true, Guid? actAs = null)
         {
             var request = new HttpRequestMessage(method, path) { Content = content };
+            if (actAs is { } target) request.Headers.Add("X-Act-As-Organizer", target.ToString("D"));
             if (header) request.Headers.Add(BrowserApiHeaders.HeaderName, BrowserApiHeaders.HeaderValue);
             request.Headers.Add("Cookie", cookie);
             return client.SendAsync(request);

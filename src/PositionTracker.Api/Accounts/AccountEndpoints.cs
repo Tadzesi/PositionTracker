@@ -55,7 +55,7 @@ public static class AccountEndpoints
 
     public sealed record ConfirmResponse(bool Confirmed, bool SignedIn);
 
-    public sealed record MeResponse(string Name, string Email, string Language, bool EmailConfirmed, string EmailMode);
+    public sealed record MeResponse(string Name, string Email, string Language, bool EmailConfirmed, string EmailMode, bool IsAdmin = false);
 
     private static readonly AcceptedResponse Accepted = new("accepted");
 
@@ -202,14 +202,14 @@ public static class AccountEndpoints
         return Results.NoContent();
     }
 
-    private static IResult Me(HttpContext context, IEmailMode mode) =>
-        CookieAuth.CurrentOrganizer(context) is { } organizer ? Results.Ok(Profile(organizer, mode)) : AccountErrors.Unauthorized();
+    private static IResult Me(HttpContext context, IEmailMode mode, IOptions<PositionTracker.Api.Admin.AdminOptions> admins) =>
+        CookieAuth.CurrentOrganizer(context) is { } organizer ? Results.Ok(Profile(organizer, mode, admins.Value)) : AccountErrors.Unauthorized();
 
-    private static IResult Session(HttpContext context, IEmailMode mode) =>
-        CookieAuth.CurrentOrganizer(context) is { } organizer ? Results.Ok(Profile(organizer, mode)) : Results.NoContent();
+    private static IResult Session(HttpContext context, IEmailMode mode, IOptions<PositionTracker.Api.Admin.AdminOptions> admins) =>
+        CookieAuth.CurrentOrganizer(context) is { } organizer ? Results.Ok(Profile(organizer, mode, admins.Value)) : Results.NoContent();
 
-    private static MeResponse Profile(OrganizerEntity o, IEmailMode mode) =>
-        new(o.Name, o.Email, o.Language, o.EmailConfirmedAt is not null, mode.Mode);
+    private static MeResponse Profile(OrganizerEntity o, IEmailMode mode, PositionTracker.Api.Admin.AdminOptions? admins = null) =>
+        new(o.Name, o.Email, o.Language, o.EmailConfirmedAt is not null, mode.Mode, admins?.IsAdmin(o) ?? false);
 
     private static IResult LinkError(LinkStatus status) => status switch
     {

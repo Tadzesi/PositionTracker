@@ -35,6 +35,29 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   return <SessionCtx.Provider value={value}>{children}</SessionCtx.Provider>;
 }
 
+const BEAT_MS = 30_000;
+const IDLE_MS = 90_000;
+
+/**
+ * Tells the server every 30 s that a signed-in organizer has the page open, visible and in use (a click, key or scroll in the
+ * last 90 s), so the administrator can see roughly how long people work with the application. Only a signed-in organizer is
+ * measured; nothing is sent for spectators or participants.
+ */
+export function useActivityBeat(signedIn: boolean) {
+  useEffect(() => {
+    if (!signedIn) return;
+    let lastUse = Date.now();
+    const used = () => { lastUse = Date.now(); };
+    const events = ['pointerdown', 'keydown', 'scroll', 'touchstart'] as const;
+    events.forEach((n) => window.addEventListener(n, used, { passive: true }));
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible' || Date.now() - lastUse > IDLE_MS) return;
+      post('/api/account/activity').catch(() => { /* a missed beat only makes the measured time a little shorter */ });
+    }, BEAT_MS);
+    return () => { window.clearInterval(timer); events.forEach((n) => window.removeEventListener(n, used)); };
+  }, [signedIn]);
+}
+
 export function useSession(): Session {
   const v = useContext(SessionCtx);
   if (!v) throw new Error('SessionProvider missing');
@@ -70,6 +93,7 @@ export default function Layout() {
   const { t } = useI18n();
   const { me, signOut } = useSession();
   const navigate = useNavigate();
+  useActivityBeat(!!me);
   return (
     <>
       <header className="topbar">
@@ -79,6 +103,7 @@ export default function Layout() {
           {me ? (
             <>
               <NavLink to="/org" className="btn small ghost"><span>{t('Moje podujatia', 'My events')}</span></NavLink>
+              {me.isAdmin && <NavLink to="/admin" className="btn small ghost"><span>{t('Správa', 'Admin')}</span></NavLink>}
               <span className="who" title={me.email}>{me.name}</span>
               <button className="btn small ghost" onClick={async () => { await signOut(); navigate('/'); }}><span>{t('Odhlásiť', 'Sign out')}</span></button>
             </>

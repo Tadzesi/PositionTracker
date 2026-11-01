@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using PositionTracker.Api.Accounts;
+using PositionTracker.Api.Admin;
 using PositionTracker.Api.Auth;
 using PositionTracker.Api.Email;
 using PositionTracker.Api.Endpoints;
@@ -26,6 +27,7 @@ builder.Services.AddSingleton<EventRegistry>();
 builder.Services.AddPersistence();
 builder.Services.AddEmail();
 builder.Services.AddAccounts();
+builder.Services.AddAdmin();
 builder.Services.AddEventManagement();
 builder.Services.AddRegistration();
 builder.Services.AddParticipantLinks();
@@ -75,9 +77,11 @@ app.UseBrowserApiHeaders(); // first: refused requests never reach a limiter
 app.UseDeviceAuthentication(); // before the limiter: it partitions by the resolved token
 app.UseRateLimiter();
 app.UseAuthentication();
+app.UseAdminActAs();
 app.UseAuthorization();
 app.MapGet("/healthz", () => "ok");
 app.MapAccountEndpoints();
+app.MapAdminEndpoints();
 app.MapEventManagementEndpoints();
 app.MapRegistrationEndpoints();
 app.MapParticipantLinkEndpoints();

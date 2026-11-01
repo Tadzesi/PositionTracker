@@ -110,5 +110,5 @@ public static class RegistrationEndpoints
     private static IResult Answer<T>(EventResult<T> result, int status) =>
         result.Error is { } e ? EventErrors.Result(e) : Results.Json(result.Value, statusCode: status);
 
-    private static Guid? Organizer(HttpContext context) => CookieAuth.OrganizerId(context.User);
+    private static Guid? Organizer(HttpContext context) => CookieAuth.ActingOrganizerId(context);
 }

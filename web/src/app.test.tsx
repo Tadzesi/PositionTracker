@@ -203,6 +203,32 @@ describe('web app', () => {
     expect(screen.getByText('No checkpoints yet.')).toBeInTheDocument();
   });
 
+  it('the administrator sees every event with its organizer, the time organizers spent, and opens an event as its organizer', async () => {
+    const boss = { ...ME, isAdmin: true };
+    const calls = mockFetch({ 'GET /api/account/session': { body: boss }, 'GET /api/events/e1/manage': { body: manage() }, 'GET /api/events/e1/course-preview': { body: PREVIEW },
+      'GET /api/admin/events': { body: [{ eventId: 'e1', name: 'Anna race', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling', state: 'ready', laps: 1, lapLengthM: 5000,
+        createdAt: '2026-10-01T10:00:00Z', endedAt: null, organizerId: 'o1', organizerName: 'Anna', organizerEmail: 'anna@example.org', participants: { invited: 2, confirmed: 5, declined: 0, emailFailed: 0 } }] },
+      'GET /api/admin/organizers': { body: [{ organizerId: 'o1', name: 'Anna', email: 'anna@example.org', createdAt: '2026-10-01T10:00:00Z', emailConfirmed: true, events: 1,
+        activeSeconds: 8100, activeSecondsLast30Days: 1800, lastSeenAt: '2026-11-01T08:00:00Z' }] } });
+    renderAt('/admin');
+    expect(await screen.findByText('Administration')).toBeInTheDocument();
+    expect(await screen.findByText('anna@example.org')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Anna race' })).toHaveAttribute('href', '/admin/organizers/o1/events/e1');
+    await userEvent.click(screen.getByRole('button', { name: 'Organizers' }));
+    expect(await screen.findByText('2 h 15 min')).toBeInTheDocument();
+    expect(screen.getByText('30 min')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Events' }));
+    await userEvent.click(await screen.findByRole('link', { name: 'Anna race' }));
+    expect(await screen.findByText(/you are editing the event of/)).toBeInTheDocument();
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/events/e1/manage' && c.headers['X-Act-As-Organizer'] === 'o1')).toBe(true));
+  });
+
+  it('the admin page is refused for an ordinary organizer', async () => {
+    mockFetch({ 'GET /api/account/session': { body: ME } });
+    renderAt('/admin');
+    expect(await screen.findByText('This page is for the administrator only.')).toBeInTheDocument();
+  });
+
   it('the participant page shows the invitation state and a link problem for an expired link', async () => {
     mockFetch({ 'GET /api/p/good': { body: { event: { name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling' }, me: { name: 'Jana', bib: '7', category: null, gender: 'female', nickname: null, status: 'Invited', locked: { gender: false } }, language: 'en' } },
       'GET /api/p/old': { status: 400, body: { code: 'link_expired', message: { sk: 'Platnosť vypršala', en: 'This link has expired' } } } });

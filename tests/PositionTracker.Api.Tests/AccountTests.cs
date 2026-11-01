@@ -832,7 +832,7 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         var cookie = await SignInSessionAsync(host, client, "anna@example.org");
         var me = await MeAsync(client, cookie);
         Assert.Equal(HttpStatusCode.OK, me.StatusCode);
-        Assert.Equal("""{"name":"Anna","email":"Anna@Example.org","language":"sk","emailConfirmed":true,"emailMode":"simulated"}""",
+        Assert.Equal("""{"name":"Anna","email":"Anna@Example.org","language":"sk","emailConfirmed":true,"emailMode":"simulated","isAdmin":false}""",
             await me.Content.ReadAsStringAsync());
     }
 

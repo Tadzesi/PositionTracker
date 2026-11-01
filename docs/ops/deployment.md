@@ -10,7 +10,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 ```
 
 `.env.prod` (never committed): `DB_PASSWORD`, `ORGANIZER_API_KEY` (operator key for `/api/ops/*`), `PUBLIC_BASE_URL` (the public https
-origin, no trailing slash), `MAIL_FROM`, `SMTP_HOST/PORT/USER/PASSWORD`, `RATE_LIMIT_SALT` (random, 32+ characters), optional `PROXY_NETWORK`
+origin, no trailing slash), `MAIL_FROM`, `SMTP_HOST/PORT/USER/PASSWORD`, `RATE_LIMIT_SALT` (random, 32+ characters), optional `ADMIN_EMAILS` (administrators, comma separated; they get the Admin page), optional `PROXY_NETWORK`
 (CIDR of the reverse proxy as seen by the app), `APP_PORT`. The key directory volume must be writable by the container user:
 `docker run --rm -v positiontracker_pt-keys:/keys busybox chown 1654:1654 /keys` once (the volume name depends on the compose project name).
 
