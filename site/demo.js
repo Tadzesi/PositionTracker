@@ -267,7 +267,13 @@
     for (let k = 0; k < 2000; k++) step(0.1); // 200 s into the race, so the first impression already has a field spread out
     selected = 0; draw();
     requestAnimationFrame(loop);
-    return { redraw: draw };
+    // the visitor asked for the demo (the "Spustiť živé demo" links): a paused demo (reduced motion, or paused by hand) resumes, a finished one
+    // starts again, a running one just keeps running
+    function play() {
+      setPaused(false);
+      if (!running) { running = true; reset(); }
+    }
+    return { redraw: draw, play };
   }
 
   window.PTDemo = { init };

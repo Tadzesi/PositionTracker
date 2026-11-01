@@ -117,6 +117,14 @@
   const stage = document.getElementById('demo');
   const onLoad = (fn) => { if (document.readyState === 'complete') setTimeout(fn, 0); else window.addEventListener('load', () => setTimeout(fn, 0), { once: true }); };
   onLoad(() => {
-    loadDemo().then(() => { window.PTDemo.init(stage, t); stage.classList.add('ready'); }, () => {}).then(loadAllImages);
+    loadDemo().then(() => {
+      demo = window.PTDemo.init(stage, t);
+      stage.classList.add('ready');
+      if (wantPlay) demo.play();
+    }, () => {}).then(loadAllImages);
   });
+  // "Spustiť živé demo": besides scrolling to the demo the link starts it (with reduced motion it would otherwise stay stopped); a click
+  // before the demo has loaded is remembered
+  let demo = null, wantPlay = false;
+  document.querySelectorAll('a[href="#demo"]').forEach((a) => a.addEventListener('click', () => { wantPlay = true; if (demo) demo.play(); }));
 })();
