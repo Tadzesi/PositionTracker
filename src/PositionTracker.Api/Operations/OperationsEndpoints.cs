@@ -164,7 +164,7 @@ public sealed class OperationsService(AppDbContext db, EventRegistry registry, A
         if (registry.Get(runtimeId) is { } runtime && !registry.IsFinished(runtimeId) && runtime.HasParticipant(pid.ToString("D")))
         {
             await db.Entry(p).Reference(x => x.Category).LoadAsync(ct);
-            runtime.UpdateParticipant(RuntimeFactory.ParticipantInfoOf(p));
+            runtime.UpdateParticipant(RuntimeFactory.ParticipantInfoOf(p, await RuntimeFactory.WaveStartAsync(db, p, ct)));
         }
         return null;
     }

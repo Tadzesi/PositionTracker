@@ -221,6 +221,9 @@ public sealed class ParticipantService(AppDbContext db, LinkTokenService links, 
     /// Keeps the runtime of a live event consistent with the committed row: a confirmed participant is added or updated;
     /// a declined one (only possible before the start) is hidden from the spectators and marked DNF in memory.
     /// </summary>
+    private DateTimeOffset? WaveStartOf(ParticipantEntity p) =>
+        p.WaveId is { } id ? db.Waves.AsNoTracking().Where(w => w.Id == id).Select(w => (DateTimeOffset?)w.StartTime).SingleOrDefault() : null;
+
     private void SyncRuntime(EventEntity ev, ParticipantEntity p)
     {
         var runtimeId = RuntimeFactory.RuntimeId(ev.Id);
@@ -230,13 +233,13 @@ public sealed class ParticipantService(AppDbContext db, LinkTokenService links, 
         {
             if (p.Status == ParticipantStatus.Confirmed)
             {
-                var info = RuntimeFactory.ParticipantInfoOf(p);
+                var info = RuntimeFactory.ParticipantInfoOf(p, WaveStartOf(p));
                 if (runtime.HasParticipant(id)) runtime.UpdateParticipant(info);
                 else runtime.AddParticipant(info);
             }
             else if (runtime.HasParticipant(id))
             {
-                runtime.UpdateParticipant(RuntimeFactory.ParticipantInfoOf(p) with { ShowNameToSpectators = false });
+                runtime.UpdateParticipant(RuntimeFactory.ParticipantInfoOf(p, WaveStartOf(p)) with { ShowNameToSpectators = false });
                 runtime.Act(id, ParticipantAction.Dnf);
             }
         }

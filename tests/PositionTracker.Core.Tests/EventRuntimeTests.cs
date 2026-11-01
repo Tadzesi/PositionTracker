@@ -582,4 +582,30 @@ public class EventRuntimeTests
         Assert.Equal(ids.Length, expected.CountLive);
         Assert.Equal(Json(expected), Json(parallel.BuildLiveView()));
     }
+
+    [Fact]
+    public void A_participant_in_a_later_wave_is_timed_from_the_wave_start()
+    {
+        var clock = new TestClock(T0);
+        var runtime = new EventRuntime(Settings, Loop, clock);
+        var waveStart = T0.AddMinutes(10);
+        runtime.AddParticipant(new ParticipantInfo("early", "1", "Early", null, "Open", true, false));
+        runtime.AddParticipant(new ParticipantInfo("late", "2", "Late", null, "Open", true, false, waveStart));
+
+        // Both ride 500 m at 5 m/s from their own start; the late one's fixes before the wave start are warm-up and do not count.
+        var late = new List<PositionFix> { FixAt(0, T0.AddMinutes(9)) };
+        for (var s = 0; s <= 100; s += 5) late.Add(FixAt(s * 5.0, waveStart.AddSeconds(s)));
+        var early = new List<PositionFix>();
+        for (var s = 0; s <= 100; s += 5) early.Add(FixAt(s * 5.0, T0.AddSeconds(s)));
+        Send(runtime, "early", new PositionBatch(early, null));
+        Send(runtime, "late", new PositionBatch(late, null));
+
+        clock.Now = waveStart.AddSeconds(100);
+        var view = runtime.BuildLiveView();
+        var l = view.Participants.Single(p => p.ParticipantId == "late");
+
+        Assert.InRange(l.TotalDistanceM, 470, 530);
+        Assert.NotNull(l.Rank);
+        Assert.InRange(l.AvgSpeedMps, 4.4, 5.6);
+    }
 }

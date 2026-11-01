@@ -203,7 +203,7 @@ public sealed class RegistrationService(
         {
             try
             {
-                runtime.UpdateParticipant(RuntimeFactory.ParticipantInfoOf(p));
+                runtime.UpdateParticipant(RuntimeFactory.ParticipantInfoOf(p, await RuntimeFactory.WaveStartAsync(db, p, ct)));
             }
             catch (KeyNotFoundException)
             {

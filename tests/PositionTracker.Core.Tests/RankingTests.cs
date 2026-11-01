@@ -146,4 +146,36 @@ public class RankingTests
         Assert.Equal(TimeSpan.FromSeconds(1.5), ranked[1].GapToLeader);
         Assert.Equal(TimeSpan.FromSeconds(1.5), ranked[1].GapToAhead);
     }
+
+    [Fact]
+    public void A_later_wave_is_ranked_and_gapped_by_the_time_since_its_own_start()
+    {
+        // Both ride 2 500 m. "early" starts at T0 and needs 250 s (10 m/s); "late" starts 5 min later and needs 200 s (12.5 m/s).
+        // By the clock "early" arrives first, by the net time "late" is ahead.
+        var early = new RankInput("early", 2_500, T0.AddSeconds(250), T0.AddSeconds(250), ConstantSpeed(10, 2_500), false, T0);
+        var lateStart = T0.AddMinutes(5);
+        var lateHistory = new ProgressHistory();
+        for (var d = 0.0; d <= 2_500; d += 100) lateHistory.Add(lateStart.AddSeconds(d / 12.5), d);
+        var late = new RankInput("late", 2_500, lateStart.AddSeconds(200), lateStart.AddSeconds(200), lateHistory, false, lateStart);
+
+        var ranked = Ranking.Rank(new[] { early, late });
+
+        Assert.Equal(new[] { "late", "early" }, ranked.Select(r => r.ParticipantId));
+        Assert.Equal(TimeSpan.FromSeconds(50), ranked[1].GapToLeader);
+    }
+
+    [Fact]
+    public void Live_riders_at_the_same_distance_are_ordered_by_net_time_across_waves()
+    {
+        var early = new RankInput("early", 1_000, T0.AddSeconds(100), null, ConstantSpeed(10, 1_000), false, T0);
+        var lateStart = T0.AddMinutes(5);
+        var lateHistory = new ProgressHistory();
+        for (var d = 0.0; d <= 1_000; d += 100) lateHistory.Add(lateStart.AddSeconds(d / 12.5), d);
+        var late = new RankInput("late", 1_000, lateStart.AddSeconds(80), null, lateHistory, false, lateStart);
+
+        var ranked = Ranking.Rank(new[] { early, late });
+
+        Assert.Equal("late", ranked[0].ParticipantId);
+        Assert.Equal(TimeSpan.FromSeconds(20), ranked[1].GapToLeader);
+    }
 }

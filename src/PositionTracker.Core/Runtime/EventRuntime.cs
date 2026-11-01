@@ -70,7 +70,7 @@ public sealed class EventRuntime
             if (_participants.ContainsKey(info.Id))
                 throw new ArgumentException($"Participant '{info.Id}' already exists.", nameof(info));
             _participants[info.Id] = new Entry(info,
-                new ParticipantTracker(Course, Settings.Sport, Settings.StartTime, Settings.Tracker));
+                new ParticipantTracker(Course, Settings.Sport, info.StartTime ?? Settings.StartTime, Settings.Tracker));
             Interlocked.Increment(ref _participantsVersion);
         }
     }
@@ -87,6 +87,7 @@ public sealed class EventRuntime
         {
             var entry = Find(info.Id);
             entry.Info = info;
+            entry.Tracker.SetStartTime(info.StartTime ?? Settings.StartTime);
             Interlocked.Increment(ref _participantsVersion);
         }
     }
@@ -138,7 +139,7 @@ public sealed class EventRuntime
             var entry = Find(participantId);
             var now = _clock.GetUtcNow();
             var latest = now + MaxFixAhead;
-            var earliest = Settings.StartTime - MaxFixBeforeStart;
+            var earliest = (entry.Info.StartTime ?? Settings.StartTime) - MaxFixBeforeStart;
             foreach (var fix in batch.Fixes) ArgumentNullException.ThrowIfNull(fix, nameof(batch));
             var timely = batch.Fixes.Where(f => f.Time <= latest && f.Time >= earliest).OrderBy(f => f.Time).ToList();
             var result = entry.Tracker.ApplyMany(timely);
@@ -205,7 +206,7 @@ public sealed class EventRuntime
             var ranking = Ranking.Rank(_participants.Values
                 .Select(e => new RankInput(e.Info.Id, snapshots[e.Info.Id].TotalDistanceM,
                     snapshots[e.Info.Id].LastRaceFixTime, snapshots[e.Info.Id].FinishTime, e.Tracker.History,
-                    snapshots[e.Info.Id].State == ParticipantState.Dnf))
+                    snapshots[e.Info.Id].State == ParticipantState.Dnf, e.Info.StartTime ?? Settings.StartTime))
                 .ToList());
 
             var views = ranking

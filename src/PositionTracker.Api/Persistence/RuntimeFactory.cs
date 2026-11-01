@@ -35,8 +35,15 @@ public sealed class RuntimeFactory(IFixStore store, TimeProvider clock)
     /// The runtime view of a participant row (the email never leaves the database; a nickname the organizer hid is not
     /// passed on).
     /// </summary>
-    public static ParticipantInfo ParticipantInfoOf(ParticipantEntity p) =>
-        new(p.Id.ToString("D"), p.Bib, p.Name, p.NicknameHidden ? null : p.Nickname, p.Category?.Name ?? "", p.ShowNameToSpectators, p.IsMinor);
+    public static ParticipantInfo ParticipantInfoOf(ParticipantEntity p, DateTimeOffset? waveStart = null) =>
+        new(p.Id.ToString("D"), p.Bib, p.Name, p.NicknameHidden ? null : p.Nickname, p.Category?.Name ?? "", p.ShowNameToSpectators, p.IsMinor,
+            waveStart);
+
+    /// <summary>The start time of the wave the participant is in, <c>null</c> without a wave (the event start then applies).</summary>
+    public static async Task<DateTimeOffset?> WaveStartAsync(AppDbContext db, ParticipantEntity p, CancellationToken ct) =>
+        p.WaveId is not { } id
+            ? null
+            : await db.Waves.AsNoTracking().Where(w => w.Id == id).Select(w => (DateTimeOffset?)w.StartTime).SingleOrDefaultAsync(ct);
 
     /// <summary>
     /// Builds the runtime of <paramref name="ev"/>, reading its participants through <paramref name="db"/> (so a caller
@@ -57,7 +64,9 @@ public sealed class RuntimeFactory(IFixStore store, TimeProvider clock)
             .Where(p => p.EventId == ev.Id && p.Status == ParticipantStatus.Confirmed)
             .OrderBy(p => p.CreatedAt).ThenBy(p => p.Id)
             .ToListAsync(ct);
-        foreach (var p in participants) runtime.AddParticipant(ParticipantInfoOf(p));
+        var waveStarts = await db.Waves.AsNoTracking().Where(w => w.EventId == ev.Id).ToDictionaryAsync(w => w.Id, w => w.StartTime, ct);
+        foreach (var p in participants)
+            runtime.AddParticipant(ParticipantInfoOf(p, p.WaveId is { } w && waveStarts.TryGetValue(w, out var s) ? s : null));
 
         await foreach (var action in store.ReadActionsAsync(eventId, ct))
         {

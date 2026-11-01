@@ -189,6 +189,20 @@ describe('web app', () => {
     expect(body.checkpoints).toEqual([{ name: 'Bufet', lapDistanceM: 3000 }, { name: 'Kopec', lapDistanceM: 9000 }]);
   });
 
+  it('a checkpoint can be removed one by one or all at once', async () => {
+    mockFetch({ 'GET /api/account/session': { body: ME }, 'GET /api/events/e1/manage': { body: manage() }, 'GET /api/events/e1/course-preview': { body: PREVIEW } });
+    renderAt('/org/events/e1');
+    await screen.findByText('Checkpoints');
+    await userEvent.click(screen.getByRole('button', { name: 'Add a point at half of the lap' }));
+    expect(screen.getAllByLabelText('Checkpoint name')).toHaveLength(2);
+    await userEvent.click(screen.getAllByRole('button', { name: 'Remove checkpoint' })[1]);
+    expect(screen.getAllByLabelText('Checkpoint name')).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Add a point at half of the lap' }));
+    await userEvent.click(screen.getByRole('button', { name: /Remove all points \(2\)/ }));
+    expect(screen.queryAllByLabelText('Checkpoint name')).toHaveLength(0);
+    expect(screen.getByText('No checkpoints yet.')).toBeInTheDocument();
+  });
+
   it('the participant page shows the invitation state and a link problem for an expired link', async () => {
     mockFetch({ 'GET /api/p/good': { body: { event: { name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling' }, me: { name: 'Jana', bib: '7', category: null, gender: 'female', nickname: null, status: 'Invited', locked: { gender: false } }, language: 'en' } },
       'GET /api/p/old': { status: 400, body: { code: 'link_expired', message: { sk: 'Platnosť vypršala', en: 'This link has expired' } } } });

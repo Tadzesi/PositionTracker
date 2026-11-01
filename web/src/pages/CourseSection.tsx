@@ -162,6 +162,10 @@ export default function CourseSection({ disabled }: { disabled: boolean }) {
       <p className="help">{t('Kontrolný bod je miesto na trase, kde sa meria medzičas. Body rozdelia kolo na úseky; divák vidí, ako sa kto v úseku mení (farebné sektory), a odhad príchodu do cieľa sa spresní. Nie sú povinné.',
         'A checkpoint is a place on the route where a split time is taken. The points divide the lap into sections; spectators see how each rider does in a section (coloured sectors) and the finish estimate gets more precise. They are optional.')}</p>
       {rows.length === 0 && <p className="mute">{t('Zatiaľ žiadny kontrolný bod.', 'No checkpoints yet.')}</p>}
+      {rows.length > 1 && !disabled && (
+        <p><button type="button" className="btn small danger" onClick={() => setRows([])}><span>{t(`Odstrániť všetky body (${rows.length})`, `Remove all points (${rows.length})`)}</span></button>
+          <span className="mute"> {t('Zmena sa uloží až tlačidlom „Uložiť zmeny“.', 'The change is saved only with “Save changes”.')}</span></p>
+      )}
       {rows.map((r, i) => {
         const p = problem(r);
         return (
@@ -173,7 +177,7 @@ export default function CourseSection({ disabled }: { disabled: boolean }) {
                 onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, km: e.target.value } : x)))} />
               <span className="mute">{t('km od štartu', 'km from start')}</span>
             </label>
-            <button type="button" className="btn small danger" disabled={disabled} aria-label={t('Odstrániť kontrolný bod', 'Remove checkpoint')} onClick={() => setRows(rows.filter((_, j) => j !== i))}><span>×</span></button>
+            <button type="button" className="btn small danger" disabled={disabled} aria-label={t('Odstrániť kontrolný bod', 'Remove checkpoint')} onClick={() => setRows(rows.filter((_, j) => j !== i))}><span>{t('Odstrániť', 'Remove')}</span></button>
             {p && <div className="note" role="alert">{p}</div>}
           </div>
         );

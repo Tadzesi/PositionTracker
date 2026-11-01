@@ -28,7 +28,7 @@ public sealed record EventSettings(
 
 public sealed record ParticipantInfo(
     string Id, string Bib, string Name, string? Nickname, string Category,
-    bool ShowNameToSpectators, bool IsMinor);
+    bool ShowNameToSpectators, bool IsMinor, DateTimeOffset? StartTime = null);
 
 public enum ParticipantAction { Sos, SosCleared, Pause, Resume, Dnf }
 

@@ -138,7 +138,7 @@ public sealed class ParticipantTracker
 
     private readonly Course _course;
     private readonly Sport _sport;
-    private readonly DateTimeOffset _startTime;
+    private DateTimeOffset _startTime;
     private readonly TrackerOptions _options;
     private readonly List<PositionFix> _fixes = new(); // sorted by FixOrder
 
@@ -524,6 +524,12 @@ public sealed class ParticipantTracker
         _offCourseSince = null;
         History.Clear();
     }
+
+    /// <summary>
+    /// Moves the start of this participant (the start of the wave they were put in). Only fixes taken from now on are judged
+    /// against it; what is already folded into the state stays.
+    /// </summary>
+    public void SetStartTime(DateTimeOffset startTime) => _startTime = startTime;
 
     /// <summary>Folds the next fix in time order into the state; returns false when the filter rejects it.</summary>
     private bool Step(PositionFix fix)
