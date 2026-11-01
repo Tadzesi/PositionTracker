@@ -34,6 +34,7 @@ public static class OperationsEndpoints
             .ValidateOnStart();
         services.AddSingleton<AlarmAckService>();
         services.AddScoped<OperationsService>();
+        services.AddScoped<ResultsService>();
         services.AddSingleton<RetentionWorker>();
         services.AddHostedService(sp => sp.GetRequiredService<RetentionWorker>());
         return services;
@@ -55,6 +56,21 @@ public static class OperationsEndpoints
             CookieAuth.ActingOrganizerId(context) is { } organizer
                 ? Answer(await ops.DnfAsync(organizer, eventId, participantId, context.RequestAborted))
                 : AccountErrors.Unauthorized());
+        // the results (standing while the event runs, the stored results after it finished) and their CSV export
+        group.MapGet("/results", async (string eventId, HttpContext context, ResultsService results) =>
+        {
+            if (CookieAuth.ActingOrganizerId(context) is not { } organizer) return AccountErrors.Unauthorized();
+            var answer = await results.GetAsync(organizer, eventId, context.RequestAborted);
+            return answer.Error is { } e ? EventErrors.Result(e) : Results.Json(answer.Value);
+        });
+        group.MapGet("/results.csv", async (string eventId, bool? namesOnlyWithConsent, HttpContext context, ResultsService results) =>
+        {
+            if (CookieAuth.ActingOrganizerId(context) is not { } organizer) return AccountErrors.Unauthorized();
+            var answer = await results.GetAsync(organizer, eventId, context.RequestAborted);
+            if (answer.Error is { } e) return EventErrors.Result(e);
+            var csv = ResultsService.ToCsv(answer.Value!, namesOnlyWithConsent ?? true);
+            return Results.File(System.Text.Encoding.UTF8.GetBytes(csv), "text/csv; charset=utf-8", $"results-{eventId}.csv");
+        });
         group.MapDelete("/participants/{participantId}/data", async (string eventId, string participantId, HttpContext context, OperationsService ops) =>
             CookieAuth.ActingOrganizerId(context) is { } organizer
                 ? Answer(await ops.DeleteDataAsync(organizer, eventId, participantId, context.RequestAborted))
@@ -148,6 +164,8 @@ public sealed class OperationsService(AppDbContext db, EventRegistry registry, A
         await db.LinkTokens.Where(t => t.Purpose == nameof(LinkPurpose.ParticipantInvite) && t.SubjectId == pid).ExecuteDeleteAsync(ct);
         await db.Outbox.Where(m => m.ParticipantId == pid).ExecuteDeleteAsync(ct);
         await db.AlarmAcks.Where(a => a.EventId == ev.Id && a.ParticipantId == pid).ExecuteDeleteAsync(ct);
+        await db.ResultRows.Where(r => r.EventId == ev.Id && r.ParticipantId == pid)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.Name, "#" + p.Bib).SetProperty(r => r.Nickname, (string?)null).SetProperty(r => r.NameConsent, false), ct);
         await deviceTokens.RevokeAsync(RuntimeFactory.RuntimeId(ev.Id), pid.ToString("D"), ct);
 
         var anonymous = $"deleted-{pid:N}@deleted.invalid";

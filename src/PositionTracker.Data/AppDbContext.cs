@@ -24,6 +24,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<ParticipantEntity> Participants => Set<ParticipantEntity>();
     public DbSet<LinkTokenEntity> LinkTokens => Set<LinkTokenEntity>();
     public DbSet<DeviceTokenEntity> DeviceTokens => Set<DeviceTokenEntity>();
+    public DbSet<ResultRowEntity> ResultRows => Set<ResultRowEntity>();
     public DbSet<FixEntity> Fixes => Set<FixEntity>();
     public DbSet<DeviceStatusEntity> DeviceStatuses => Set<DeviceStatusEntity>();
     public DbSet<ActionLogEntity> ActionLog => Set<ActionLogEntity>();
@@ -55,6 +56,19 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         {
             e.HasKey(a => new { a.OrganizerId, a.Day });
             e.HasOne<OrganizerEntity>().WithMany().HasForeignKey(a => a.OrganizerId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        model.Entity<ResultRowEntity>(e =>
+        {
+            e.Property(r => r.Bib).HasMaxLength(16);
+            e.Property(r => r.Name).HasMaxLength(200);
+            e.Property(r => r.Nickname).HasMaxLength(30);
+            e.Property(r => r.Gender).HasMaxLength(16);
+            e.Property(r => r.Category).HasMaxLength(60);
+            e.Property(r => r.Wave).HasMaxLength(60);
+            e.Property(r => r.Status).HasMaxLength(16);
+            e.HasOne<EventEntity>().WithMany().HasForeignKey(r => r.EventId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(r => new { r.EventId, r.ParticipantId }).IsUnique();
         });
 
         model.Entity<AdminAuditEntity>(e =>

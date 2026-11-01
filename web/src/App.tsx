@@ -11,6 +11,7 @@ const EventLayout = lazy(() => import('./pages/EventLayout'));
 const Setup = lazy(() => import('./pages/EventLayout').then((m) => ({ default: m.Setup })));
 const Participants = lazy(() => import('./pages/Participants'));
 const RaceControl = lazy(() => import('./pages/RaceControl'));
+const Results = lazy(() => import('./pages/Results'));
 const ParticipantPage = lazy(() => import('./pages/Participant'));
 const Spectator = lazy(() => import('./pages/Spectator'));
 const Admin = lazy(() => import('./pages/Admin'));
@@ -28,12 +29,14 @@ export default function App() {
           <Route index element={<Setup />} />
           <Route path="participants" element={<Participants />} />
           <Route path="control" element={<RaceControl />} />
+          <Route path="results" element={<Results />} />
         </Route>
         <Route path="admin" element={<RequireSession><Admin /></RequireSession>} />
         <Route path="admin/organizers/:oid/events/:id" element={<RequireSession><ActAs><EventLayout /></ActAs></RequireSession>}>
           <Route index element={<Setup />} />
           <Route path="participants" element={<Participants />} />
           <Route path="control" element={<RaceControl />} />
+          <Route path="results" element={<Results />} />
         </Route>
         <Route path="p" element={<ParticipantPage />} />
         <Route path="e/:id" element={<Spectator />} />

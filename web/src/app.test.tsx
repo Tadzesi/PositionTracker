@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { vi } from 'vitest';
@@ -255,5 +255,26 @@ describe('web app', () => {
     renderAt('/p?token=quiet');
     expect(await screen.findByText('The server has received nothing from you for 2 min.')).toBeInTheDocument();
     expect(screen.getByText(/keep the screen on/)).toBeInTheDocument();
+  });
+  it('the organizer sees the results of a finished event with ranks, times and who has no consent, and can export them', async () => {
+    const line = (o: object) => ({ participantId: 'p', rank: 1, categoryRank: 1, genderRank: 1, bib: '7', name: 'Jana Nováková', nickname: null, gender: 'female', category: 'Open', wave: null,
+      isMinor: false, nameConsent: false, status: 'finished', start: '2026-11-08T09:00:00Z', finishTime: '2026-11-08T10:15:00Z', netTime: '01:15:00', gapToLeader: '00:00:00',
+      distanceM: 37500, laps: 3, avgSpeedMps: 8.3, maxSpeedMps: 12, movingTime: '01:10:00', stoppedTime: '00:05:00', ascentM: 410, descentM: 410,
+      splits: [{ lap: 1, segmentIndex: 0, time: '00:10:00', colour: 'green' }], ...o });
+    const view = { eventId: 'e1', name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T09:00:00Z', sport: 'cycling', state: 'finished', provisional: false, endedAt: '2026-11-08T10:30:00Z',
+      laps: 3, finished: 2, dnf: 1, dns: 0,
+      rows: [line({}), line({ participantId: 'q', rank: 2, categoryRank: 2, bib: '9', name: 'Peter Kráľ', nameConsent: true, netTime: '01:20:00', gapToLeader: '00:05:00' }),
+        line({ participantId: 'r', rank: null, categoryRank: null, bib: '11', name: 'Adam Nový', status: 'dnf', netTime: null, distanceM: 12000, nameConsent: true })] };
+    mockFetch({ 'GET /api/account/session': { body: ME }, 'GET /api/events/e1/manage': { body: { ...manage(), state: 'finished' } }, 'GET /api/events/e1/course-preview': { body: PREVIEW },
+      'GET /api/events/e1/results': { body: view } });
+    renderAt('/org/events/e1/results');
+    expect(await screen.findByText('Final')).toBeInTheDocument();
+    expect(screen.getByText('Jana Nováková')).toBeInTheDocument();
+    expect(screen.getByText(/Without consent: 1/)).toBeInTheDocument();
+    expect(screen.getByText('Winner')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download CSV' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'DNF' }));
+    expect(screen.queryByText('Jana Nováková')).toBeNull();
+    expect(screen.getByText('Adam Nový')).toBeInTheDocument();
   });
 });

@@ -59,6 +59,18 @@ export interface PublicCourse {
   laps: number; lapLengthM: number; closed: boolean; points: [number, number][]; profile?: [number, number][] | null; checkpoints: Checkpoint[];
 }
 
+export interface SplitLine { lap: number; segmentIndex: number; time: string; colour: 'yellow' | 'green' | 'purple' }
+export interface ResultLine {
+  participantId: string; rank: number | null; categoryRank: number | null; genderRank: number | null; bib: string; name: string; nickname: string | null;
+  gender: string | null; category: string | null; wave: string | null; isMinor: boolean; nameConsent: boolean; status: 'finished' | 'dnf' | 'dns';
+  start: string; finishTime: string | null; netTime: string | null; gapToLeader: string | null; distanceM: number; laps: number; avgSpeedMps: number;
+  maxSpeedMps: number; movingTime: string; stoppedTime: string; ascentM: number; descentM: number; splits: SplitLine[];
+}
+export interface ResultsView {
+  eventId: string; name: string; location: string; startTime: string; sport: Sport; state: string; provisional: boolean; endedAt: string | null;
+  laps: number; finished: number; dnf: number; dns: number; rows: ResultLine[];
+}
+
 export interface LinkView {
   event: { name: string; location: string; startTime: string; sport: Sport };
   me: { name: string; bib: string; category: string | null; gender: string; nickname: string | null; status: string; locked: { gender: boolean } };

@@ -769,6 +769,40 @@ public sealed class EventManagementTests(PostgresFixture postgres) : IClassFixtu
         await AssertErrorAsync(await PostFixAsync(device, finishedId.ToString("D"), Start.AddMinutes(-5)), HttpStatusCode.Conflict, "event_finished");
     }
 
+    [Fact]
+    public async Task Results_are_the_standing_while_live_are_stored_at_the_finish_and_survive_the_runtime_and_belong_to_the_organizer()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "anna@example.org");
+        var other = await SessionAsync(host, "bob@example.org");
+        var id = await SeedEventAsync(host, org.OrganizerId, EventState.Ready, LoopGpx);
+        await SeedParticipantAsync(host, id, ParticipantStatus.Confirmed);
+        Assert.Equal(HttpStatusCode.OK, (await StateAsync(org, id, "live")).StatusCode);
+
+        using (var live = await JsonAsync(await org.GetAsync($"/api/events/{id}/results")))
+        {
+            Assert.True(live.RootElement.GetProperty("provisional").GetBoolean());
+            var row = Assert.Single(live.RootElement.GetProperty("rows").EnumerateArray());
+            Assert.Equal("dns", row.GetProperty("status").GetString()); // never had a position
+        }
+        Assert.Equal(HttpStatusCode.OK, (await StateAsync(org, id, "finished")).StatusCode);
+        await using (var db = Db(host)) Assert.Single(await db.ResultRows.Where(r => r.EventId == id).ToListAsync()); // stored with the finish
+
+        host.Registry.Remove(id.ToString("D")); // the runtime is gone (days later, or after a restart without it)
+        using (var after = await JsonAsync(await org.GetAsync($"/api/events/{id}/results")))
+        {
+            Assert.False(after.RootElement.GetProperty("provisional").GetBoolean());
+            Assert.Equal(1, after.RootElement.GetProperty("rows").GetArrayLength());
+        }
+        var csv = await org.GetAsync($"/api/events/{id}/results.csv");
+        Assert.Equal(HttpStatusCode.OK, csv.StatusCode);
+        Assert.Equal("text/csv", csv.Content.Headers.ContentType?.MediaType);
+        Assert.StartsWith("﻿Poradie;", await csv.Content.ReadAsStringAsync());
+
+        await AssertErrorAsync(await other.GetAsync($"/api/events/{id}/results"), HttpStatusCode.NotFound, "not_found");
+        Assert.Equal(HttpStatusCode.NotFound, (await other.GetAsync($"/api/events/{id}/results.csv")).StatusCode);
+    }
+
     // ----- ownership, lists, simulated events -----
 
     [Fact]

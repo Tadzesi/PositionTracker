@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using PositionTracker.Api.Endpoints;
+using PositionTracker.Api.Operations;
 using PositionTracker.Api.Persistence;
 using PositionTracker.Core;
 using PositionTracker.Core.Runtime;
@@ -507,6 +508,9 @@ public sealed class EventService(
         ev.Version = Guid.NewGuid();
         // Refuse ingest from now on; if the change does not commit, the event is still live and takes ingest again.
         registry.SetFinished(runtimeId, true);
+        // the results are kept in the database from now on: the runtime leaves the memory some days after the end
+        if (registry.Get(runtimeId) is { } runtime && !await db.ResultRows.AnyAsync(r => r.EventId == ev.Id, ct))
+            db.ResultRows.AddRange(await ResultsService.SnapshotAsync(db, ev, runtime, ct));
         if (hooks?.BeforeSave is { } hook) await hook(ev.Id);
         try
         {
@@ -515,11 +519,20 @@ public sealed class EventService(
         catch (DbUpdateConcurrencyException)
         {
             // Another request changed the event first, most likely finishing it: keep ingest closed; the caller
-            // re-reads and, should the event still be live after all, finishes it on the next attempt.
+            // re-reads and, should the event still be live after all, finishes it on the next attempt (with its own results).
+            DropPendingResults();
             throw;
+        }
+        catch (DbUpdateException ex) when (ex is not DbUpdateConcurrencyException
+            && ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, TableName: "ResultRows" })
+        {
+            // A concurrent finish stored the results first: the same as losing the race for the event row.
+            DropPendingResults();
+            throw new DbUpdateConcurrencyException("The results were stored by a concurrent finish.", ex);
         }
         catch
         {
+            DropPendingResults();
             registry.SetFinished(runtimeId, false);
             throw;
         }
@@ -527,6 +540,13 @@ public sealed class EventService(
     }
 
     // ----- helpers -----
+
+    /// <summary>Forgets the result lines of a failed finish, so a retry on the same context does not insert them twice.</summary>
+    private void DropPendingResults()
+    {
+        foreach (var entry in db.ChangeTracker.Entries<ResultRowEntity>().Where(e => e.State == EntityState.Added).ToList())
+            entry.State = EntityState.Detached;
+    }
 
     private async Task<EventEntity?> FindAsync(Guid organizerId, string eventId, bool tracked, CancellationToken ct)
     {

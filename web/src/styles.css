@@ -163,6 +163,15 @@ tr.sel td{background:var(--panel2)}tr.click{cursor:pointer}
 .live-profile figcaption{min-height:1.4em;font-size:.9rem;margin-top:6px}
 .live-profile-group{margin:8px 0 0}
 @media (max-width:600px){.live-profile .axis{font-size:12px}}
+@media print{
+  .topbar,.noprint,.tabs,.banner,footer{display:none!important}
+  body{background:#fff;color:#000}
+  .card{border:0;padding:0;background:#fff}
+  .results table{font-size:10pt}
+  .results th,.results td{color:#000;border-bottom:1px solid #999}
+  .results .status{border:0;color:#000}
+  .sector{print-color-adjust:exact;-webkit-print-color-adjust:exact}
+}
 .profile{margin:0}
 .profile svg{width:100%;height:auto;display:block;background:var(--panel2);border-radius:3px;touch-action:none}
 .profile .area{fill:var(--line);opacity:.55}

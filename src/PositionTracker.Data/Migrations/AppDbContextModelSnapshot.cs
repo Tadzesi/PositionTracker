@@ -647,6 +647,112 @@ namespace PositionTracker.Data.Migrations
                     b.ToTable("Participants");
                 });
 
+            modelBuilder.Entity("PositionTracker.Data.Entities.ResultRowEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<double>("AscentM")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("AvgSpeedMps")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("Bib")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("Category")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<int?>("CategoryRank")
+                        .HasColumnType("integer");
+
+                    b.Property<double>("DescentM")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("DistanceM")
+                        .HasColumnType("double precision");
+
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("FinishTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<TimeSpan?>("GapToLeader")
+                        .HasColumnType("interval");
+
+                    b.Property<string>("Gender")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<int?>("GenderRank")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsMinor")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Laps")
+                        .HasColumnType("integer");
+
+                    b.Property<double>("MaxSpeedMps")
+                        .HasColumnType("double precision");
+
+                    b.Property<TimeSpan>("MovingTime")
+                        .HasColumnType("interval");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("NameConsent")
+                        .HasColumnType("boolean");
+
+                    b.Property<TimeSpan?>("NetTime")
+                        .HasColumnType("interval");
+
+                    b.Property<string>("Nickname")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid>("ParticipantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("Rank")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SplitsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("Start")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<TimeSpan>("StoppedTime")
+                        .HasColumnType("interval");
+
+                    b.Property<string>("Wave")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EventId", "ParticipantId")
+                        .IsUnique();
+
+                    b.ToTable("ResultRows");
+                });
+
             modelBuilder.Entity("PositionTracker.Data.Entities.WaveEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -807,6 +913,15 @@ namespace PositionTracker.Data.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Category");
+                });
+
+            modelBuilder.Entity("PositionTracker.Data.Entities.ResultRowEntity", b =>
+                {
+                    b.HasOne("PositionTracker.Data.Entities.EventEntity", null)
+                        .WithMany()
+                        .HasForeignKey("EventId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("PositionTracker.Data.Entities.WaveEntity", b =>

@@ -46,6 +46,7 @@ export default function EventLayout() {
         <NavLink to={base} end>{t('Nastavenie', 'Setup')}</NavLink>
         <NavLink to={`${base}/participants`}>{t('Účastníci', 'Participants')}</NavLink>
         <NavLink to={`${base}/control`}>{t('Riadenie pretekov', 'Race control')}</NavLink>
+        {(e.state === 'live' || e.state === 'finished') && <NavLink to={`${base}/results`}>{t('Výsledky', 'Results')}</NavLink>}
       </nav>
       <Outlet />
     </ManageCtx.Provider>

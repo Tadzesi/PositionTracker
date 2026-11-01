@@ -260,6 +260,38 @@ public sealed class EventRuntime
         }
     }
 
+    /// <summary>
+    /// The results at the current time: every participant in rank order (finishers by net time, then the others), with the
+    /// net time of a finisher counted from the participant's own start. The same ranking as the live view.
+    /// </summary>
+    public IReadOnlyList<ResultRow> BuildResults()
+    {
+        lock (_lock)
+        {
+            var now = _clock.GetUtcNow();
+            var snapshots = _participants.ToDictionary(p => p.Key, p => p.Value.Tracker.GetSnapshot(now), StringComparer.Ordinal);
+            var ranking = Ranking.Rank(_participants.Values
+                .Select(e => new RankInput(e.Info.Id, snapshots[e.Info.Id].TotalDistanceM,
+                    snapshots[e.Info.Id].LastRaceFixTime, snapshots[e.Info.Id].FinishTime, e.Tracker.History,
+                    snapshots[e.Info.Id].State == ParticipantState.Dnf, e.Info.StartTime ?? Settings.StartTime))
+                .ToList());
+            return ranking.Select(r =>
+            {
+                var entry = _participants[r.ParticipantId];
+                var s = snapshots[r.ParticipantId];
+                var view = BuildView(entry, s, r, now);
+                var start = entry.Info.StartTime ?? Settings.StartTime;
+                var finished = s.State == ParticipantState.Finished && s.FinishTime is not null;
+                var laps = Math.Clamp((int)Math.Floor(s.TotalDistanceM / Course.LapLengthM), 0, Course.Laps);
+                return new ResultRow(
+                    entry.Info.Id, entry.Info.Bib, entry.Info.Name, entry.Info.Nickname, entry.Info.Category, entry.Info.IsMinor,
+                    view.Rank, s.State, start, finished ? s.FinishTime : null, finished ? s.FinishTime!.Value - start : null,
+                    finished ? r.GapToLeader : null, s.TotalDistanceM, finished ? Course.Laps : laps, s.AvgSpeedMps, s.MaxSpeedMps,
+                    s.MovingTime, s.StoppedTime, s.AscentM, s.DescentM, view.Segments);
+            }).ToList();
+        }
+    }
+
     private ParticipantView BuildView(Entry entry, ParticipantSnapshot s, RankedParticipant ranked, DateTimeOffset now)
     {
         var id = entry.Info.Id;

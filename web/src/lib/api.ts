@@ -53,6 +53,20 @@ export async function api<T = void>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', p
   return json as T;
 }
 
+/** A file from the API (the CSV export): the same cookie and administrator header as the JSON calls. */
+export async function download(path: string): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  if (actAs) headers['X-Act-As-Organizer'] = actAs;
+  let response: Response;
+  try {
+    response = await fetch(BASE + path, { credentials: 'same-origin', headers });
+  } catch {
+    throw new ApiError(0, 'network', { sk: 'Server je nedostupný. Skontrolujte pripojenie.', en: 'The server cannot be reached. Check your connection.' });
+  }
+  if (!response.ok) throw new ApiError(response.status, 'error', { sk: `Chyba ${response.status}.`, en: `Error ${response.status}.` });
+  return response.blob();
+}
+
 export const get = <T,>(path: string) => api<T>('GET', path);
 export const post = <T = void,>(path: string, body?: unknown) => api<T>('POST', path, body);
 export const put = <T = void,>(path: string, body?: unknown) => api<T>('PUT', path, body);
