@@ -6,12 +6,14 @@ import App from './App';
 import { SessionProvider } from './components/Layout';
 import { I18nProvider } from './lib/i18n';
 
+const NO_SESSION = Symbol('no session');
+
 function mockFetch(routes: Record<string, { status?: number; body?: unknown }>) {
   const calls: { url: string; method: string; headers: Record<string, string>; body?: string }[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     calls.push({ url, method: init?.method ?? 'GET', headers: (init?.headers ?? {}) as Record<string, string>, body: init?.body as string | undefined });
     const hit = routes[`${init?.method ?? 'GET'} ${url}`];
-    if (!hit) return new Response(JSON.stringify({ code: 'unauthorized', message: { sk: 'Neprihlásený', en: 'Not signed in' } }), { status: 401 });
+    if (!hit || hit.body === NO_SESSION) return new Response(JSON.stringify({ code: 'unauthorized', message: { sk: 'Neprihlásený', en: 'Not signed in' } }), { status: 401 });
     return new Response(hit.status === 204 ? null : JSON.stringify(hit.body ?? {}), { status: hit.status ?? 200 });
   }));
   return calls;
@@ -53,12 +55,49 @@ describe('web app', () => {
   });
 
   it('sign-in link needs an explicit click and then posts the token', async () => {
-    const calls = mockFetch({ 'POST /api/account/signin/redeem': { body: {} }, 'GET /api/account/session': { body: { name: 'A', email: 'a@x', language: 'en', emailConfirmed: true, emailMode: 'smtp' } }, 'GET /api/events': { body: { emailMode: 'smtp', events: [] } } });
+    const routes: Record<string, { status?: number; body?: unknown }> = { 'POST /api/account/signin/redeem': { body: {} }, 'GET /api/account/session': { body: NO_SESSION }, 'GET /api/events': { body: { emailMode: 'smtp', events: [] } } };
+    const calls = mockFetch(routes);
+    // The session cookie appears with the redemption.
+    const inner = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/account/signin/redeem') routes['GET /api/account/session'] = { body: { name: 'A', email: 'a@x', language: 'en', emailConfirmed: true, emailMode: 'smtp' } };
+      return inner(url, init);
+    }));
     renderAt('/account/signin?token=abc');
     expect(calls.some((c) => c.url.includes('redeem'))).toBe(false);
-    await userEvent.click(await screen.findByRole('button', { name: 'Sign in' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Continue to my events' }));
     await waitFor(() => expect(calls.some((c) => c.url === '/api/account/signin/redeem' && c.body === JSON.stringify({ token: 'abc' }))).toBe(true));
     expect(await screen.findByText('My events', { selector: 'h1' })).toBeInTheDocument();
+  });
+
+  it('a signed-in organizer is sent from the landing and sign-in pages straight to the events', async () => {
+    const me = { name: 'Anna', email: 'a@x', language: 'en', emailConfirmed: true, emailMode: 'smtp' };
+    mockFetch({ 'GET /api/account/session': { body: me }, 'GET /api/events': { body: { emailMode: 'smtp', events: [] } } });
+    const first = renderAt('/');
+    expect(await screen.findByText('My events', { selector: 'h1' })).toBeInTheDocument();
+    first.unmount();
+    renderAt('/account/signin');
+    expect(await screen.findByText('My events', { selector: 'h1' })).toBeInTheDocument();
+  });
+
+  it('an expired sign-in link offers to send a new one', async () => {
+    mockFetch({ 'POST /api/account/signin/redeem': { status: 400, body: { code: 'link_expired', message: { sk: 'Platnosť vypršala', en: 'This link has expired' } } } });
+    renderAt('/account/signin?token=old');
+    await userEvent.click(await screen.findByRole('button', { name: 'Continue to my events' }));
+    expect(await screen.findByText('This link has expired')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send a sign-in link' })).toBeInTheDocument();
+  });
+
+  it('an empty event list asks for the first event; a live event links to race control', async () => {
+    const me = { name: 'Anna', email: 'a@x', language: 'en', emailConfirmed: true, emailMode: 'smtp' };
+    mockFetch({ 'GET /api/account/session': { body: me }, 'GET /api/events': { body: { emailMode: 'smtp', events: [] } } });
+    const first = renderAt('/org');
+    expect(await screen.findByText('Create your first event')).toBeInTheDocument();
+    first.unmount();
+    mockFetch({ 'GET /api/account/session': { body: me }, 'GET /api/events': { body: { emailMode: 'smtp', events: [{ eventId: 'e1', name: 'Derby', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling', state: 'live' }] } } });
+    renderAt('/org');
+    expect(await screen.findByRole('link', { name: 'Race control' })).toHaveAttribute('href', '/org/events/e1/control');
+    expect(screen.getByRole('button', { name: '+ New event' })).toBeInTheDocument();
   });
 
   it('the participant page shows the invitation state and a link problem for an expired link', async () => {

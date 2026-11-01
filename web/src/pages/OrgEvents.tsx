@@ -29,10 +29,19 @@ const EVENT_GROUPS = [
 export default function OrgEvents() {
   const { t, lang } = useI18n();
   const { me } = useSession();
+  const navigate = useNavigate();
+  const [creating, setCreating] = useState(false);
   const list = useLoad(() => get<{ emailMode: string; events: EventSummary[] }>('/api/events'), []);
+  const events = list.data?.events;
+  const empty = events?.length === 0;
   return (
     <>
-      <h1>{t('Moje podujatia', 'My events')}</h1>
+      <div className="row between">
+        <h1>{t('Moje podujatia', 'My events')}</h1>
+        {events && !empty && !creating && (
+          <button type="button" className="btn primary" onClick={() => setCreating(true)}><span>+ {t('Nové podujatie', 'New event')}</span></button>
+        )}
+      </div>
       {me && !me.emailConfirmed && (
         <div className="banner">
           {t('E-mail ešte nie je potvrdený. Pokiaľ ho nepotvrdíte (odkaz v e-maile), nemožno nahrať trasu ani pozývať účastníkov.',
@@ -41,36 +50,44 @@ export default function OrgEvents() {
       )}
       <EmailModeNotice mode={list.data?.emailMode} />
       <ErrorBanner error={list.error} />
-      <div className="grid two">
-        <div className="stack">
-          {list.loading && !list.data ? <div className="card"><Loading /></div> : list.data?.events.length === 0
-            ? <div className="card"><h2>{t('Podujatia', 'Events')}</h2><p className="mute">{t('Zatiaľ nemáte žiadne podujatie.', 'You have no events yet.')}</p></div>
-            : EVENT_GROUPS.map((g) => {
-                const events = (list.data?.events ?? []).filter((e) => g.states.includes(e.state))
-                  .sort((x, y) => g.finished ? y.startTime.localeCompare(x.startTime) : x.startTime.localeCompare(y.startTime));
-                if (events.length === 0) return null;
-                return (
-                  <div className="card" key={g.key}>
-                    <h2>{t(g.sk, g.en)} <span className="mute">({events.length})</span></h2>
-                    <div className="scroll"><table>
-                      <thead><tr><th>{t('Názov', 'Name')}</th><th>{t('Začiatok', 'Start')}</th><th>{t('Stav', 'State')}</th></tr></thead>
-                      <tbody>{events.map((e) => (
-                        <tr key={e.eventId}>
-                          <td><Link to={`/org/events/${e.eventId}`}>{e.name}</Link><div className="mute">{e.location}</div></td>
-                          <td>{formatDateTime(e.startTime, lang)}</td>
-                          <td><StatusBadge value={e.state} label={stateLabel(t, e.state)} /></td>
-                        </tr>))}</tbody>
-                    </table></div>
-                  </div>);
-              })}
-        </div>
-        <CreateEvent />
+      {list.loading && !events && <div className="card"><Loading /></div>}
+      {empty && (
+        <CreateEvent intro={t('Zatiaľ nemáte žiadne podujatie. Vytvorte prvé – trasu a účastníkov pridáte v ďalšom kroku.',
+          'You have no events yet. Create your first – you add the course and participants in the next step.')} />
+      )}
+      {creating && <CreateEvent onCancel={() => setCreating(false)} />}
+      <div className="stack">
+        {EVENT_GROUPS.map((g) => {
+          const rows = (events ?? []).filter((e) => g.states.includes(e.state))
+            .sort((x, y) => g.finished ? y.startTime.localeCompare(x.startTime) : x.startTime.localeCompare(y.startTime));
+          if (rows.length === 0) return null;
+          return (
+            <div className="card" key={g.key}>
+              <h2>{t(g.sk, g.en)} <span className="mute">({rows.length})</span></h2>
+              <div className="scroll"><table>
+                <thead><tr><th>{t('Názov', 'Name')}</th><th>{t('Začiatok', 'Start')}</th><th>{t('Stav', 'State')}</th></tr></thead>
+                <tbody>{rows.map((e) => (
+                  <tr key={e.eventId} className="click" onClick={() => navigate(`/org/events/${e.eventId}`)}>
+                    <td><Link to={`/org/events/${e.eventId}`} onClick={(x) => x.stopPropagation()}>{e.name}</Link><div className="mute">{e.location}</div></td>
+                    <td>{formatDateTime(e.startTime, lang)}</td>
+                    <td>
+                      <div className="row">
+                        <StatusBadge value={e.state} label={stateLabel(t, e.state)} />
+                        {e.state === 'live' && (
+                          <Link className="btn small primary" to={`/org/events/${e.eventId}/control`} onClick={(x) => x.stopPropagation()}><span>{t('Riadiť preteky', 'Race control')}</span></Link>
+                        )}
+                      </div>
+                    </td>
+                  </tr>))}</tbody>
+              </table></div>
+            </div>);
+        })}
       </div>
     </>
   );
 }
 
-function CreateEvent() {
+function CreateEvent({ intro, onCancel }: { intro?: string; onCancel?: () => void }) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const [name, setName] = useState('');
@@ -88,8 +105,9 @@ function CreateEvent() {
     } catch (x) { setError(x); setBusy(false); }
   };
   return (
-    <form className="card stack" onSubmit={submit}>
-      <h2>{t('Nové podujatie', 'New event')}</h2>
+    <form className="card stack formcard" onSubmit={submit}>
+      <h2>{intro ? t('Vytvorte prvé podujatie', 'Create your first event') : t('Nové podujatie', 'New event')}</h2>
+      {intro && <p className="mute">{intro}</p>}
       <ErrorBanner error={bannerError(error, ['name', 'location', 'startTime', 'sport'])} />
       <Field label={t('Názov', 'Name')} name="name" error={error}><input id="name" value={name} onChange={(e) => setName(e.target.value)} required /></Field>
       <Field label={t('Miesto', 'Location')} name="location" error={error}><input id="location" value={location} onChange={(e) => setLocation(e.target.value)} required /></Field>
@@ -102,7 +120,10 @@ function CreateEvent() {
           <option value="running">{t('Beh', 'Running')}</option>
         </select>
       </Field>
-      <button className="btn primary" disabled={busy}><span>{t('Vytvoriť podujatie', 'Create event')}</span></button>
+      <div className="row">
+        <button className="btn primary" disabled={busy}><span>{t('Vytvoriť podujatie', 'Create event')}</span></button>
+        {onCancel && <button type="button" className="btn ghost" onClick={onCancel}><span>{t('Zrušiť', 'Cancel')}</span></button>}
+      </div>
     </form>
   );
 }

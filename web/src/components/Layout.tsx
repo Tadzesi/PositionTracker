@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, Suspense, type ReactNode } from 'react';
-import { Link, Outlet, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { ApiError, get, post } from '../lib/api';
 import { applyTheme, effectiveTheme, useI18n } from '../lib/i18n';
 import type { Me } from '../lib/types';
@@ -74,11 +74,12 @@ export default function Layout() {
     <>
       <header className="topbar">
         <div className="wrap">
-          <Link to="/" className="brand">Position<b>Tracker</b></Link>
+          <Link to={me ? '/org' : '/'} className="brand">Position<b>Tracker</b></Link>
           <span className="spacer" />
           {me ? (
             <>
-              <Link to="/org" className="btn small ghost"><span>{t('Moje podujatia', 'My events')}</span></Link>
+              <NavLink to="/org" className="btn small ghost"><span>{t('Moje podujatia', 'My events')}</span></NavLink>
+              <span className="who" title={me.email}>{me.name}</span>
               <button className="btn small ghost" onClick={async () => { await signOut(); navigate('/'); }}><span>{t('Odhlásiť', 'Sign out')}</span></button>
             </>
           ) : (
