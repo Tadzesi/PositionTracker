@@ -4,8 +4,9 @@ import QRCode from 'qrcode';
 import { ApiError, BASE, get, post, put } from '../lib/api';
 import { formatDateTime } from '../lib/format';
 import { useI18n, type Lang } from '../lib/i18n';
-import { useLoad } from '../lib/hooks';
+import { useLoad, usePoll } from '../lib/hooks';
 import type { LinkView } from '../lib/types';
+import { LinkDot, useLinkText } from '../components/LinkLight';
 import { ErrorBanner, Field, Loading, StatusBadge, bannerError } from '../components/Ui';
 
 interface Setup { deepLink: string; otrcJson: Record<string, unknown>; qrPayload: string }
@@ -54,9 +55,34 @@ function Flow({ token, view, reload }: { token: string; view: LinkView; reload: 
         <p><b>{me.name}</b> · #{me.bib}{me.category ? ` · ${me.category}` : ''} <StatusBadge value={me.status} label={statusLabel} /></p>
       </div>
       <Step1 token={token} view={view} reload={reload} />
+      {me.status === 'Confirmed' && <ConnectionCard token={token} initial={view.link ?? null} />}
       {me.status === 'Confirmed' && <Step2 token={token} onToken={setDeviceToken} />}
       {deviceToken && <Step3 token={token} deviceToken={deviceToken} />}
       <Share />
+    </div>
+  );
+}
+
+/** The traffic light: is the phone's data reaching the server? Follows the server every 5 s while the page is open. */
+function ConnectionCard({ token, initial }: { token: string; initial: LinkView['link'] | null }) {
+  const { t } = useI18n();
+  const text = useLinkText();
+  const poll = usePoll(() => get<LinkView>(`/api/p/${encodeURIComponent(token)}`), 5000, [token]);
+  const health = poll.data ? poll.data.link ?? null : initial;
+  const { title, hints } = text(health);
+  const level = health?.level ?? 'waiting';
+  return (
+    <div className={`card stack link-card ${level}`} role="status" aria-live="polite">
+      <h2>{t('Spojenie telefónu', 'Phone connection')} <LinkDot health={health} /></h2>
+      <p className="big">{title}</p>
+      {hints.length > 0 && <ul>{hints.map((h) => <li key={h}>{h}</li>)}</ul>}
+      {health && health.level !== 'silent' && health.level !== 'waiting' && (
+        <p className="mute">
+          {health.batteryPct != null && t(`Batéria ${Math.round(health.batteryPct)} %`, `Battery ${Math.round(health.batteryPct)} %`)}
+          {health.accuracyM != null && ` · ${t('presnosť', 'accuracy')} ${Math.round(health.accuracyM)} m`}
+        </p>)}
+      {poll.error != null && <p className="mute">{t('Stránka sa nevie spojiť so serverom – skontrolujte internet.', 'This page cannot reach the server – check your internet connection.')}</p>}
+      <p className="mute">{t('Skúška pred štartom: v OwnTracks pošlite polohu a do 10 sekúnd by sa tu mal objaviť zelený stav.', 'Test before the start: send a position in OwnTracks and a green state should appear here within 10 seconds.')}</p>
     </div>
   );
 }

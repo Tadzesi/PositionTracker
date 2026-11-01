@@ -43,8 +43,10 @@ public sealed class ParticipantService(AppDbContext db, LinkTokenService links, 
             new LinkEvent(ev.Name, ev.Location, UtcIso(ev.StartTime), ev.Sport.ToString().ToLowerInvariant()),
             new LinkMe(p.Name, p.Bib, p.Category?.Name, p.Gender, p.Nickname, p.Status.ToString(),
                 new LinkLocked(Started(ev))),
-            p.Language), null);
+            p.Language, LinkHealth.Of(RuntimeOf(ev), Id(p.Id))), null);
     }
+
+    private EventRuntime? RuntimeOf(EventEntity ev) => registry.Get(RuntimeFactory.RuntimeId(ev.Id));
 
     // ----- confirm, decline, profile -----
 
@@ -292,7 +294,7 @@ public sealed record LinkLocked(bool Gender);
 
 public sealed record LinkMe(string Name, string Bib, string? Category, string Gender, string? Nickname, string Status, LinkLocked Locked);
 
-public sealed record LinkView(LinkEvent Event, LinkMe Me, string Language);
+public sealed record LinkView(LinkEvent Event, LinkMe Me, string Language, LinkHealth? Link = null);
 
 /// <summary>The errors of the participant link API (shape and helper of <see cref="EventErrors"/>).</summary>
 public static class ParticipantErrors

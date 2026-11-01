@@ -61,7 +61,7 @@ public sealed class ParticipantLinkLimiter(TimeProvider clock)
 /// (<see cref="Accounts.BrowserApiHeaders"/>).
 /// <list type="bullet">
 /// <item><c>GET</c> → 200 <c>{event:{name,location,startTime,sport},me:{name,bib,category,gender,nickname,status,locked:{gender}},language}</c>;
-/// the current state also for confirmed and declined participants.</item>
+/// the current state also for confirmed and declined participants; <c>link</c> is the data-link light (level, ages in seconds, problems) once the event has a runtime.</item>
 /// <item><c>POST /confirm {nickname?,gender?}</c> → 200 <c>{status:"Confirmed"}</c> (idempotent);
 /// <c>POST /decline</c> → 200 <c>{status:"Declined"}</c> (409 <c>decline_locked</c> from the start);
 /// <c>PUT /profile {nickname?,gender?}</c> → 200 (409 <c>gender_locked</c> once the event started);

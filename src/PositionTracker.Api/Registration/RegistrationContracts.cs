@@ -26,7 +26,8 @@ public sealed record ParticipantView(
     string ParticipantId, string Bib, string Name, string? Nickname, bool NicknameHidden, string Email, string Gender,
     string Language, string? Category, string? Wave, string Status, bool IsMinor,
     [property: JsonConverter(typeof(UtcTimestampConverter))] DateTimeOffset CreatedAt,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? EmailMode = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? EmailMode = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Participants.LinkHealth? Link = null);
 
 public sealed record StatusCounts(int All, int Confirmed, int Invited, int Declined, int EmailFailed);
 

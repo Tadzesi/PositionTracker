@@ -23,9 +23,15 @@ export interface ManageView {
   participants: ParticipantCounts;
   running: boolean; emailMode: string; createdAt: string; endedAt: string | null; confirmationDeadline: string | null;
 }
+export type LinkProblem = 'clock' | 'accuracy' | 'lowBattery' | 'rejected';
+/** The state of a participant's data link (the traffic light); ages are seconds on the server clock. */
+export interface LinkHealth {
+  level: 'waiting' | 'good' | 'warning' | 'silent'; lastBatchAgoSeconds: number | null; lastPositionAgoSeconds: number | null;
+  accuracyM: number | null; clockAheadSeconds: number | null; batteryPct: number | null; problems: LinkProblem[]; earlyOnly: boolean;
+}
 export interface ParticipantRow {
   participantId: string; bib: string; name: string; nickname: string | null; nicknameHidden: boolean; email: string; gender: string;
-  language: string; category: string | null; wave: string | null; status: 'Invited' | 'Confirmed' | 'Declined' | 'EmailFailed'; isMinor: boolean; createdAt: string;
+  link?: LinkHealth | null; language: string; category: string | null; wave: string | null; status: 'Invited' | 'Confirmed' | 'Declined' | 'EmailFailed'; isMinor: boolean; createdAt: string;
 }
 export interface ParticipantList {
   emailMode: string; eventState: EventState;
@@ -56,7 +62,7 @@ export interface PublicCourse {
 export interface LinkView {
   event: { name: string; location: string; startTime: string; sport: Sport };
   me: { name: string; bib: string; category: string | null; gender: string; nickname: string | null; status: string; locked: { gender: boolean } };
-  language: string;
+  language: string; link?: LinkHealth | null;
 }
 
 export interface AdminEvent {

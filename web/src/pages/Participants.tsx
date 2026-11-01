@@ -2,7 +2,8 @@ import { useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { del, get, post, put } from '../lib/api';
 import { useI18n } from '../lib/i18n';
-import { useLoad } from '../lib/hooks';
+import { useLoad, usePoll } from '../lib/hooks';
+import { LinkDot } from '../components/LinkLight';
 import type { ParticipantList, ParticipantRow } from '../lib/types';
 import { EmailModeNotice, ErrorBanner, Field, Loading, StatusBadge, bannerError } from '../components/Ui';
 import { useManage } from './EventLayout';
@@ -21,6 +22,9 @@ export default function Participants() {
   const [notice, setNotice] = useState<string | null>(null);
   const base = `/api/events/${event.eventId}/participants`;
   const list = useLoad(() => get<ParticipantList>(`${base}?status=${status}&q=${encodeURIComponent(q)}`), [event.eventId, status, q]);
+  // the data-link lights follow the server every 10 s while the event can receive positions
+  const lights = usePoll(() => (event.state === 'ready' || event.state === 'live') ? get<ParticipantList>(`${base}?status=Confirmed`) : Promise.resolve(null), 10000, [event.eventId, event.state]);
+  const linkOf = (id: string) => lights.data?.participants.find((x) => x.participantId === id)?.link ?? null;
   const confirmed = me?.emailConfirmed ?? false;
   const finished = event.state === 'finished';
 
@@ -52,9 +56,9 @@ export default function Participants() {
         </div>
         {list.loading && !list.data ? <Loading /> : (
           <div className="scroll"><table>
-            <thead><tr><th>#</th><th>{t('Meno', 'Name')}</th><th>E-mail</th><th>{t('Kategória', 'Category')}</th><th>{t('Stav', 'Status')}</th><th /></tr></thead>
+            <thead><tr><th>#</th><th>{t('Meno', 'Name')}</th><th>E-mail</th><th>{t('Kategória', 'Category')}</th><th>{t('Stav', 'Status')}</th><th>{t('Spojenie', 'Connection')}</th><th /></tr></thead>
             <tbody>{list.data?.participants.map((p) => (
-              <Row key={p.participantId} p={p} eventState={event.state} act={act} base={base} eventId={event.eventId} statusLabel={statusLabel} />))}</tbody>
+              <Row key={p.participantId} p={p} link={linkOf(p.participantId)} eventState={event.state} act={act} base={base} eventId={event.eventId} statusLabel={statusLabel} />))}</tbody>
           </table></div>)}
         {list.data?.participants.length === 0 && <p className="mute">{t('Žiadni účastníci.', 'No participants.')}</p>}
       </div>
@@ -63,8 +67,8 @@ export default function Participants() {
   );
 }
 
-function Row({ p, eventState, act, base, eventId, statusLabel }: {
-  p: ParticipantRow; eventState: string; act: (fn: () => Promise<string | void>) => Promise<void>; base: string; eventId: string; statusLabel: (s: string) => string;
+function Row({ p, link, eventState, act, base, eventId, statusLabel }: {
+  p: ParticipantRow; link: ParticipantRow['link']; eventState: string; act: (fn: () => Promise<string | void>) => Promise<void>; base: string; eventId: string; statusLabel: (s: string) => string;
 }) {
   const { t } = useI18n();
   const [edit, setEdit] = useState(false);
@@ -79,6 +83,7 @@ function Row({ p, eventState, act, base, eventId, statusLabel }: {
         <td>{p.email}</td>
         <td>{p.category ?? '–'}</td>
         <td><StatusBadge value={p.status} label={statusLabel(p.status)} /></td>
+        <td>{p.status === 'Confirmed' && (eventState === 'ready' || eventState === 'live') ? <LinkDot health={link} /> : '–'}</td>
         <td className="row">
           <button className="btn small" disabled={p.status === 'Declined'} onClick={() => act(async () => { await post(`${base}/${id}/resend`); return sent; })}><span>{t('Poslať znova', 'Resend')}</span></button>
           <button className="btn small" disabled={p.status === 'Declined'} title={t('Zruší token zariadenia a pošle nový odkaz', 'Revokes the device token and mails a new link')}
@@ -89,7 +94,7 @@ function Row({ p, eventState, act, base, eventId, statusLabel }: {
         </td>
       </tr>
       {edit && (
-        <tr><td colSpan={6}>
+        <tr><td colSpan={7}>
           <div className="row">
             <input aria-label={t('Prezývka', 'Nickname')} placeholder={t('Prezývka', 'Nickname')} value={nick} onChange={(e) => setNick(e.target.value)} style={{ maxWidth: 240 }} />
             <button className="btn small" onClick={() => act(async () => { await put(`${base}/${id}`, { nickname: nick }); setEdit(false); })}><span>{t('Uložiť prezývku', 'Save nickname')}</span></button>

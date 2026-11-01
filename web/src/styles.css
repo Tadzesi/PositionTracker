@@ -80,6 +80,10 @@ td{padding:8px;border-bottom:1px solid var(--panel2);vertical-align:middle}
 .status.offline,.status.dnf,.status.draft{color:var(--dim)}
 
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--dim)}
+.dot.link-good{background:var(--green)}.dot.link-warning{background:var(--yellow)}.dot.link-silent{background:var(--red)}
+.link-dot{white-space:nowrap}
+.link-card{border-left:6px solid var(--dim)}.link-card.good{border-left-color:var(--green)}.link-card.warning{border-left-color:var(--yellow)}.link-card.silent{border-left-color:var(--red)}
+.link-card .big{font-size:1.15rem;font-weight:600}
 .dot.live,.dot.finished{background:var(--green)}.dot.delayed,.dot.stopped,.dot.offCourse{background:var(--yellow)}.dot.sos{background:var(--red)}
 .sector{display:inline-block;width:14px;height:8px;margin-right:2px;transform:skewX(-20deg);background:var(--dim)}
 .sector.purple{background:var(--purple)}.sector.green{background:var(--green)}.sector.yellow{background:var(--yellow)}

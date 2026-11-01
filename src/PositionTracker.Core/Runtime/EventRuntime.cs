@@ -143,6 +143,7 @@ public sealed class EventRuntime
             foreach (var fix in batch.Fixes) ArgumentNullException.ThrowIfNull(fix, nameof(batch));
             var timely = batch.Fixes.Where(f => f.Time <= latest && f.Time >= earliest).OrderBy(f => f.Time).ToList();
             var result = entry.Tracker.ApplyMany(timely);
+            RecordLink(entry, batch, timely.Count, result.Accepted, earliest, latest, now);
             foreach (var c in result.Completed)
             {
                 _board.Record(participantId, c.Lap, c.SegmentIndex, c.Time);
@@ -158,6 +159,43 @@ public sealed class EventRuntime
             return new IngestDetails(
                 new IngestResult(result.Accepted, result.Rejected + batch.Fixes.Count - timely.Count), result.Stored, now);
         }
+    }
+
+    /// <summary>
+    /// The state of the participant's data link now: whether positions reach the server and what is wrong if not.
+    /// Held in memory only (it starts empty after a restart). Throws <see cref="KeyNotFoundException"/> for an unknown participant.
+    /// </summary>
+    public DeviceLink Link(string participantId)
+    {
+        lock (_lock)
+        {
+            var entry = Find(participantId);
+            return DeviceLinkRules.Evaluate(_clock.GetUtcNow(), entry.Info.StartTime ?? Settings.StartTime,
+                entry.LastBatchAt, entry.LastAcceptedAt, entry.LastAccuracyM, entry.ClockAheadSeconds, entry.Status?.BatteryPct,
+                entry.LastRejectAt, entry.LastRejectKind, entry.LastEarlyAt);
+        }
+    }
+
+    private void RecordLink(Entry entry, PositionBatch batch, int timely, int accepted, DateTimeOffset earliest, DateTimeOffset latest, DateTimeOffset now)
+    {
+        entry.LastBatchAt = now;
+        if (batch.Fixes.Count == 0) return;
+        var newest = batch.Fixes.MaxBy(f => f.Time)!;
+        entry.ClockAheadSeconds = (newest.Time - now).TotalSeconds;
+        entry.LastAccuracyM = newest.AccuracyM;
+        if (accepted > 0) entry.LastAcceptedAt = now;
+        if (accepted > 0) return;
+        if (batch.Fixes.All(f => f.Time < earliest)) // the device is connected; its positions only count from an hour before the start
+        {
+            entry.LastEarlyAt = now;
+            return;
+        }
+        entry.LastRejectAt = now;
+        var limit = FilterOptions.For(Settings.Sport).MaxAccuracyM;
+        entry.LastRejectKind = batch.Fixes.Any(f => f.Time > latest) ? LinkProblem.Clock
+            : timely == 0 ? LinkProblem.Rejected
+            : batch.Fixes.Any(f => f.AccuracyM > limit) ? LinkProblem.Accuracy
+            : LinkProblem.Rejected;
     }
 
     /// <summary>
@@ -292,5 +330,12 @@ public sealed class EventRuntime
         public DeviceStatus? Status { get; set; }
         public DateTimeOffset? SosSince { get; set; }
         public DateTimeOffset? LowBatterySince { get; set; }
+        public DateTimeOffset? LastBatchAt { get; set; }
+        public DateTimeOffset? LastAcceptedAt { get; set; }
+        public DateTimeOffset? LastRejectAt { get; set; }
+        public LinkProblem? LastRejectKind { get; set; }
+        public DateTimeOffset? LastEarlyAt { get; set; }
+        public double? LastAccuracyM { get; set; }
+        public double? ClockAheadSeconds { get; set; }
     }
 }

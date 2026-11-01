@@ -262,6 +262,30 @@ public sealed class ParticipantLinkTests(PostgresFixture postgres) : IClassFixtu
     // ----- consent and device token -----
 
     [Fact]
+    public async Task The_link_answer_carries_the_data_link_light_that_is_good_once_the_device_reaches_the_server()
+    {
+        await using var host = Host();
+        var ev = await SeedEventAsync(host, EventState.Live);
+        await host.Services.GetRequiredService<RuntimeRehydrator>().RebuildAsync(default);
+        var pid = await SeedParticipantAsync(host, ev, ParticipantStatus.Invited, "Rider");
+        var link = await IssueLinkAsync(host, pid);
+        var client = Client(host);
+        await PostAsync(client, link, "/confirm", new { });
+        var token = await ConsentAsync(client, link, false);
+
+        using (var before = await JsonAsync(await GetAsync(client, link)))
+            Assert.Equal("waiting", before.RootElement.GetProperty("link").GetProperty("level").GetString());
+
+        Assert.Equal(HttpStatusCode.Accepted, (await IngestAsync(host, ev, token)).StatusCode);
+        using var after = await JsonAsync(await GetAsync(client, link));
+        var light = after.RootElement.GetProperty("link");
+        Assert.True(light.GetProperty("level").GetString() == "good", light.ToString());
+        Assert.Equal(0, light.GetProperty("problems").GetArrayLength());
+        Assert.True(light.GetProperty("lastBatchAgoSeconds").GetDouble() < 5);
+        Assert.True(light.GetProperty("earlyOnly").GetBoolean()); // the seeded start is far away: connected, stored from an hour before it
+    }
+
+    [Fact]
     public async Task Consent_issues_the_device_token_once_stores_the_consent_and_a_second_consent_reissues()
     {
         await using var host = Host();

@@ -130,7 +130,7 @@ public sealed class RegistrationService(
         return Ok(new ParticipantList(emailMode.Mode, ev.State,
             new StatusCounts(counts.Sum(c => c.Count), Count(ParticipantStatus.Confirmed), Count(ParticipantStatus.Invited),
                 Count(ParticipantStatus.Declined), Count(ParticipantStatus.EmailFailed)),
-            rows.Select(p => View(p, waves)).ToList()));
+            rows.Select(p => View(p, waves) with { Link = LinkHealthOf(ev, p) }).ToList()));
     }
 
     // ----- edit -----
@@ -483,6 +483,11 @@ public sealed class RegistrationService(
             return pg.ConstraintName == BibIndex ? RegistrationErrors.BibTaken : RegistrationErrors.EmailDuplicate;
         }
     }
+
+    /// <summary>The data-link light of a confirmed participant of a running event; null otherwise.</summary>
+    private Participants.LinkHealth? LinkHealthOf(EventEntity ev, ParticipantEntity p) =>
+        p.Status == ParticipantStatus.Confirmed
+            ? Participants.LinkHealth.Of(registry.Get(RuntimeFactory.RuntimeId(ev.Id)), Id(p.Id)) : null;
 
     private static ParticipantView View(ParticipantEntity p, IReadOnlyDictionary<Guid, string> waves) =>
         new(Id(p.Id), p.Bib, p.Name, p.Nickname, p.NicknameHidden, p.Email, p.Gender, p.Language, p.Category?.Name,
