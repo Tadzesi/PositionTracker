@@ -122,6 +122,15 @@ public static class IngestEndpoints
                     statusCode: StatusCodes.Status429TooManyRequests);
             }
             var ingested = runtime.IngestDetailed(participantId, batch);
+            if (ingested.Result.Rejected > 0)
+            {
+                // Why a device's fixes are not stored (accuracy over the limit, a wrong device clock): no coordinates are logged.
+                var worst = batch.Fixes.Max(f => f.AccuracyM);
+                var skew = batch.Fixes.Select(f => (f.Time - ingested.At).TotalSeconds).DefaultIfEmpty().Max();
+                context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("PositionTracker.Ingest").LogInformation(
+                    "Event {EventId}, participant {ParticipantId}: {Rejected} of {Total} fixes rejected (worst accuracy {Accuracy} m, clock {Skew:0} s ahead of the server)",
+                    eventId, participantId, ingested.Result.Rejected, batch.Fixes.Count, worst, skew);
+            }
             if (persist && (ingested.Stored.Count > 0 || status is not null))
             {
                 reserved = false;
