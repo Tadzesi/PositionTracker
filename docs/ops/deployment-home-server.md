@@ -10,8 +10,10 @@
 | Traffic | Internet → Cloudflare → Cloudflare Tunnel → `lab463-web` nginx → `positiontracker:8080` |
 | Mail | `possitiontracker@lab463.com` via Websupport SMTP (credentials only in the stack's `.env`) |
 
-How the pieces fit: nginx sends the Cloudflare client address as `X-Forwarded-For` and `X-Forwarded-Proto: https`; the app trusts only the `frontend`
-network (`Proxy__KnownNetworks__0=172.30.0.0/24`), so the per-IP limits see real visitors. The session cookie is rewritten to path `/tracker/app/`
+How the pieces fit: nginx sends the Cloudflare client address as `X-Forwarded-For` and `X-Forwarded-Proto: https`; the app shares only the small network `pt-edge`
+(`docker network create --subnet 172.30.77.0/29 pt-edge`, with the nginx container attached; compose of the web stack lists it) with that nginx and trusts
+only it (`Proxy__KnownNetworks__0=172.30.77.0/29`), so the per-IP limits see real visitors and no other stack can forge a client address. The nginx
+access log masks every `token=` value and the token in `/api/p/<token>/` (`map` blocks before `log_format`). The session cookie is rewritten to path `/tracker/app/`
 (`proxy_cookie_path`). The app sets its own CSP, `X-Frame-Options` and cookie flags; the location defines an `add_header` so the server-level headers
 are not added twice. The app location sends `X-Robots-Tag: noindex` (participant links carry credentials), the static site is indexable.
 

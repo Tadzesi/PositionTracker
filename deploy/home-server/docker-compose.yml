@@ -1,6 +1,6 @@
 # PositionTracker on the home server: ~/server/stacks/positiontracker/docker-compose.yml
 # The source is in ./src (git archive of the repository), secrets in ./.env (chmod 600, never committed).
-# Public path: https://www.lab463.com/tracker/ (site) and /tracker/app/ (this app), routed by the nginx of the web stack.
+# Public path: https://www.lab463.com/tracker/ (site) and /tracker/app/ (this app), routed by the nginx of the web stack over the network pt-edge.
 name: positiontracker
 
 services:
@@ -48,13 +48,14 @@ services:
       Email__Smtp__UseStartTls: ${SMTP_STARTTLS}
       Email__Smtp__User: ${SMTP_USER}
       Email__Smtp__Password: ${SMTP_PASSWORD}
-      # Only the nginx of the web stack (frontend network) is trusted for X-Forwarded-For / -Proto.
-      Proxy__KnownNetworks__0: 172.30.0.0/24
+      # Only the nginx of the web stack is trusted for X-Forwarded-For / -Proto: the app shares the small network pt-edge (172.30.77.0/29)
+      # with that nginx alone, not the big frontend network with the other stacks, whose containers could otherwise forge client addresses.
+      Proxy__KnownNetworks__0: 172.30.77.0/29
       Retention__FixDays: "30"
     volumes:
       - pt-keys:/keys
     networks:
-      frontend:
+      edge:
         aliases: [positiontracker]
       internal:
 
@@ -63,7 +64,9 @@ volumes:
   pt-keys:
 
 networks:
-  frontend:
+  # created once: docker network create --subnet 172.30.77.0/29 pt-edge   (the nginx container lab463-web is attached to it as well)
+  edge:
     external: true
+    name: pt-edge
   internal:
     driver: bridge
