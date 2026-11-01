@@ -137,6 +137,32 @@ tr.sel td{background:var(--panel2)}tr.click{cursor:pointer}
 .steps .txt{flex:1;min-width:180px}
 .steps .txt small{display:block;color:var(--mute)}
 .help{border-left:4px solid var(--blue);padding:6px 12px;background:var(--panel2);border-radius:0 3px 3px 0}
+.live-profile{margin:0}
+.live-profile svg{width:100%;height:auto;display:block;background:var(--panel2);border-radius:3px}
+.live-profile .area{fill:var(--line);opacity:.55}
+.live-profile .line{stroke:var(--red);stroke-width:2}
+.live-profile .axis{fill:var(--mute);font-size:11px}
+.live-profile .cp{stroke:var(--yellow);stroke-width:1.5;stroke-dasharray:3 3}
+.live-profile .cpdot{fill:var(--yellow)}
+.live-profile .dens{fill:var(--blue)}
+.live-profile-bar{margin-bottom:8px;gap:6px;align-items:center}
+.live-profile .lp-mark{cursor:pointer;outline:none}
+.live-profile .lp-mark .stem{stroke:var(--mute);stroke-width:1;opacity:.6}
+.live-profile .lp-mark .pin{fill:var(--text);stroke:var(--panel2);stroke-width:1.5}
+.live-profile .lp-mark .tag{fill:var(--panel);stroke:var(--mute);stroke-width:1.5}
+.live-profile .lp-mark .tagtext{fill:var(--text);font-size:11px;font-weight:700;pointer-events:none}
+.live-profile .lp-mark.top .tag{stroke:var(--green);stroke-width:2.5}
+.live-profile .lp-mark.fol .tag{stroke:var(--yellow);stroke-width:2.5}
+.live-profile .lp-mark.sel .tag{fill:var(--yellow);stroke:var(--yellow)}
+.live-profile .lp-mark.sel .tagtext{fill:#000}
+.live-profile .lp-mark.alarm .tag{stroke:var(--red);stroke-width:3}
+.live-profile .lp-mark.alarm .pin{fill:var(--red)}
+.live-profile .lp-mark.bubble .tag{fill:var(--blue);stroke:var(--blue)}
+.live-profile .lp-mark.bubble .tagtext{fill:#fff}
+.live-profile .lp-mark:focus-visible .tag{stroke:var(--text);stroke-width:3}
+.live-profile figcaption{min-height:1.4em;font-size:.9rem;margin-top:6px}
+.live-profile-group{margin:8px 0 0}
+@media (max-width:600px){.live-profile .axis{font-size:12px}}
 .profile{margin:0}
 .profile svg{width:100%;height:auto;display:block;background:var(--panel2);border-radius:3px;touch-action:none}
 .profile .area{fill:var(--line);opacity:.55}

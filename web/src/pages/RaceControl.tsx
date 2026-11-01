@@ -5,6 +5,8 @@ import { useI18n } from '../lib/i18n';
 import { useLoad, usePoll } from '../lib/hooks';
 import type { LiveParticipant, LiveView, PublicCourse } from '../lib/types';
 import MapView, { pointAt, type MapMarker } from '../components/MapView';
+import LiveProfile, { type LiveProfileRider } from '../components/LiveProfile';
+import { lapDistance } from '../lib/profileCluster';
 import { ALARM_ORDER, ErrorBanner, StatusBadge, useAlarmLabel, useStateLabel } from '../components/Ui';
 import { useManage } from './EventLayout';
 
@@ -35,6 +37,16 @@ export default function RaceControl() {
     return at ? { name: c.name, lat: at[0], lon: at[1] } : null;
   }).filter((x): x is { name: string; lat: number; lon: number } => x !== null);
 
+  const lapLength = course.data?.lapLengthM ?? 0;
+  const profileRiders: LiveProfileRider[] = (view?.participants ?? [])
+    .filter((p) => p.lat !== null && p.state !== 'dnf' && p.state !== 'notStarted')
+    .map((p) => ({
+      id: p.participantId, bib: p.bib, name: p.displayName, rank: p.rank, followed: false,
+      alarm: p.state === 'sos' || p.alarms.some((a) => !a.acknowledged),
+      distM: lapDistance(p.totalDistanceM, p.lap, lapLength, p.state === 'finished'),
+      gap: p.rank === 1 ? t('Líder', 'Leader') : p.gapToLeader ? formatGap(p.gapToLeader) : null,
+    }));
+
   const flags = (view?.participants ?? []).flatMap((p) => p.alarms.map((a) => ({ p, a })))
     .sort((x, y) => Number(x.a.acknowledged) - Number(y.a.acknowledged) || ALARM_ORDER.indexOf(x.a.kind) - ALARM_ORDER.indexOf(y.a.kind));
 
@@ -56,6 +68,13 @@ export default function RaceControl() {
       <div className="race">
         <div className="stack">
           <MapView points={course.data?.points ?? []} markers={markers} checkpoints={cps ?? []} selectedId={selected} onSelect={setSelected} className="map tall" />
+          {course.data && lapLength > 0 && (
+            <div className="card">
+              <h3>{t('Pretekári na profile trate', 'Riders on the course profile')}</h3>
+              <LiveProfile profile={course.data.profile ?? null} lapLengthM={lapLength}
+                checkpoints={course.data.checkpoints.map((c) => ({ name: c.name, distM: c.lapDistanceM }))}
+                riders={profileRiders} selectedId={selected} onSelect={setSelected} />
+            </div>)}
           <div className="card">
             <h3>{t('Hlásenia', 'Race control messages')}</h3>
             {flags.length === 0 && <p className="mute">{t('Bez alarmov.', 'No alarms.')}</p>}

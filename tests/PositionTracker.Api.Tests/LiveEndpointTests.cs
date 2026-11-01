@@ -84,6 +84,20 @@ public class LiveEndpointTests(ApiFactory shared) : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Public_course_carries_the_elevation_profile_of_one_lap_or_null_without_elevation()
+    {
+        using var client = shared.CreateClient();
+        var course = await ReadJson(await client.GetAsync($"/api/events/{ApiFactory.EventId}/course"));
+        Assert.True(course.TryGetProperty("profile", out var profile));
+        if (profile.ValueKind == JsonValueKind.Null) return;
+        var rows = profile.EnumerateArray().Select(r => (Dist: r[0].GetDouble(), Ele: r[1].GetDouble())).ToList();
+        Assert.InRange(rows.Count, 2, 400);
+        Assert.Equal(0, rows[0].Dist);
+        Assert.Equal(course.GetProperty("lapLengthM").GetDouble(), rows[^1].Dist, 0);
+        Assert.Equal(rows.OrderBy(r => r.Dist).Select(r => r.Dist), rows.Select(r => r.Dist));
+    }
+
+    [Fact]
     public async Task Live_with_key_returns_200_with_the_full_view()
     {
         using var client = OrganizerClient(shared);

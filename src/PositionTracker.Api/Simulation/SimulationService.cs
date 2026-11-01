@@ -8,7 +8,7 @@ using PositionTracker.Core.Simulation;
 namespace PositionTracker.Api.Simulation;
 
 public sealed record DemoRequest(
-    int Participants = 30, double TimeScale = 20, int Laps = 3, string? GpxBase64 = null, Sport Sport = Sport.Cycling);
+    int Participants = 30, double TimeScale = 20, int Laps = 3, string? GpxBase64 = null, Sport Sport = Sport.Cycling, bool? Hills = null);
 
 public sealed record DemoResponse(string EventId, string OrganizerUrl, string PublicUrl);
 
@@ -327,9 +327,16 @@ public sealed class SimulationService(
     /// The default 12.5 km loop or the decoded GPX, with checkpoints at 3 000 m and 8 000 m of the lap where they
     /// lie inside it.
     /// </summary>
+    /// <summary>A gentle hilly lap for the default demo course when <c>hills</c> is set (the HTTP endpoint sets it unless the request says otherwise) (two long climbs and some rolling), so the elevation profile has something to show.</summary>
+    private static double DemoElevationM(double lapDistanceM)
+    {
+        var f = lapDistanceM / 12_500 * 2 * Math.PI;
+        return 320 + 55 * Math.Sin(f * 2) + 18 * Math.Sin(f * 5 + 1);
+    }
+
     private static Course BuildCourse(DemoRequest request)
     {
-        var points = request.GpxBase64 is { } gpx ? ParseGpx(gpx) : DemoCourses.Loop();
+        var points = request.GpxBase64 is { } gpx ? ParseGpx(gpx) : DemoCourses.Loop(elevationAtM: request.Hills == true ? DemoElevationM : null);
         var lapLength = Course.Create(points, 1).LapLengthM;
         var checkpoints = CheckpointsM
             .Where(d => d < lapLength)

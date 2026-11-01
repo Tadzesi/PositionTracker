@@ -48,7 +48,8 @@ public static class LiveEndpoints
     /// <summary>
     /// The course and the event header for the public pages (anonymous; only events whose runtime exists, 404 otherwise):
     /// <c>{event:{name,sport,startTime,spectatorDelaySeconds},laps,lapLengthM,closed,points:[[lat,lon]…],checkpoints:[{name,lapDistanceM}]}</c>.
-    /// The track is thinned to at most 1 500 points.
+    /// The track is thinned to at most 1 500 points. <c>profile</c> is the elevation profile of one lap,
+    /// <c>[[distanceM, elevationM]…]</c> thinned to at most 400 points, or null for a course without elevation.
     /// </summary>
     private static IResult GetCourse(string eventId, EventRegistry registry)
     {
@@ -57,6 +58,11 @@ public static class LiveEndpoints
         var step = Math.Max(1, (int)Math.Ceiling(course.Points.Count / 1500.0));
         var points = course.Points.Where((_, i) => i % step == 0 || i == course.Points.Count - 1)
             .Select(p => new[] { Math.Round(p.Lat, 6), Math.Round(p.Lon, 6) }).ToList();
+        var profileStep = Math.Max(1, (int)Math.Ceiling(course.Points.Count / 400.0));
+        var profile = course.HasElevation
+            ? Enumerable.Range(0, course.Points.Count).Where(i => i % profileStep == 0 || i == course.Points.Count - 1)
+                .Select(i => new[] { Math.Round(course.CumulativeM[i]), Math.Round(course.Points[i].Ele!.Value, 1) }).ToList()
+            : null;
         return Results.Ok(new
         {
             @event = new
@@ -65,7 +71,7 @@ public static class LiveEndpoints
                 startTime = runtime.Settings.StartTime.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture),
                 spectatorDelaySeconds = (int)runtime.Settings.SpectatorDelay.TotalSeconds,
             },
-            laps = course.Laps, lapLengthM = course.LapLengthM, closed = course.IsClosed, points, checkpoints = course.Checkpoints,
+            laps = course.Laps, lapLengthM = course.LapLengthM, closed = course.IsClosed, points, profile, checkpoints = course.Checkpoints,
         });
     }
 

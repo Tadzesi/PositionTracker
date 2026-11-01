@@ -6,6 +6,8 @@ import { useI18n } from '../lib/i18n';
 import { usePoll } from '../lib/hooks';
 import type { PublicCourse, SpectatorParticipant, SpectatorView } from '../lib/types';
 import MapView, { pointAt, type MapMarker } from '../components/MapView';
+import LiveProfile, { type LiveProfileRider } from '../components/LiveProfile';
+import { lapDistance } from '../lib/profileCluster';
 import { ErrorBanner, Loading, StatusBadge, useStateLabel } from '../components/Ui';
 
 const loadFollowed = (eventId: string): string[] => {
@@ -68,6 +70,14 @@ export default function Spectator() {
     return at ? { name: c.name, lat: at[0], lon: at[1] } : null;
   }).filter((x): x is { name: string; lat: number; lon: number } => x !== null);
 
+  const profileRiders: LiveProfileRider[] = course.data ? participants
+    .filter((p) => p.lat !== null && p.state !== 'dnf' && p.state !== 'notStarted')
+    .map((p) => ({
+      id: p.participantId, bib: p.bib, name: p.displayName, rank: p.rank, alarm: false, followed: followed.includes(p.participantId),
+      distM: lapDistance(p.totalDistanceM, p.lap, course.data!.lapLengthM, p.state === 'finished'),
+      gap: p.rank === 1 ? t('Líder', 'Leader') : p.gapToLeader ? formatGap(p.gapToLeader) : null,
+    })) : [];
+
   if (course.error && !course.data) {
     return (
       <div className="card narrow stack">
@@ -96,6 +106,12 @@ export default function Spectator() {
       <div className="race">
         <div className="stack">
           <MapView points={course.data.points} markers={markers} checkpoints={cps ?? []} selectedId={focus} onSelect={setFocus} followIds={followed} className="map tall" />
+          <div className="card">
+            <h3>{t('Pretekári na profile trate', 'Riders on the course profile')}</h3>
+            <LiveProfile profile={course.data.profile ?? null} lapLengthM={course.data.lapLengthM}
+              checkpoints={course.data.checkpoints.map((c) => ({ name: c.name, distM: c.lapDistanceM }))}
+              riders={profileRiders} selectedId={focus} onSelect={setFocus} />
+          </div>
           {sel && <Followed p={sel} sport={sport} followed={followed.includes(sel.participantId)} onToggle={() => toggle(sel.participantId)}
             notify={notify.has(sel.participantId)} onNotify={async () => {
               const next = new Set(notify);

@@ -56,7 +56,7 @@ export type SpectatorParticipant = Pick<LiveParticipant,
 export interface SpectatorView { at: string; eventId: string; participants: SpectatorParticipant[] }
 export interface PublicCourse {
   event: { name: string; sport: Sport; startTime: string; spectatorDelaySeconds: number };
-  laps: number; lapLengthM: number; closed: boolean; points: [number, number][]; checkpoints: Checkpoint[];
+  laps: number; lapLengthM: number; closed: boolean; points: [number, number][]; profile?: [number, number][] | null; checkpoints: Checkpoint[];
 }
 
 export interface LinkView {

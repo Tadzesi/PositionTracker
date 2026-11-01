@@ -39,11 +39,12 @@ public static class DemoEndpoints
         if (error is not null) return error;
         if (request is null)
             return Results.Problem(
-                "Expected {\"participants\",\"timeScale\",\"laps\",\"gpxBase64\",\"sport\"} (all optional).",
+                "Expected {\"participants\",\"timeScale\",\"laps\",\"gpxBase64\",\"sport\",\"hills\"} (all optional).",
                 statusCode: StatusCodes.Status400BadRequest);
         try
         {
-            var created = simulation.Start(request);
+            // The demo shown to people has hills (the elevation profile needs them); a request can switch them off with "hills":false.
+            var created = simulation.Start(request with { Hills = request.Hills ?? true });
             return Results.Created(created.OrganizerUrl, created);
         }
         catch (DemoRequestException ex)
