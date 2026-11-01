@@ -7,6 +7,7 @@ import { useLoad } from '../lib/hooks';
 import type { EventSummary, Sport } from '../lib/types';
 import { EmailModeNotice, ErrorBanner, Field, Loading, StatusBadge, bannerError } from '../components/Ui';
 import { useSession } from '../components/Layout';
+import DateTimeField from '../components/DateTimeField';
 
 export function RequireSession({ children }: { children: React.ReactNode }) {
   const { me, ready } = useSession();
@@ -134,7 +135,7 @@ function CreateEvent({ intro, onCancel }: { intro?: string; onCancel?: () => voi
       <Field label={t('Názov', 'Name')} name="name" error={error}><input id="name" value={name} onChange={(e) => setName(e.target.value)} required /></Field>
       <Field label={t('Miesto', 'Location')} name="location" error={error}><input id="location" value={location} onChange={(e) => setLocation(e.target.value)} required /></Field>
       <Field label={t('Dátum a čas štartu (vaše miestne)', 'Start date and time (your local time)')} name="startTime" error={error}>
-        <input id="startTime" type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} required />
+        <DateTimeField id="startTime" value={start} onChange={setStart} required />
       </Field>
       <Field label={t('Šport', 'Sport')} name="sport" error={error}>
         <select id="sport" value={sport} onChange={(e) => setSport(e.target.value as Sport)}>

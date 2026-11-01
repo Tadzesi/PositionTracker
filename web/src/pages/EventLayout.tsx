@@ -7,6 +7,7 @@ import { useLoad, type Loaded } from '../lib/hooks';
 import type { CategoryView, ManageView, WaveView } from '../lib/types';
 import { EmailModeNotice, ErrorBanner, Field, Loading, StatusBadge, bannerError } from '../components/Ui';
 import CourseSection from './CourseSection';
+import DateTimeField from '../components/DateTimeField';
 import { useSession } from '../components/Layout';
 
 const ManageCtx = createContext<{ event: ManageView; reload: () => void; setEvent: (e: ManageView) => void } | null>(null);
@@ -171,7 +172,7 @@ function EditEvent({ confirmed }: { confirmed: boolean }) {
         <Field label={t('Názov', 'Name')} name="name" error={error}><input id="name" value={name} onChange={(e) => setName(e.target.value)} required /></Field>
         <Field label={t('Miesto', 'Location')} name="location" error={error}><input id="location" value={loc} onChange={(e) => setLoc(e.target.value)} required /></Field>
         <Field label={t('Dátum a čas štartu (vaše miestne)', 'Start date and time (your local time)')} name="startTime" error={error}>
-          <input id="startTime" type="datetime-local" value={start} disabled={live} onChange={(e) => setStart(e.target.value)} required />
+          <DateTimeField id="startTime" value={start} disabled={live} onChange={setStart} required />
         </Field>
         <Field label={t('Šport', 'Sport')} name="sport" error={error}>
           <select id="sport" value={sport} disabled={live} onChange={(e) => setSport(e.target.value)}>
@@ -229,10 +230,12 @@ function Waves({ disabled, run }: { disabled: boolean; run: Run }) {
       run(() => put<ManageView>(`/api/events/${event.eventId}/waves`, rows.map((r) => ({ name: r.name, startTime: localInputToUtc(r.start) ?? r.start }))));
     }}>
       <h2>{t('Štartové vlny', 'Start waves')}</h2>
+      <p className="help">{t('Vlny použite, keď pretekári nevyštartujú naraz (napr. elita o 10:00, ostatní o 10:05). Každá vlna má názov a čas štartu, ktorý nesmie byť skôr ako štart podujatia ani viac ako 24 hodín po ňom. Pretekára do vlny zaradíte na stránke Účastníci. Vlny sú voliteľné; bez nich štartujú všetci v čas štartu podujatia. Poznámka: vlna sa zatiaľ ukladá a zobrazuje pri účastníkovi, ale poradie a časové odstupy na mape sa stále počítajú od štartu podujatia.',
+        'Use waves when riders do not start all at once (e.g. elite at 10:00, everybody else at 10:05). A wave has a name and a start time that is not before the event start and at most 24 hours after it. You put a rider in a wave on the Participants page. Waves are optional; without them everybody starts at the event start. Note: a wave is stored and shown with the participant, but the ranking and the time gaps on the map are still counted from the event start.')}</p>
       {rows.map((r, i) => (
         <div className="row" key={i}>
           <input aria-label={t('Názov', 'Name')} placeholder={t('Názov', 'Name')} value={r.name} disabled={disabled} style={{ flex: 1 }} onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} />
-          <input aria-label={t('Štart vlny', 'Wave start')} type="datetime-local" value={r.start} disabled={disabled} style={{ flex: 1 }} onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, start: e.target.value } : x)))} />
+          <div style={{ flex: 2, minWidth: 220 }}><DateTimeField id={`wave-start-${i}`} value={r.start} disabled={disabled} onChange={(v) => setRows(rows.map((x, j) => (j === i ? { ...x, start: v } : x)))} /></div>
           <button type="button" className="btn small danger" disabled={disabled} onClick={() => setRows(rows.filter((_, j) => j !== i))}><span>×</span></button>
         </div>))}
       <div className="row">
@@ -254,7 +257,7 @@ function Deadline({ disabled, run }: { disabled: boolean; run: Run }) {
     }}>
       <h2>{t('Termín potvrdenia účasti', 'Confirmation deadline')}</h2>
       <Field label={t('Do (prázdne = bez termínu)', 'Until (empty = none)')} name="confirmationDeadline">
-        <input id="confirmationDeadline" type="datetime-local" value={value} disabled={disabled} onChange={(e) => setValue(e.target.value)} />
+        <DateTimeField id="confirmationDeadline" value={value} disabled={disabled} onChange={setValue} />
       </Field>
       <button className="btn" disabled={disabled}><span>{t('Uložiť termín', 'Save deadline')}</span></button>
     </form>

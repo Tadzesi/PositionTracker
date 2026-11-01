@@ -32,7 +32,9 @@ export function formatSpeed(mps: number, sport: 'running' | 'cycling', pace: num
 }
 
 export function formatDateTime(iso: string, lang: 'sk' | 'en'): string {
-  return new Date(iso).toLocaleString(lang === 'sk' ? 'sk-SK' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+  // EU order, 24 hours: 24. 3. 2026, 14:30 (sk) / 24/03/2026, 14:30 (en)
+  return new Date(iso).toLocaleString(lang === 'sk' ? 'sk-SK' : 'en-GB',
+    { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 export function formatTime(iso: string, lang: 'sk' | 'en'): string {
