@@ -5,26 +5,8 @@ import { useI18n } from '../lib/i18n';
 import { useLoad, usePoll } from '../lib/hooks';
 import type { LiveParticipant, LiveView, PublicCourse } from '../lib/types';
 import MapView, { pointAt, type MapMarker } from '../components/MapView';
-import { ErrorBanner, StatusBadge } from '../components/Ui';
+import { ALARM_ORDER, ErrorBanner, StatusBadge, useAlarmLabel, useStateLabel } from '../components/Ui';
 import { useManage } from './EventLayout';
-
-export const ALARM_ORDER = ['sos', 'offCourse', 'stopped', 'offline', 'lowBattery', 'lapsInferred'];
-
-export function useStateLabel() {
-  const { t } = useI18n();
-  return (s: string) => ({
-    notStarted: t('Čaká', 'Not started'), live: t('Naživo', 'Live'), delayed: t('Oneskorený', 'Delayed'), offline: t('Offline', 'Offline'),
-    stopped: t('Stojí', 'Stopped'), offCourse: t('Mimo trasy', 'Off course'), sos: 'SOS', finished: t('V cieli', 'Finished'), dnf: 'DNF',
-  } as Record<string, string>)[s] ?? s;
-}
-
-export function useAlarmLabel() {
-  const { t } = useI18n();
-  return (k: string) => ({
-    sos: 'SOS', stopped: t('Stojí', 'Stopped'), offCourse: t('Mimo trasy', 'Off course'), offline: t('Bez signálu', 'No signal'),
-    lowBattery: t('Slabá batéria', 'Low battery'), lapsInferred: t('Kolá odhadnuté – skontrolujte', 'Laps estimated – check'),
-  } as Record<string, string>)[k] ?? k;
-}
 
 export default function RaceControl() {
   const { event } = useManage();

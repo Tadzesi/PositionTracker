@@ -7,9 +7,21 @@
     <title>PositionTracker</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%276%27 fill=%27%23FF1E3C%27/%3E%3Cpath d=%27M9 24V8h8a5 5 0 010 10h-4v6z%27 fill=%27white%27/%3E%3C/svg%3E" />
     <script src="%BASE_URL%theme.js"></script>
-  </head>
+    <script src="%BASE_URL%boot.js"></script>
+    <style>
+      /* what is on screen until the bundle has rendered: the app's header and a placeholder of the page; colors come from styles.css (both themes) */
+      .sk>*{animation:skp 1.4s ease-in-out infinite}
+      .sk-line{height:14px;margin:12px 0;max-width:420px;background:var(--panel2);border-radius:3px}
+      .sk-h{height:34px;max-width:300px;margin:6px 0 18px}
+      .sk-map{height:60vh;min-height:320px;max-width:none;margin:0 0 16px;border:1px solid var(--line);border-radius:4px;background:var(--panel)}
+      @keyframes skp{50%{opacity:.5}}
+      @media (prefers-reduced-motion:reduce){.sk>*{animation:none}}
+    </style>  </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <header class="topbar"><div class="wrap"><span class="brand">Position<b>Tracker</b></span></div></header>
+      <main><div class="wrap"><div class="sk" aria-hidden="true"><div class="sk-line sk-h"></div><div class="sk-line sk-map"></div><div class="sk-line"></div><div class="sk-line" style="max-width:260px"></div></div></div></main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

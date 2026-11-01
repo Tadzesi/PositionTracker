@@ -6,8 +6,7 @@ import { useI18n } from '../lib/i18n';
 import { usePoll } from '../lib/hooks';
 import type { PublicCourse, SpectatorParticipant, SpectatorView } from '../lib/types';
 import MapView, { pointAt, type MapMarker } from '../components/MapView';
-import { ErrorBanner, Loading, StatusBadge } from '../components/Ui';
-import { useStateLabel } from './RaceControl';
+import { ErrorBanner, Loading, StatusBadge, useStateLabel } from '../components/Ui';
 
 const loadFollowed = (eventId: string): string[] => {
   try { return JSON.parse(localStorage.getItem(`pt-follow-${eventId}`) ?? '[]'); } catch { return []; }

@@ -68,7 +68,6 @@
     const run = () => (window.requestIdleCallback ? window.requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 200));
     if (document.readyState === 'complete') run(); else window.addEventListener('load', run, { once: true });
   };
-  afterLoad(loadAllImages);
 
   fromHash();
   window.addEventListener('hashchange', fromHash);
@@ -97,5 +96,27 @@
     for (const id of ['appcta', 'appnav']) { const a = document.getElementById(id); if (a) { a.href = window.PT_APP_URL; a.hidden = false; } }
   }
 
-  window.PTDemo.init(document.getElementById('demo'), t);
+  // ----- demo: Leaflet, its stylesheet and demo.js (templates, so nothing is fetched at first) start the moment the page has loaded; the
+  // placeholder with the right size is already on screen. The rest of the images follows once the demo runs. -----
+  function loadDemo() {
+    const tpl = document.getElementById('demo-assets');
+    const link = tpl.content.querySelector('link');
+    const tiles = document.createElement('link'); // the tile server is a third party: open the connection while Leaflet downloads
+    tiles.rel = 'preconnect'; tiles.href = 'https://tile.openstreetmap.org';
+    document.head.appendChild(tiles);
+    const loaded = (el) => new Promise((ok, fail) => { el.onload = ok; el.onerror = fail; document.head.appendChild(el); });
+    const css = document.createElement('link');
+    css.rel = 'stylesheet'; css.href = link.getAttribute('href');
+    const scripts = [...tpl.content.querySelectorAll('script')].map((x) => {
+      const e = document.createElement('script');
+      e.src = x.getAttribute('src'); e.async = false; // dynamic scripts are async by default; leaflet.js must run before demo.js
+      return e;
+    });
+    return Promise.all([css, ...scripts].map(loaded));
+  }
+  const stage = document.getElementById('demo');
+  const onLoad = (fn) => { if (document.readyState === 'complete') setTimeout(fn, 0); else window.addEventListener('load', () => setTimeout(fn, 0), { once: true }); };
+  onLoad(() => {
+    loadDemo().then(() => { window.PTDemo.init(stage, t); stage.classList.add('ready'); }, () => {}).then(loadAllImages);
+  });
 })();

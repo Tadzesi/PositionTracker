@@ -9,6 +9,17 @@ export class ApiError extends Error {
   }
 }
 
+interface EarlyRequest { t: number; p: Promise<Response> }
+
+/** public/boot.js starts the first requests of a spectator link before the bundle is loaded; the first GET of that path takes the response over. */
+function takeEarly(path: string): Promise<Response> | undefined {
+  const store = (window as unknown as { __ptEarly?: Record<string, EarlyRequest> }).__ptEarly;
+  const e = store?.[path];
+  if (!store || !e) return undefined;
+  delete store[path];
+  return Date.now() - e.t < 15000 ? e.p : undefined;
+}
+
 /** JSON API wrapper: sends the browser headers every unsafe request needs and turns the error shape into ApiError. */
 export async function api<T = void>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
@@ -20,7 +31,8 @@ export async function api<T = void>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', p
   }
   let response: Response;
   try {
-    response = await fetch(BASE + path, init);
+    const early = method === 'GET' ? takeEarly(path) : undefined;
+    response = await (early ? early.catch(() => fetch(BASE + path, init)) : fetch(BASE + path, init));
   } catch {
     throw new ApiError(0, 'network', { sk: 'Server je nedostupný. Skontrolujte pripojenie.', en: 'The server cannot be reached. Check your connection.' });
   }

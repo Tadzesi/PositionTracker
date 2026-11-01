@@ -45,3 +45,22 @@ export function EmailModeNotice({ mode }: { mode: string | undefined }) {
     </div>
   );
 }
+
+// Shared by the race control and spectator pages; kept here (not in a page) so one page never pulls in the other.
+export const ALARM_ORDER = ['sos', 'offCourse', 'stopped', 'offline', 'lowBattery', 'lapsInferred'];
+
+export function useStateLabel() {
+  const { t } = useI18n();
+  return (s: string) => ({
+    notStarted: t('Čaká', 'Not started'), live: t('Naživo', 'Live'), delayed: t('Oneskorený', 'Delayed'), offline: t('Offline', 'Offline'),
+    stopped: t('Stojí', 'Stopped'), offCourse: t('Mimo trasy', 'Off course'), sos: 'SOS', finished: t('V cieli', 'Finished'), dnf: 'DNF',
+  } as Record<string, string>)[s] ?? s;
+}
+
+export function useAlarmLabel() {
+  const { t } = useI18n();
+  return (k: string) => ({
+    sos: 'SOS', stopped: t('Stojí', 'Stopped'), offCourse: t('Mimo trasy', 'Off course'), offline: t('Bez signálu', 'No signal'),
+    lowBattery: t('Slabá batéria', 'Low battery'), lapsInferred: t('Kolá odhadnuté – skontrolujte', 'Laps estimated – check'),
+  } as Record<string, string>)[k] ?? k;
+}
