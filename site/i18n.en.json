@@ -27,7 +27,7 @@
  "view_org": "Organizer",
  "view_spec": "Spectator",
  "demo_restart": "Restart",
- "demo_note": "The demo runs in your browser (made-up riders and course) but shows the same as the real application. The organizer view sees everything instantly, including alarms and battery level. The spectator view is delayed by 15 s, has no alarms and hides the names of those who did not agree. Select a rider and try \"Stops\".",
+ "demo_note": "The demo runs in your browser (made-up riders and course) but shows the same as the real application. The organizer view sees everything instantly, including alarms and battery level. The spectator view is delayed by 15 s, has no alarms and hides the names of those who did not agree. The star next to a rider follows him: the others shrink on the map. Select a rider and try \"Stops\".",
  "who_h": "Four roles. One experience that cannot be beaten.",
  "w1_h": "Cyclist",
  "w1_p": "Your family finally knows exactly where you are and does not have to ask at the finish \"are you there yet?\". You just pedal.",

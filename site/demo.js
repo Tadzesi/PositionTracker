@@ -68,6 +68,7 @@
     if (window.ResizeObserver) new ResizeObserver(fit).observe($('.map')); else window.addEventListener('resize', fit);
 
     let sport = 'cycling', view = 'organizer', speedMul = 12, selected = 0, simT = 0, running = true, paused = false, finished = false, lastTs = 0;
+    const followed = new Set(); // spectator view: the riders the visitor follows (in memory only; the real app keeps them in localStorage)
     let riders = [];
     const bestSector = Array(SECTORS).fill(Infinity);
 
@@ -85,14 +86,20 @@
         r.marker = L.marker(at(0), { icon: L.divIcon({ className: '', iconSize: [26, 26], html: '' }), keyboard: false }).addTo(map);
         r.marker.on('click', () => select(r.i));
         const li = document.createElement('li');
-        li.innerHTML = '<span class="pos"></span><span class="bib">' + (r.i + 1) + '</span><span class="name"></span><span class="gap"></span><span class="sectors"></span>';
+        li.innerHTML = '<span class="pos"></span><span class="bib">' + (r.i + 1) + '</span><span class="name"></span><span class="gap"></span><span class="sectors"></span><button class="star" type="button"></button>';
         li.addEventListener('click', () => select(r.i));
+        li.querySelector('.star').addEventListener('click', (e) => { e.stopPropagation(); toggleFollow(r.i); });
         tower.appendChild(li); r.row = li;
       });
       draw();
     }
 
     function select(i) { selected = i; draw(); }
+    // like the application: following a rider selects him, and once someone is followed the others shrink on the map
+    function toggleFollow(i) {
+      if (followed.has(i)) followed.delete(i); else { followed.add(i); selected = i; }
+      draw();
+    }
 
     function flag(cls, text) {
       const el = document.createElement('div');
@@ -164,17 +171,20 @@
     function draw() {
       const ord = riders.map((r) => ({ r, d: seen(r) })).sort((a, b) => b.d - a.d);
       const lead = ord[0];
+      root.dataset.view = view;
       clockEl.textContent = clock(view === 'spectator' ? Math.max(0, simT - DELAY) : simT);
       riders.forEach((r) => {
         r.marker.setLatLng(pointFor(r, seen(r)));
         const warn = view === 'organizer' && (r.alarms.stopped || r.alarms.offCourse);
         const sel = r.i === selected;
-        const key = (sel ? 's' : '') + (warn ? 'w' : '');
+        const fol = view === 'spectator' && followed.has(r.i);
+        const dim = view === 'spectator' && followed.size > 0 && !fol && !sel;
+        const key = (sel ? 's' : '') + (warn ? 'w' : '') + (fol ? 'f' : '') + (dim ? 'd' : '');
         if (key !== r.iconKey) {
           r.iconKey = key;
-          const size = sel ? 34 : 26;
-          r.marker.setIcon(L.divIcon({ className: '', iconSize: [size, size], html: '<div class="mk ' + (warn ? 'warn ' : '') + (sel ? 'sel' : '') + '" style="width:' + size + 'px;height:' + size + 'px">' + (r.i + 1) + '</div>' }));
-          r.marker.setZIndexOffset(sel ? 1000 : 0);
+          const size = sel ? 34 : dim ? 18 : 26;
+          r.marker.setIcon(L.divIcon({ className: '', iconSize: [size, size], html: '<div class="mk ' + (warn ? 'warn ' : '') + (fol ? 'fol ' : '') + (dim ? 'dim ' : '') + (sel ? 'sel' : '') + '" style="width:' + size + 'px;height:' + size + 'px">' + (r.i + 1) + '</div>' }));
+          r.marker.setZIndexOffset(sel ? 1000 : fol ? 500 : 0);
         }
       });
       // persistent rows (a click must land on the same element it started on); reorder only when the order changes
@@ -186,6 +196,13 @@
         const warn = view === 'organizer' && (r.alarms.stopped || r.alarms.offCourse || r.alarms.lowBattery) ? ' ⚠' : '';
         const set = (sel, text) => { const el = li.querySelector(sel); if (el.textContent !== text) el.textContent = text; };
         set('.pos', String(pos + 1)); set('.gap', gap); set('.name', shownName(r) + warn);
+        const star = li.querySelector('.star'), on = followed.has(r.i), sname = shownName(r);
+        if (star.dataset.on !== String(on) || star.dataset.n !== sname) {
+          star.dataset.on = String(on); star.dataset.n = sname;
+          star.textContent = on ? '★' : '☆';
+          star.setAttribute('aria-pressed', String(on));
+          star.setAttribute('aria-label', t('Sledovať: ', 'Follow: ') + sname);
+        }
         const sectors = r.secColors.join('|');
         if (li.dataset.sectors !== sectors) {
           li.dataset.sectors = sectors;

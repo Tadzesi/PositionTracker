@@ -226,3 +226,11 @@ summary{padding:6px 0;min-height:44px;display:flex;align-items:center}
 /* reserve the space the demo fills in later (9 riders of 47 px; the callout under the map on narrow screens), so nothing jumps */
 .tower ol{min-height:425px}
 @media (max-width:900px){.track .callout{min-height:138px}}
+
+/* spectator view of the demo: a star per rider (follow), the others shrink on the map once somebody is followed */
+.tower .star{display:none;background:transparent;border:0;color:#9DB0D6;font:inherit;font-size:1.25rem;line-height:1;width:28px;height:26px;padding:0;cursor:pointer}
+.tower .star[aria-pressed="true"]{color:var(--yellow)}
+.stage[data-view="spectator"] .tower li{grid-template-columns:30px 40px 1fr auto auto 28px}
+.stage[data-view="spectator"] .tower .star{display:block}
+.mk.dim{opacity:.7;font-size:9px;border-width:1px}
+.mk.fol{box-shadow:0 0 0 3px var(--coral),0 1px 4px rgba(0,0,0,.5)}
