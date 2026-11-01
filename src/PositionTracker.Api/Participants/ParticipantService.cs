@@ -48,6 +48,19 @@ public sealed class ParticipantService(AppDbContext db, LinkTokenService links, 
 
     private EventRuntime? RuntimeOf(EventEntity ev) => registry.Get(RuntimeFactory.RuntimeId(ev.Id));
 
+    /// <summary>
+    /// Only the data-link light, for the page that polls it: one read (the link token) and the runtime's memory, not the
+    /// three reads of <see cref="GetAsync"/>. The participant is looked up among the running events.
+    /// </summary>
+    public async Task<EventResult<LinkLightAnswer>> LightAsync(string linkToken, CancellationToken ct)
+    {
+        var (participantId, error) = await RedeemAsync(linkToken, ct);
+        if (error is not null) return error;
+        var id = Id(participantId);
+        var runtime = registry.All.FirstOrDefault(r => r.HasParticipant(id));
+        return new EventResult<LinkLightAnswer>(new LinkLightAnswer(LinkHealth.Of(runtime, id)), null);
+    }
+
     // ----- confirm, decline, profile -----
 
     public async Task<EventResult<StatusAnswer>> ConfirmAsync(string linkToken, ProfileRequest request, CancellationToken ct)
@@ -293,6 +306,8 @@ public sealed record LinkEvent(string Name, string Location, string StartTime, s
 public sealed record LinkLocked(bool Gender);
 
 public sealed record LinkMe(string Name, string Bib, string? Category, string Gender, string? Nickname, string Status, LinkLocked Locked);
+
+public sealed record LinkLightAnswer(LinkHealth? Link);
 
 public sealed record LinkView(LinkEvent Event, LinkMe Me, string Language, LinkHealth? Link = null);
 

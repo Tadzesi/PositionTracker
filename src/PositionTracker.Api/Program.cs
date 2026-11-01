@@ -39,6 +39,7 @@ builder.Services.AddOptions<OrganizerOptions>()
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(EnumsAsStrings()));
 builder.Services.AddIngestRateLimiting();
 builder.Services.AddSingleton<FixRateLimiter>();
+builder.Services.AddSingleton<StatusPersistThrottle>();
 builder.Services.AddOptions<LiveOptions>()
     .BindConfiguration(LiveOptions.Section)
     .Validate(o => o.IntervalMs > 0, "Configuration value 'Live:IntervalMs' must be positive.")

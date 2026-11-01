@@ -148,7 +148,7 @@ public class RehydrationTests(PostgresFixture postgres) : IClassFixture<Postgres
         Assert.Equal([15, 205, 5], store.Calls);
         await using var db = new AppDbContext(PostgresFixture.Options(cs));
         Assert.Equal(225, await db.Fixes.CountAsync());
-        Assert.Equal(6, await db.DeviceStatuses.CountAsync()); // every request carried a status
+        Assert.Equal(3, await db.DeviceStatuses.CountAsync()); // every request carried a status, but an unchanged one is written once a minute per participant
     }
 
     [Fact]

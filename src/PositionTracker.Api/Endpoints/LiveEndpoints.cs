@@ -51,10 +51,15 @@ public static class LiveEndpoints
     /// The track is thinned to at most 1 500 points. <c>profile</c> is the elevation profile of one lap,
     /// <c>[[distanceM, elevationM]…]</c> thinned to at most 400 points, or null for a course without elevation.
     /// </summary>
-    private static IResult GetCourse(string eventId, EventRegistry registry)
+    private static IResult GetCourse(string eventId, HttpContext context, EventRegistry registry)
     {
         if (registry.Get(eventId) is not { } runtime) return Results.NotFound();
         var course = runtime.Course;
+        // the course changes only when the event is registered again (a new runtime): the tag follows that, and a revisit costs a 304
+        var etag = $"W/\"{System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(runtime):x}-{runtime.Settings.StartTime.UtcTicks:x}-{(long)runtime.Settings.SpectatorDelay.TotalSeconds:x}-{runtime.Settings.Name.Length:x}\"";
+        context.Response.Headers.ETag = etag;
+        context.Response.Headers.CacheControl = "no-cache";
+        if (context.Request.Headers.IfNoneMatch.ToString() == etag) return Results.StatusCode(StatusCodes.Status304NotModified);
         var step = Math.Max(1, (int)Math.Ceiling(course.Points.Count / 1500.0));
         var points = course.Points.Where((_, i) => i % step == 0 || i == course.Points.Count - 1)
             .Select(p => new[] { Math.Round(p.Lat, 6), Math.Round(p.Lon, 6) }).ToList();

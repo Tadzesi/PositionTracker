@@ -241,7 +241,8 @@ describe('web app', () => {
   });
   it('a confirmed participant sees whether the data leave the phone, and what to fix', async () => {
     const link = { level: 'warning', lastBatchAgoSeconds: 2, lastPositionAgoSeconds: 2, accuracyM: 4, clockAheadSeconds: 71, batteryPct: 80, problems: ['clock'], earlyOnly: false };
-    mockFetch({ 'GET /api/p/ok': { body: { event: { name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling' }, me: { name: 'Jana', bib: '7', category: null, gender: 'female', nickname: null, status: 'Confirmed', locked: { gender: false } }, language: 'en', link } } });
+    mockFetch({ 'GET /api/p/ok': { body: { event: { name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling' }, me: { name: 'Jana', bib: '7', category: null, gender: 'female', nickname: null, status: 'Confirmed', locked: { gender: false } }, language: 'en', link } },
+      'GET /api/p/ok/link': { body: { link } } });
     renderAt('/p?token=ok');
     expect(await screen.findByText('Data are coming, but with a problem')).toBeInTheDocument();
     expect(screen.getByText(/phone clock is 71 s ahead/)).toBeInTheDocument();
@@ -249,7 +250,8 @@ describe('web app', () => {
 
   it('a silent phone is told what to check', async () => {
     const link = { level: 'silent', lastBatchAgoSeconds: 130, lastPositionAgoSeconds: 130, accuracyM: null, clockAheadSeconds: null, batteryPct: 13, problems: [], earlyOnly: false };
-    mockFetch({ 'GET /api/p/quiet': { body: { event: { name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling' }, me: { name: 'Jana', bib: '7', category: null, gender: 'female', nickname: null, status: 'Confirmed', locked: { gender: false } }, language: 'en', link } } });
+    mockFetch({ 'GET /api/p/quiet': { body: { event: { name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling' }, me: { name: 'Jana', bib: '7', category: null, gender: 'female', nickname: null, status: 'Confirmed', locked: { gender: false } }, language: 'en', link } },
+      'GET /api/p/quiet/link': { body: { link } } });
     renderAt('/p?token=quiet');
     expect(await screen.findByText('The server has received nothing from you for 2 min.')).toBeInTheDocument();
     expect(screen.getByText(/keep the screen on/)).toBeInTheDocument();

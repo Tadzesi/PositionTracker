@@ -98,6 +98,40 @@ public class LiveEndpointTests(ApiFactory shared) : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task A_finished_event_stops_being_rebuilt_and_leaves_the_memory_after_the_results_days()
+    {
+        using var factory = new ApiFactory();
+        var broadcaster = factory.Services.GetRequiredService<LiveBroadcaster>();
+        await broadcaster.BroadcastAsync();
+        factory.Registry.SetFinished(ApiFactory.EventId, true);
+
+        await broadcaster.BroadcastAsync(); // first seen finished
+        factory.Clock.Advance(TimeSpan.FromSeconds(31 + 20)); // delay + grace passed: the last pushed view is final
+        await broadcaster.BroadcastAsync();
+        var feed = factory.Services.GetRequiredService<SpectatorFeed>();
+        using var client = factory.CreateClient();
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(PublicUrl)).StatusCode); // still viewable
+
+        factory.Clock.Advance(TimeSpan.FromDays(8));
+        await broadcaster.BroadcastAsync();
+        Assert.Null(factory.Registry.Get(ApiFactory.EventId));
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync(PublicUrl)).StatusCode);
+        Assert.NotNull(feed);
+    }
+
+    [Fact]
+    public async Task Public_course_answers_304_to_a_matching_ETag()
+    {
+        using var client = shared.CreateClient();
+        var first = await client.GetAsync($"/api/events/{ApiFactory.EventId}/course");
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        var etag = first.Headers.ETag!.ToString();
+        using var again = new HttpRequestMessage(HttpMethod.Get, $"/api/events/{ApiFactory.EventId}/course");
+        again.Headers.TryAddWithoutValidation("If-None-Match", etag);
+        Assert.Equal(HttpStatusCode.NotModified, (await client.SendAsync(again)).StatusCode);
+    }
+
+    [Fact]
     public async Task Live_with_key_returns_200_with_the_full_view()
     {
         using var client = OrganizerClient(shared);

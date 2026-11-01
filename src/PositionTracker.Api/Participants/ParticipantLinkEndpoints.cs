@@ -62,6 +62,7 @@ public sealed class ParticipantLinkLimiter(TimeProvider clock)
 /// <list type="bullet">
 /// <item><c>GET</c> → 200 <c>{event:{name,location,startTime,sport},me:{name,bib,category,gender,nickname,status,locked:{gender}},language}</c>;
 /// the current state also for confirmed and declined participants; <c>link</c> is the data-link light (level, ages in seconds, problems) once the event has a runtime.</item>
+/// <item><c>GET /link</c> → 200 <c>{link}</c>, only the data-link light (cheaper than the whole <c>GET</c>; for polling).</item>
 /// <item><c>POST /confirm {nickname?,gender?}</c> → 200 <c>{status:"Confirmed"}</c> (idempotent);
 /// <c>POST /decline</c> → 200 <c>{status:"Declined"}</c> (409 <c>decline_locked</c> from the start);
 /// <c>PUT /profile {nickname?,gender?}</c> → 200 (409 <c>gender_locked</c> once the event started);
@@ -99,6 +100,8 @@ public static class ParticipantLinkEndpoints
 
         group.MapGet("", async (string linkToken, HttpContext context, ParticipantService service) =>
             Answer(await service.GetAsync(linkToken, context.RequestAborted)));
+        group.MapGet("/link", async (string linkToken, HttpContext context, ParticipantService service) =>
+            Answer(await service.LightAsync(linkToken, context.RequestAborted)));
         group.MapPost("/confirm", async (string linkToken, HttpContext context, ParticipantService service, IOptions<JsonOptions> json) =>
             await WithBody(context, json, (ProfileRequest body) => service.ConfirmAsync(linkToken, body, context.RequestAborted)));
         group.MapPost("/decline", async (string linkToken, HttpContext context, ParticipantService service) =>

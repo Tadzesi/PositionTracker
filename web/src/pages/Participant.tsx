@@ -67,7 +67,7 @@ function Flow({ token, view, reload }: { token: string; view: LinkView; reload: 
 function ConnectionCard({ token, initial }: { token: string; initial: LinkView['link'] | null }) {
   const { t } = useI18n();
   const text = useLinkText();
-  const poll = usePoll(() => get<LinkView>(`/api/p/${encodeURIComponent(token)}`), 5000, [token]);
+  const poll = usePoll(() => get<{ link: LinkView['link'] }>(`/api/p/${encodeURIComponent(token)}/link`), 5000, [token]);
   const health = poll.data ? poll.data.link ?? null : initial;
   const { title, hints } = text(health);
   const level = health?.level ?? 'waiting';

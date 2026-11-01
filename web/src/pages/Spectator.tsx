@@ -22,7 +22,8 @@ export default function Spectator() {
   const [params] = useSearchParams();
   const { t, lang } = useI18n();
   const stateLabel = useStateLabel();
-  const course = usePoll(() => get<PublicCourse>(`/api/events/${id}/course`), 15000, [id]);
+  // the course does not change while the event runs: it is fetched until it arrives (the event may not be live yet), then no more
+  const course = usePoll(() => get<PublicCourse>(`/api/events/${id}/course`), 15000, [id], { stopWhen: () => true });
   const view = usePoll(() => get<SpectatorView>(`/api/events/${id}/public`), 3000, [id]);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');

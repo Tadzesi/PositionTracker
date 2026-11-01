@@ -38,13 +38,34 @@ public sealed class LiveBroadcaster(
     }
 
     /// <summary>Broadcasts every registered event once and drops the buffers of events no longer registered.</summary>
+    /// <summary>When the broadcaster first saw each finished event (and which runtime); only the broadcast loop touches it.</summary>
+    private readonly Dictionary<string, (PositionTracker.Core.Runtime.EventRuntime Runtime, DateTimeOffset Since)> _finished = new(StringComparer.Ordinal);
+
+    /// <summary>A finished event is still pushed this long after the spectator delay, so the final positions reach the spectators.</summary>
+    private static readonly TimeSpan FinishedGrace = TimeSpan.FromSeconds(15);
+
+    /// <summary>The simulated demo events have their own lifetime (see <see cref="Simulation.SimulationService"/>).</summary>
+    private static bool IsSimulated(string eventId) => eventId.StartsWith("demo-", StringComparison.Ordinal);
+
     public async Task BroadcastAsync(CancellationToken cancellationToken = default)
     {
         var events = registry.All;
         feed.RetainOnly(events);
+        var now = clock.GetUtcNow();
+        foreach (var gone in _finished.Keys.Where(k => registry.Get(k) is null).ToList()) _finished.Remove(gone);
         foreach (var runtime in events)
         {
             var eventId = runtime.Settings.EventId;
+            if (registry.IsFinished(eventId) && !IsSimulated(eventId))
+            {
+                if (!_finished.TryGetValue(eventId, out var seen) || !ReferenceEquals(seen.Runtime, runtime))
+                    _finished[eventId] = seen = (runtime, now);
+                var age = now - seen.Since;
+                // nothing changes in a finished event: after the delay the last pushed view is the final one, and after the days the
+                // results are kept for (the same as after a restart) the runtime leaves the memory
+                if (age > TimeSpan.FromDays(Persistence.RuntimeRehydrator.FinishedRuntimeDays)) { registry.Remove(eventId); continue; }
+                if (age > runtime.Settings.SpectatorDelay + FinishedGrace) continue;
+            }
             try
             {
                 var view = runtime.BuildLiveView();

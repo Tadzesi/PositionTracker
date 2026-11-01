@@ -131,10 +131,13 @@ public static class IngestEndpoints
                     "Event {EventId}, participant {ParticipantId}: {Rejected} of {Total} fixes rejected (worst accuracy {Accuracy} m, clock {Skew:0} s ahead of the server)",
                     eventId, participantId, ingested.Result.Rejected, batch.Fixes.Count, worst, skew);
             }
-            if (persist && (ingested.Stored.Count > 0 || status is not null))
+            // the status goes to the history on change or once a minute (the runtime has the newest one anyway)
+            var storeStatus = status is not null
+                && context.RequestServices.GetRequiredService<StatusPersistThrottle>().ShouldStore(participantId, status, ingested.At);
+            if (persist && (ingested.Stored.Count > 0 || storeStatus))
             {
                 reserved = false;
-                if (!history.Enqueue(new FixBatchWrite(eventId, participantId, ingested.Stored, status, ingested.At)))
+                if (!history.Enqueue(new FixBatchWrite(eventId, participantId, ingested.Stored, storeStatus ? status : null, ingested.At)))
                     return QueueFull(context);
             }
             return ok(ingested.Result);

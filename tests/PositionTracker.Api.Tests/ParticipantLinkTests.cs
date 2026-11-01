@@ -282,6 +282,8 @@ public sealed class ParticipantLinkTests(PostgresFixture postgres) : IClassFixtu
         Assert.True(light.GetProperty("level").GetString() == "good", light.ToString());
         Assert.Equal(0, light.GetProperty("problems").GetArrayLength());
         Assert.True(light.GetProperty("lastBatchAgoSeconds").GetDouble() < 5);
+        using (var only = await JsonAsync(await GetAsync(client, link + "/link"))) // the cheap polling endpoint answers the same light
+            Assert.Equal("good", only.RootElement.GetProperty("link").GetProperty("level").GetString());
         Assert.True(light.GetProperty("earlyOnly").GetBoolean()); // the seeded start is far away: connected, stored from an hour before it
     }
 
