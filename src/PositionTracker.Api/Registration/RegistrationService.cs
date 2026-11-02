@@ -6,6 +6,7 @@ using PositionTracker.Api.Accounts;
 using PositionTracker.Api.Auth;
 using PositionTracker.Api.Email;
 using PositionTracker.Api.Events;
+using PositionTracker.Api.Participants;
 using PositionTracker.Api.Persistence;
 using PositionTracker.Data;
 using PositionTracker.Data.Entities;
@@ -250,6 +251,38 @@ public sealed class RegistrationService(
             return null;
         });
         return error ?? Ok(new MailQueued(emailMode.Mode));
+    }
+
+    /// <summary>
+    /// The participant asks for a new link with the old one (valid, expired or superseded; unknown is 404
+    /// <c>link_invalid</c>): the event row is locked, a finished event is 409 <c>event_finished</c>, and the new link is
+    /// mailed only to the stored address through <see cref="QueueInvitationAsync"/> under the invitation budgets (429
+    /// <c>rate_limited</c>). An <c>EmailFailed</c> participant becomes <c>Invited</c>. The answer never holds a token.
+    /// </summary>
+    public async Task<EventResult<RenewAnswer>> RenewLinkAsync(string linkToken, CancellationToken ct)
+    {
+        var redeemed = await links.RedeemAsync(LinkPurpose.ParticipantInvite, linkToken, singleUse: false, ct);
+        if (redeemed.Status == LinkStatus.Unknown) return ParticipantErrors.LinkInvalid;
+
+        var eventId = await db.Participants.AsNoTracking().Where(x => x.Id == redeemed.SubjectId)
+            .Select(x => (Guid?)x.EventId).SingleOrDefaultAsync(ct);
+        if (eventId is not { } id) return ParticipantErrors.LinkInvalid;
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var ev = await db.Events.FromSql($"""SELECT * FROM "Events" WHERE "Id" = {id} FOR UPDATE""").AsNoTracking().SingleOrDefaultAsync(ct);
+        var p = ev is null ? null : await db.Participants.SingleOrDefaultAsync(x => x.Id == redeemed.SubjectId && x.EventId == id, ct);
+        if (ev is null || p is null) return ParticipantErrors.LinkInvalid;
+        if (ev.State == EventState.Finished) return ParticipantErrors.EventFinished;
+
+        var error = await WithBudgetAsync(ev.OrganizerId, p.EmailNormalized, async () =>
+        {
+            if (p.Status == ParticipantStatus.EmailFailed) p.Status = ParticipantStatus.Invited;
+            await QueueInvitationAsync(p, ev, await OrganizerAsync(ev.OrganizerId, ct), ct);
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+            return null;
+        });
+        return error ?? Ok(new RenewAnswer("accepted"));
     }
 
     /// <summary>

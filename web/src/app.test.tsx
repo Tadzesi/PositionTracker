@@ -281,6 +281,15 @@ describe('web app', () => {
     renderAt('/p?token=old');
     expect(await screen.findByText('This link has expired')).toBeInTheDocument();
   });
+  it('an expired participant link offers to mail a new one', async () => {
+    const calls = mockFetch({
+      'GET /api/p/old': { status: 400, body: { code: 'link_expired', message: { sk: 'Platnosť vypršala', en: 'This link has expired' } } },
+      'POST /api/p/old/renew': { status: 202, body: { status: 'accepted' } } });
+    renderAt('/p?token=old');
+    await userEvent.click(await screen.findByRole('button', { name: 'Email me a new link' }));
+    expect(await screen.findByText('We have sent a new link to your email address.')).toBeInTheDocument();
+    expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/api/p/old/renew'))).toBe(true);
+  });
   it('a confirmed participant sees whether the data leave the phone, and what to fix', async () => {
     const link = { level: 'warning', lastBatchAgoSeconds: 2, lastPositionAgoSeconds: 2, accuracyM: 4, clockAheadSeconds: 71, batteryPct: 80, problems: ['clock'], earlyOnly: false };
     mockFetch({ 'GET /api/p/ok': { body: { event: { name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling' }, me: { name: 'Jana', bib: '7', category: null, gender: 'female', nickname: null, status: 'Confirmed', locked: { gender: false } }, language: 'en', link } },

@@ -583,6 +583,73 @@ public sealed class ParticipantLinkTests(PostgresFixture postgres) : IClassFixtu
 
     private static Task<HttpResponseMessage> GetAsync(HttpClient client, string link) => client.GetAsync($"/api/p/{link}");
 
+    // ----- renew -----
+
+    private static readonly Regex InviteLink = new(@"https://tracker\.example\.org/p\?token=([A-Za-z0-9%_\-]+)");
+
+    [Fact]
+    public async Task An_expired_link_renews_itself_by_mailing_a_new_link_to_the_participant()
+    {
+        await using var host = Host();
+        var ev = await SeedEventAsync(host, EventState.Ready);
+        var pid = await SeedParticipantAsync(host, ev, ParticipantStatus.Invited, "Rider");
+        var old = await IssueLinkAsync(host, pid);
+        var client = Client(host);
+        host.Clock.Advance(LinkTokenService.InviteLifetime + TimeSpan.FromMinutes(1));
+        await AssertErrorAsync(await GetAsync(client, old), HttpStatusCode.BadRequest, "link_expired");
+
+        var response = await PostAsync(client, old, "/renew", new { });
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var text = await response.Content.ReadAsStringAsync();
+        Assert.Equal("""{"status":"accepted"}""", text);
+        Assert.DoesNotContain(old, text);
+        await using var db = Db(host);
+        var participant = await db.Participants.SingleAsync();
+        var mail = await db.Outbox.SingleAsync(m => m.Purpose == EmailPurpose.Invitation && m.ParticipantId == pid);
+        Assert.Equal(EmailAddress.ToDeliveryAddress(participant.Email), mail.ToAddress);
+        var fresh = Uri.UnescapeDataString(InviteLink.Match(mail.TextBody).Groups[1].Value);
+        Assert.Equal(HttpStatusCode.OK, (await GetAsync(client, fresh)).StatusCode);
+        await AssertErrorAsync(await GetAsync(client, old), HttpStatusCode.Gone, "link_superseded");
+    }
+
+    [Fact]
+    public async Task Renewal_is_refused_after_the_finish_and_over_the_invitation_limit()
+    {
+        await using var host = Host(settings: s => s["Registration:InvitationsPerAddressPerHour"] = "1");
+        var finished = await SeedEventAsync(host, EventState.Finished);
+        var late = await SeedParticipantAsync(host, finished, ParticipantStatus.Confirmed, "Late");
+        var lateLink = await IssueLinkAsync(host, late);
+        var ready = await SeedEventAsync(host, EventState.Ready);
+        var pid = await SeedParticipantAsync(host, ready, ParticipantStatus.Invited, "Rider");
+        var link = await IssueLinkAsync(host, pid);
+        var client = Client(host);
+
+        await AssertErrorAsync(await PostAsync(client, lateLink, "/renew", new { }), HttpStatusCode.Conflict, "event_finished");
+        await using (var db = Db(host)) Assert.Empty(await db.Outbox.Where(m => m.ParticipantId == late).ToListAsync());
+
+        Assert.Equal(HttpStatusCode.Accepted, (await PostAsync(client, link, "/renew", new { })).StatusCode);
+        var current = await CurrentLinkAsync(host, pid);
+        await AssertErrorAsync(await PostAsync(client, current, "/renew", new { }), HttpStatusCode.TooManyRequests, "rate_limited");
+        await using (var db = Db(host)) Assert.Single(await db.Outbox.Where(m => m.ParticipantId == pid).ToListAsync());
+    }
+
+    [Fact]
+    public async Task Renewal_of_an_unknown_link_is_link_invalid()
+    {
+        await using var host = Host();
+        await AssertErrorAsync(await PostAsync(Client(host), "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "/renew", new { }),
+            HttpStatusCode.NotFound, "link_invalid");
+    }
+
+    private static async Task<string> CurrentLinkAsync(ApiFactory host, Guid participantId)
+    {
+        await using var db = Db(host);
+        var mail = await db.Outbox.Where(m => m.ParticipantId == participantId && m.Purpose == EmailPurpose.Invitation)
+            .OrderByDescending(m => m.CreatedAt).FirstAsync();
+        return Uri.UnescapeDataString(InviteLink.Match(mail.TextBody).Groups[1].Value);
+    }
+
     internal static Task<HttpResponseMessage> PostAsync(HttpClient client, string link, string suffix, object body) =>
         SendAsync(client, HttpMethod.Post, link, suffix, body);
 

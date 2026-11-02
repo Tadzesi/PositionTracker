@@ -5,6 +5,7 @@ using System.Text;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Options;
 using PositionTracker.Api.Events;
+using PositionTracker.Api.Registration;
 using PositionTracker.Email;
 
 namespace PositionTracker.Api.Participants;
@@ -65,6 +66,7 @@ public sealed class ParticipantLinkLimiter(TimeProvider clock)
 /// <item><c>GET /link</c> → 200 <c>{link}</c>, only the data-link light (cheaper than the whole <c>GET</c>; for polling).</item>
 /// <item><c>POST /confirm {nickname?,gender?}</c> → 200 <c>{status:"Confirmed"}</c> (idempotent);
 /// <c>POST /decline</c> → 200 <c>{status:"Declined"}</c> (409 <c>decline_locked</c> from the start);
+/// <c>POST /renew</c> (no body) → 202 <c>{status:"accepted"}</c>: mails a new link to the stored address (404 <c>link_invalid</c>, 409 <c>event_finished</c>, 429 <c>rate_limited</c>; an expired or superseded link works too);
 /// <c>PUT /profile {nickname?,gender?}</c> → 200 (409 <c>gender_locked</c> once the event started);
 /// <c>POST /consent {locationConsent:true,showNameToSpectators}</c> → 200 <c>{deviceToken,eventId}</c> (the token only here).</item>
 /// </list>
@@ -106,6 +108,11 @@ public static class ParticipantLinkEndpoints
             await WithBody(context, json, (ProfileRequest body) => service.ConfirmAsync(linkToken, body, context.RequestAborted)));
         group.MapPost("/decline", async (string linkToken, HttpContext context, ParticipantService service) =>
             Answer(await service.DeclineAsync(linkToken, context.RequestAborted)));
+        group.MapPost("/renew", async (string linkToken, HttpContext context, RegistrationService service) =>
+        {
+            var result = await service.RenewLinkAsync(linkToken, context.RequestAborted);
+            return result.Error is { } e ? EventErrors.Result(e) : Results.Json(result.Value, statusCode: StatusCodes.Status202Accepted);
+        });
         group.MapPut("/profile", async (string linkToken, HttpContext context, ParticipantService service, IOptions<JsonOptions> json) =>
             await WithBody(context, json, (ProfileRequest body) => service.UpdateProfileAsync(linkToken, body, context.RequestAborted)));
         group.MapPost("/consent", async (string linkToken, HttpContext context, ParticipantService service, IOptions<JsonOptions> json) =>

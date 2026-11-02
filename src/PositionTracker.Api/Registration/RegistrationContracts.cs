@@ -36,6 +36,9 @@ public sealed record ParticipantList(string EmailMode, EventState EventState, St
 
 public sealed record MailQueued(string EmailMode);
 
+/// <summary>The answer of a participant's own link renewal: only a status, never a token.</summary>
+public sealed record RenewAnswer(string Status);
+
 /// <summary>
 /// The answer of a re-issue: never a token (the participant gets the new link by email). The old device token is
 /// revoked in every case; <c>MailQueued</c> is false when an invitation limit kept the new link from being mailed

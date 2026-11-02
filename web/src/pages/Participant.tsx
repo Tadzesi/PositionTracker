@@ -25,18 +25,29 @@ export default function ParticipantPage() {
     [view.data, chosen, lang, setLang]);
   useEffect(() => { setChosen(false); }, [token]);
   if (!token) return <LinkProblem error={new ApiError(404, 'link_invalid', { sk: 'Odkaz neobsahuje token.', en: 'The link has no token.' })} />;
-  if (view.error) return <LinkProblem error={view.error} />;
+  if (view.error) return <LinkProblem error={view.error} token={token} />;
   if (!view.data) return <Loading />;
   return <Flow token={token} view={view.data} reload={view.reload} />;
 }
 
-function LinkProblem({ error }: { error: unknown }) {
+function LinkProblem({ error, token }: { error: unknown; token?: string }) {
   const { t } = useI18n();
   const e = error instanceof ApiError ? error : null;
+  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [renewError, setRenewError] = useState<unknown>(null);
+  const canRenew = !!token && (e?.code === 'link_expired' || e?.code === 'link_superseded');
+  const renew = async () => {
+    setBusy(true); setRenewError(null);
+    try { await post(`/api/p/${encodeURIComponent(token ?? '')}/renew`); setSent(true); } catch (x) { setRenewError(x); } finally { setBusy(false); }
+  };
   return (
     <div className="card narrow stack">
       <h2>{t('Odkaz nefunguje', 'This link does not work')}</h2>
       <ErrorBanner error={error} />
+      {canRenew && !sent && <button className="btn primary" disabled={busy} onClick={renew}><span>{t('Pošlite mi nový odkaz e-mailom', 'Email me a new link')}</span></button>}
+      {sent && <div className="banner ok" role="status">{t('Nový odkaz sme poslali na váš e-mail.', 'We have sent a new link to your email address.')}</div>}
+      <ErrorBanner error={renewError} />
       {e?.code === 'link_expired' && <p>{t('Požiadajte organizátora o nový odkaz.', 'Ask the organizer for a new link.')}</p>}
       {e?.code === 'link_superseded' && <p>{t('Použite odkaz z najnovšieho e-mailu od organizátora.', 'Use the link from the most recent email from the organizer.')}</p>}
     </div>
