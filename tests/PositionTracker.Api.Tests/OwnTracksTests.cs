@@ -98,10 +98,23 @@ public sealed class OwnTracksTests(PostgresFixture postgres) : IClassFixture<Pos
         Assert.Equal(5, json.GetProperty("locatorInterval").GetInt32());
         Assert.Equal(10, json.GetProperty("locatorDisplacement").GetInt32());
         Assert.Equal(50, json.GetProperty("ignoreInaccurateLocations").GetInt32());
+        Assert.True(json.GetProperty("cmd").GetBoolean());
+        Assert.True(json.GetProperty("remoteConfiguration").GetBoolean());
         Assert.Equal(config.DeepLink, config.QrPayload);
         Assert.Equal(["_type", "mode", "url", "auth", "username", "password", "tid", "monitoring", "locatorInterval",
-            "locatorDisplacement", "ignoreInaccurateLocations", "cmd"], json.EnumerateObject().Select(p => p.Name));
+            "locatorDisplacement", "ignoreInaccurateLocations", "cmd", "remoteConfiguration"], json.EnumerateObject().Select(p => p.Name));
         Assert.Equal(10, EventTuning.For(Sport.Running).LocatorIntervalSeconds);
+    }
+
+    [Fact]
+    public void The_stop_link_and_command_set_quiet_monitoring_only()
+    {
+        const string prefix = "owntracks:///config?inline=";
+        Assert.Equal("owntracks:///config?inline=eyJfdHlwZSI6ImNvbmZpZ3VyYXRpb24iLCJtb25pdG9yaW5nIjotMX0%3D", OwnTracksConfigBuilder.StopDeepLink);
+        var decoded = Encoding.UTF8.GetString(Convert.FromBase64String(Uri.UnescapeDataString(OwnTracksConfigBuilder.StopDeepLink[prefix.Length..])));
+        Assert.Equal(OwnTracksConfigBuilder.StopConfiguration().ToJsonString(), decoded);
+        Assert.Equal("""[{"_type":"cmd","action":"setConfiguration","configuration":{"_type":"configuration","monitoring":-1}}]""",
+            OwnTracksConfigBuilder.StopCommand().ToJsonString());
     }
 
     [Theory]

@@ -18,10 +18,36 @@ public sealed record OwnTracksConfig(JsonObject OtrcJson, string DeepLink, strin
 /// Builds the <c>.otrc</c> configuration (HTTP mode = 3, Basic auth) and the <c>owntracks:///config?inline=</c> deep link.
 /// The only secret in it is the device token (the Basic password). The booklet encodes the file with
 /// <c>openssl enc -a</c> (standard base64); that text is percent-encoded here so it survives as a URL query value.
+/// The configuration allows remote commands (<c>cmd</c>, <c>remoteConfiguration</c>): the server uses them only to switch
+/// the phone to quiet mode once the event is finished (<see cref="StopCommand"/>).
 /// </summary>
 public static class OwnTracksConfigBuilder
 {
     public const string IngestPath = "/api/ingest/owntracks";
+
+    /// <summary>
+    /// The config deep link of <see cref="StopConfiguration"/>: one tap switches OwnTracks to quiet mode. Holds no secret;
+    /// the web page has the same literal (<c>web/src/owntracksStop.ts</c>).
+    /// </summary>
+    public const string StopDeepLink = "owntracks:///config?inline=eyJfdHlwZSI6ImNvbmZpZ3VyYXRpb24iLCJtb25pdG9yaW5nIjotMX0%3D";
+
+    /// <summary>The configuration that stops location reporting: <c>monitoring: -1</c> (quiet), nothing else changed.</summary>
+    public static JsonObject StopConfiguration() => new()
+    {
+        ["_type"] = "configuration",
+        ["monitoring"] = -1,
+    };
+
+    /// <summary>The HTTP answer for a finished event: one <c>setConfiguration</c> command with <see cref="StopConfiguration"/>.</summary>
+    public static JsonArray StopCommand() =>
+    [
+        new JsonObject
+        {
+            ["_type"] = "cmd",
+            ["action"] = "setConfiguration",
+            ["configuration"] = StopConfiguration(),
+        },
+    ];
 
     public static OwnTracksConfig Build(string serverBaseUrl, string username, string deviceToken, string trackerId, EventTuning tuning)
     {
@@ -41,7 +67,8 @@ public static class OwnTracksConfigBuilder
             ["locatorInterval"] = tuning.LocatorIntervalSeconds,
             ["locatorDisplacement"] = tuning.LocatorDisplacementM,
             ["ignoreInaccurateLocations"] = tuning.IgnoreInaccurateM,
-            ["cmd"] = false,
+            ["cmd"] = true,
+            ["remoteConfiguration"] = true,
         };
         var base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(otrc.ToJsonString()));
         var link = "owntracks:///config?inline=" + Uri.EscapeDataString(base64);
