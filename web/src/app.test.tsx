@@ -5,6 +5,7 @@ import { vi } from 'vitest';
 import App from './App';
 import { SessionProvider } from './components/Layout';
 import { I18nProvider } from './lib/i18n';
+import { STOP_DEEP_LINK } from './owntracksStop';
 
 const NO_SESSION = Symbol('no session');
 
@@ -287,6 +288,27 @@ describe('web app', () => {
     renderAt('/p?token=ok');
     expect(await screen.findByText('Data are coming, but with a problem')).toBeInTheDocument();
     expect(screen.getByText(/phone clock is 71 s ahead/)).toBeInTheDocument();
+  });
+
+  it('the stop link is the fixed OwnTracks quiet-mode config', () => {
+    expect(STOP_DEEP_LINK).toBe('owntracks:///config?inline=eyJfdHlwZSI6ImNvbmZpZ3VyYXRpb24iLCJtb25pdG9yaW5nIjotMX0%3D');
+  });
+
+  it('the public stop page offers the stop link in the language from the email', async () => {
+    mockFetch({});
+    renderAt('/stop-tracking?lang=sk', 'en');
+    const button = await screen.findByRole('link', { name: 'Vypnúť sledovanie v OwnTracks' });
+    expect(button).toHaveAttribute('href', STOP_DEEP_LINK);
+    expect(screen.getByText(/Quiet \(Tichý\)/)).toBeInTheDocument();
+  });
+
+  it('after the finish the participant page shows how to switch tracking off instead of the setup steps', async () => {
+    const calls = mockFetch({ 'GET /api/p/done': { body: { event: { name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling', finished: true }, me: { name: 'Jana', bib: '7', category: null, gender: 'female', nickname: null, status: 'Confirmed', locked: { gender: true } }, language: 'en', link: null } } });
+    renderAt('/p?token=done');
+    expect(await screen.findByRole('heading', { name: 'Switch off location tracking' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Switch off tracking in OwnTracks' })).toHaveAttribute('href', STOP_DEEP_LINK);
+    expect(screen.queryByRole('button', { name: 'Agree and continue' })).toBeNull();
+    expect(calls.some((c) => c.url.includes('/owntracks-config') || c.url.endsWith('/link'))).toBe(false);
   });
 
   it('a silent phone is told what to check', async () => {

@@ -91,6 +91,20 @@ public sealed class ParticipantLinkTests(PostgresFixture postgres) : IClassFixtu
             Assert.Equal("Declined", json.RootElement.GetProperty("me").GetProperty("status").GetString());
     }
 
+    [Theory]
+    [InlineData(EventState.Live, false)]
+    [InlineData(EventState.Finished, true)]
+    public async Task The_view_says_whether_the_event_is_finished(EventState state, bool finished)
+    {
+        await using var host = Host();
+        var ev = await SeedEventAsync(host, state);
+        var pid = await SeedParticipantAsync(host, ev, ParticipantStatus.Confirmed, "Rider");
+        var link = await IssueLinkAsync(host, pid);
+
+        using var json = await JsonAsync(await GetAsync(Client(host), link));
+        Assert.Equal(finished, json.RootElement.GetProperty("event").GetProperty("finished").GetBoolean());
+    }
+
     [Fact]
     public async Task Unknown_expired_and_superseded_links_have_distinct_answers()
     {

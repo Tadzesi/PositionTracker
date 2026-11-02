@@ -40,7 +40,7 @@ public sealed class ParticipantService(AppDbContext db, LinkTokenService links, 
         var ev = p is null ? null : await db.Events.AsNoTracking().SingleOrDefaultAsync(e => e.Id == p.EventId, ct);
         if (p is null || ev is null) return ParticipantErrors.LinkInvalid;
         return new EventResult<LinkView>(new LinkView(
-            new LinkEvent(ev.Name, ev.Location, UtcIso(ev.StartTime), ev.Sport.ToString().ToLowerInvariant()),
+            new LinkEvent(ev.Name, ev.Location, UtcIso(ev.StartTime), ev.Sport.ToString().ToLowerInvariant(), ev.State == EventState.Finished),
             new LinkMe(p.Name, p.Bib, p.Category?.Name, p.Gender, p.Nickname, p.Status.ToString(),
                 new LinkLocked(Started(ev))),
             p.Language, LinkHealth.Of(RuntimeOf(ev), Id(p.Id))), null);
@@ -301,7 +301,8 @@ public sealed record StatusAnswer(string Status);
 /// <param name="DeviceToken">The raw device token: returned this once, never again.</param>
 public sealed record ConsentAnswer(string DeviceToken, string EventId);
 
-public sealed record LinkEvent(string Name, string Location, string StartTime, string Sport);
+/// <param name="Finished">The event is over: the page shows how to switch tracking off instead of the setup steps.</param>
+public sealed record LinkEvent(string Name, string Location, string StartTime, string Sport, bool Finished);
 
 public sealed record LinkLocked(bool Gender);
 

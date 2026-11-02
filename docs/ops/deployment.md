@@ -48,7 +48,11 @@ Before the first real event:
 3. [ ] HTTPS works end to end, `PUBLIC_BASE_URL` matches, the proxy is in `Proxy:*`, and a sign-up from the public URL arrives by mail.
 4. [ ] A rehearsal event with 3+ friends: register, confirm, consent, set up OwnTracks, go live, walk or ride a lap, watch `/e/{id}`
    and race control on a phone; mark one DNF; delete one participant's data; finish the event.
-5. [ ] Restart the app during the rehearsal: the views come back identical and the phones keep sending.
-6. [ ] Organizer briefing: SOS is by phone, DNF is marked by the organizer, spectators see delayed positions, the organizer issues the
+5. [ ] Tracking stop after the finish (Android + iOS): set up a phone from the participant page, finish the test event while it sends,
+   confirm the next request gets the stop command and the phone sends nothing more (OwnTracks shows Quiet). Then put it back to Move,
+   wait 10+ minutes of sending if the command was ignored, and check the "tracking still on" email and that its stop link (opened on the
+   phone) switches OwnTracks to Quiet. Record the result in `docs/ops/owntracks-setup.md` (move the item out of UNVERIFIED).
+6. [ ] Restart the app during the rehearsal: the views come back identical and the phones keep sending.
+7. [ ] Organizer briefing: SOS is by phone, DNF is marked by the organizer, spectators see delayed positions, the organizer issues the
    official results, data is deleted after 30 days.
-7. [ ] Known limits accepted: in-memory rate limiters (per process), no CSV import, no push notifications (in-page alert only), no PWA tracker.
+8. [ ] Known limits accepted: in-memory rate limiters (per process), no CSV import, no push notifications (in-page alert only), no PWA tracker.

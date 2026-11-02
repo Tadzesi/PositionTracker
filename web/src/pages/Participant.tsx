@@ -8,6 +8,7 @@ import { useLoad, usePoll } from '../lib/hooks';
 import type { LinkView } from '../lib/types';
 import { LinkDot, useLinkText } from '../components/LinkLight';
 import { ErrorBanner, Field, Loading, StatusBadge, bannerError } from '../components/Ui';
+import { StopTrackingPanel } from '../components/StopTrackingPanel';
 
 interface Setup { deepLink: string; otrcJson: Record<string, unknown>; qrPayload: string }
 
@@ -54,11 +55,14 @@ function Flow({ token, view, reload }: { token: string; view: LinkView; reload: 
         <p className="mute">{view.event.location} · {formatDateTime(view.event.startTime, lang)}</p>
         <p><b>{me.name}</b> · #{me.bib}{me.category ? ` · ${me.category}` : ''} <StatusBadge value={me.status} label={statusLabel} /></p>
       </div>
-      <Step1 token={token} view={view} reload={reload} />
-      {me.status === 'Confirmed' && <ConnectionCard token={token} initial={view.link ?? null} />}
-      {me.status === 'Confirmed' && <Step2 token={token} onToken={setDeviceToken} />}
-      {deviceToken && <Step3 token={token} deviceToken={deviceToken} />}
-      <Share />
+      {view.event.finished ? <StopTrackingPanel /> : (
+        <>
+          <Step1 token={token} view={view} reload={reload} />
+          {me.status === 'Confirmed' && <ConnectionCard token={token} initial={view.link ?? null} />}
+          {me.status === 'Confirmed' && <Step2 token={token} onToken={setDeviceToken} />}
+          {deviceToken && <Step3 token={token} deviceToken={deviceToken} />}
+          <Share />
+        </>)}
     </div>
   );
 }
