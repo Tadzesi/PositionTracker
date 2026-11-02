@@ -46,7 +46,7 @@ export default function Privacy() {
         <h3>{t('Divák', 'Spectator')}</h3>
         <p>{t('Divák sa neregistruje. O divákovi neukladáme nič okrem technických záznamov nižšie.', 'Spectators do not register. We store nothing about a spectator except the technical records below.')}</p>
         <h3>{t('Technické záznamy', 'Technical records')}</h3>
-        <p>{t('Webový server zaznamenáva IP adresu, čas a adresu požiadavky (tajné tokeny v adresách sú maskované). Slúžia na prevádzku a ochranu pred zneužitím a uchovávajú sa len krátkodobo. Základ: oprávnený záujem (písm. f).', 'The web server records the IP address, time and address of a request (secret tokens in addresses are masked). They serve operation and protection against abuse and are kept only briefly. Basis: legitimate interest (art. 6(1)(f)).')}</p>
+        <p>{t('Webový server (pre aplikáciu aj stránku www.lab463.com/tracker) zaznamenáva IP adresu, čas a adresu požiadavky (tajné tokeny v adresách sú maskované). Slúžia na prevádzku a ochranu pred zneužitím a uchovávajú sa len po dobu potrebnú na tento účel. Základ: oprávnený záujem (písm. f).', 'The web server (for the application and the www.lab463.com/tracker page) records the IP address, time and address of a request (secret tokens in addresses are masked). They serve operation and protection against abuse and are kept only as long as needed for that purpose. Basis: legitimate interest (art. 6(1)(f)).')}</p>
       </Sec>
 
       <Sec title={t('Ako dlho údaje uchovávame', 'How long we keep data')}>
@@ -61,6 +61,7 @@ export default function Privacy() {
       <Sec title={t('Komu údaje poskytujeme', 'Who receives data')}>
         <ul>
           <li>{t('Aplikácia beží na vlastnom serveri prevádzkovateľa na Slovensku. Údaje nepredávame ani neposkytujeme na marketing.', 'The application runs on the operator’s own server in Slovakia. We do not sell data or share it for marketing.')}</li>
+          <li>{t('Všetka prevádzka prechádza cez Cloudflare (Cloudflare, Inc., USA), ktorý zabezpečuje doručenie a ochranu pred útokmi a vidí pri tom IP adresu a požiadavku. Prenos do USA je založený na certifikácii Cloudflare v rámci EU-US Data Privacy Framework.', 'All traffic passes through Cloudflare (Cloudflare, Inc., USA), which provides delivery and protection against attacks and in doing so sees the IP address and the request. The transfer to the USA relies on Cloudflare’s certification under the EU-US Data Privacy Framework.')}</li>
           <li>{t('E-maily (pozvánky, prihlasovacie odkazy) odchádzajú cez poskytovateľa odosielania pošty (SMTP), ktorý vidí adresu príjemcu a obsah správy.', 'Emails (invitations, sign-in links) are sent through an email delivery provider (SMTP), which sees the recipient address and the message.')}</li>
           <li>{t('Mapové podklady načítava váš prehliadač priamo zo serverov OpenStreetMap Foundation (tile.openstreetmap.org), ktorá tak vidí vašu IP adresu. OSMF sídli vo Veľkej Británii, pre ktorú platí rozhodnutie Európskej komisie o primeranej ochrane.', 'Your browser loads map tiles directly from OpenStreetMap Foundation servers (tile.openstreetmap.org), which therefore see your IP address. OSMF is based in the United Kingdom, which is covered by a European Commission adequacy decision.')}</li>
           <li>{t('Odkazy na App Store a Google Play sa otvoria až po kliknutí; ďalej platia zásady týchto obchodov.', 'Links to the App Store and Google Play open only when you click them; from there the stores’ own policies apply.')}</li>
@@ -75,7 +76,7 @@ export default function Privacy() {
             <tbody>
               <tr><td><code>__Secure-pt-session</code></td><td>cookie</td><td>{t('Prihlásenie organizátora (nevyhnutné)', 'Organizer sign-in (strictly necessary)')}</td><td>{t('30 dní od poslednej aktivity alebo do odhlásenia', '30 days after last activity or until sign-out')}</td></tr>
               <tr><td><code>pt-lang</code></td><td>localStorage</td><td>{t('Jazyk, ktorý ste zvolili', 'The language you chose')}</td><td>{t('Kým ho nezmažete v prehliadači', 'Until you clear it in your browser')}</td></tr>
-              <tr><td><code>pt-theme</code></td><td>localStorage</td><td>{t('Svetlý alebo tmavý režim, ktorý ste zvolili', 'The light or dark mode you chose')}</td><td>{t('Kým ho nezmažete v prehliadači', 'Until you clear it in your browser')}</td></tr>
+              <tr><td><code>pt-theme</code>, <code>pt-site-theme</code></td><td>localStorage</td><td>{t('Svetlý alebo tmavý režim, ktorý ste zvolili (v aplikácii a na stránke)', 'The light or dark mode you chose (in the application and on the page)')}</td><td>{t('Kým ho nezmažete v prehliadači', 'Until you clear it in your browser')}</td></tr>
               <tr><td><code>pt-follow-…</code></td><td>localStorage</td><td>{t('Jazdci, ktorých sledujete v diváckom pohľade', 'The riders you follow in the spectator view')}</td><td>{t('Kým ho nezmažete v prehliadači', 'Until you clear it in your browser')}</td></tr>
             </tbody>
           </table>

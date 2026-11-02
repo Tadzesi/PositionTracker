@@ -170,6 +170,7 @@ details p{margin-top:10px}
 .final .display{font-size:clamp(3rem,10vw,8.5rem)}
 .final .lead{color:#C7D5F2;margin:24px 0 30px}
 footer{background:#06142F;color:#9DB0D6;padding:34px 0;font-size:.9rem}
+footer a{color:#C9D6F0}
 footer .wrap{display:flex;gap:20px;flex-wrap:wrap;justify-content:space-between}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 

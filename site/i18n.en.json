@@ -159,6 +159,8 @@
  "fin_app": "Create an account and start your race",
  "nav_app": "Open the app",
  "foot": "The demo on this page uses made-up data. Map data © OpenStreetMap contributors.",
+ "foot_cookies": "Only settings you chose, no cookies, no tracking.",
+ "foot_privacy": "Privacy and cookies",
  "lang_g": "Language",
  "theme_g": "Page appearance",
  "theme_l": "Light",
