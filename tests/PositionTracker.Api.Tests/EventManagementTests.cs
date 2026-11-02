@@ -788,6 +788,9 @@ public sealed class EventManagementTests(PostgresFixture postgres) : IClassFixtu
                 Assert.Equal(HttpStatusCode.OK, (await StateAsync(org, id, "live")).StatusCode);
             }
             Assert.Equal(HttpStatusCode.OK, (await StateAsync(org, finishedId, "finished")).StatusCode);
+            // as if it finished before the results were stored at the finish
+            await using var before = Db(first);
+            await before.ResultRows.Where(r => r.EventId == finishedId).ExecuteDeleteAsync();
         }
 
         await using var second = Host(cs);
@@ -798,7 +801,11 @@ public sealed class EventManagementTests(PostgresFixture postgres) : IClassFixtu
         Assert.True(second.Registry.IsFinished(finishedId.ToString("D")));
         Assert.Null(second.Registry.FinishedAt(liveId.ToString("D")));
         await using (var check = Db(second))
+        {
             Assert.Equal((await check.Events.SingleAsync(e => e.Id == finishedId)).EndedAt, second.Registry.FinishedAt(finishedId.ToString("D")));
+            Assert.Single(await check.ResultRows.Where(r => r.EventId == finishedId).ToListAsync()); // the missing results were stored
+            Assert.Empty(await check.ResultRows.Where(r => r.EventId == liveId).ToListAsync());
+        }
 
         await using var db = Db(second);
         var p = await db.Participants.SingleAsync(x => x.EventId == finishedId);

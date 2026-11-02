@@ -12,7 +12,8 @@ namespace PositionTracker.Api.Persistence;
 /// the results). It is a hosted service; with <see cref="PersistenceOptions.MigrateOnStartup"/> it first applies
 /// pending migrations. Each runtime is built by <see cref="RuntimeFactory"/> (the same code path as the organizer's
 /// <c>live</c> transition). An event that cannot be rebuilt is logged and skipped; the organizer can retry with
-/// <c>live</c>.
+/// <c>live</c>. A rebuilt finished event without stored results (it finished before the results were stored at the finish)
+/// gets them now, from the replayed positions, so they stay once the runtime leaves the memory.
 /// </summary>
 public sealed class RuntimeRehydrator(
     IDbContextFactory<AppDbContext> contexts, RuntimeFactory factory, EventRegistry registry, TimeProvider clock,
@@ -55,8 +56,9 @@ public sealed class RuntimeRehydrator(
             if (registry.Get(eventId) is not null) continue;
             try
             {
-                registry.Add(await factory.BuildAsync(db, ev, ct), finished: ev.State == EventState.Finished, ev.EndedAt);
+                var runtime = registry.Add(await factory.BuildAsync(db, ev, ct), finished: ev.State == EventState.Finished, ev.EndedAt);
                 rebuilt++;
+                if (ev.State == EventState.Finished) await StoreMissingResultsAsync(ev, runtime, ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -65,5 +67,23 @@ public sealed class RuntimeRehydrator(
         }
         logger.LogInformation("Rebuilt {Count} of {Total} live or recently finished events from the database.", rebuilt, events.Count);
         return rebuilt;
+    }
+
+    private async Task StoreMissingResultsAsync(EventEntity ev, PositionTracker.Core.Runtime.EventRuntime runtime, CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await contexts.CreateDbContextAsync(ct);
+            if (await db.ResultRows.AnyAsync(r => r.EventId == ev.Id, ct)) return;
+            var rows = await Operations.ResultsService.SnapshotAsync(db, ev, runtime, ct);
+            db.ResultRows.AddRange(rows);
+            await db.SaveChangesAsync(ct);
+            logger.LogInformation("Stored the missing results of finished event {EventId} ({Count} lines).", runtime.Settings.EventId, rows.Count);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // most likely stored by someone else meanwhile (unique per participant); the organizer still sees the runtime's standing
+            logger.LogWarning(ex, "The missing results of finished event {EventId} could not be stored.", runtime.Settings.EventId);
+        }
     }
 }
