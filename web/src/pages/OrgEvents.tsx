@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
-import { get, post } from '../lib/api';
+import { ApiError, get, post } from '../lib/api';
 import { formatDateTime, localInputToUtc } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 import { useLoad } from '../lib/hooks';
@@ -123,7 +123,10 @@ function CreateEvent({ intro, onCancel }: { intro?: string; onCancel?: () => voi
     e.preventDefault();
     setBusy(true); setError(null);
     try {
-      const created = await post<{ eventId: string }>('/api/events', { name, location, startTime: localInputToUtc(start) ?? start, sport });
+      // the trailing slash on purpose: from 1 to 2 Nov 2026 the proxy answered /api/events with a permanent redirect, which browsers
+      // remember and would still follow (as a GET) for that exact address; /api/events/ reaches the same endpoint
+      const created = await post<{ eventId?: string }>('/api/events/', { name, location, startTime: localInputToUtc(start) ?? start, sport });
+      if (!created?.eventId) throw new ApiError(0, 'error', { sk: 'Podujatie sa nepodarilo vytvoriť. Obnovte stránku a skúste to znova.', en: 'The event could not be created. Reload the page and try again.' });
       navigate(`/org/events/${created.eventId}`);
     } catch (x) { setError(x); setBusy(false); }
   };

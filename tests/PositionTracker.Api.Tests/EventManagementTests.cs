@@ -113,6 +113,18 @@ public sealed class EventManagementTests(PostgresFixture postgres) : IClassFixtu
     // ----- creation -----
 
     [Fact]
+    public async Task Creating_an_event_works_at_the_address_with_a_trailing_slash_the_web_app_uses()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "anna@example.org");
+
+        var response = await org.PostAsync("/api/events/", new { name = "Derby", location = "Žilina", startTime = Utc(Start), sport = "running" });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal("Derby", (await EventAsync(host, await EventIdAsync(response))).Name);
+    }
+
+    [Fact]
     public async Task Creating_an_event_stores_a_draft_and_is_allowed_before_email_confirmation()
     {
         await using var host = Host();

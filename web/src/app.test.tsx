@@ -110,6 +110,33 @@ describe('web app', () => {
     expect(screen.getByRole('button', { name: 'Send a sign-in link' })).toBeInTheDocument();
   });
 
+  it('creating an event posts to /api/events/ (not the address browsers may remember a redirect for) and opens the new event', async () => {
+    const me = { name: 'Anna', email: 'a@x', language: 'en', emailConfirmed: true, emailMode: 'smtp' };
+    const calls = mockFetch({ 'GET /api/account/session': { body: me }, 'GET /api/events': { body: { emailMode: 'smtp', events: [] } },
+      'POST /api/events/': { status: 201, body: { eventId: 'e9' } }, 'GET /api/events/e9/manage': { body: manage({ eventId: 'e9', name: 'Nové' }) } });
+    renderAt('/org');
+    await userEvent.type(await screen.findByLabelText('Name'), 'Nové');
+    await userEvent.type(screen.getByLabelText('Location'), 'Žilina');
+    await userEvent.type(screen.getByLabelText('Date'), '08/11/2026');
+    await userEvent.type(screen.getByLabelText('Time'), '10:00');
+    await userEvent.click(screen.getByRole('button', { name: 'Create event' }));
+    expect(await screen.findByRole('heading', { name: 'Nové' })).toBeInTheDocument();
+    expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/api/events/'))).toBe(true);
+    expect(calls.some((c) => c.url.includes('undefined'))).toBe(false);
+  });
+  it('a create answer without an event id shows an error instead of opening an undefined event', async () => {
+    const me = { name: 'Anna', email: 'a@x', language: 'en', emailConfirmed: true, emailMode: 'smtp' };
+    const calls = mockFetch({ 'GET /api/account/session': { body: me }, 'GET /api/events': { body: { emailMode: 'smtp', events: [] } },
+      'POST /api/events/': { body: { emailMode: 'smtp', events: [] } } });
+    renderAt('/org');
+    await userEvent.type(await screen.findByLabelText('Name'), 'Nové');
+    await userEvent.type(screen.getByLabelText('Location'), 'Žilina');
+    await userEvent.type(screen.getByLabelText('Date'), '08/11/2026');
+    await userEvent.type(screen.getByLabelText('Time'), '10:00');
+    await userEvent.click(screen.getByRole('button', { name: 'Create event' }));
+    expect(await screen.findByText('The event could not be created. Reload the page and try again.')).toBeInTheDocument();
+    expect(calls.some((c) => c.url.includes('undefined'))).toBe(false);
+  });
   it('an empty event list asks for the first event; a live event links to race control', async () => {
     const me = { name: 'Anna', email: 'a@x', language: 'en', emailConfirmed: true, emailMode: 'smtp' };
     mockFetch({ 'GET /api/account/session': { body: me }, 'GET /api/events': { body: { emailMode: 'smtp', events: [] } } });
