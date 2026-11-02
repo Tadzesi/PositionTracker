@@ -40,11 +40,19 @@ public sealed class ParticipantService(AppDbContext db, LinkTokenService links, 
         var ev = p is null ? null : await db.Events.AsNoTracking().SingleOrDefaultAsync(e => e.Id == p.EventId, ct);
         if (p is null || ev is null) return ParticipantErrors.LinkInvalid;
         var phoneSetUp = await db.DeviceTokens.AnyAsync(t => t.ParticipantId == p.Id && t.RevokedAt == null, ct);
+        LinkResult? result = null;
+        if (ev.State == EventState.Finished)
+        {
+            var finishers = await db.ResultRows.CountAsync(r => r.EventId == ev.Id && r.Status == "finished", ct);
+            result = await db.ResultRows.AsNoTracking().Where(r => r.EventId == ev.Id && r.ParticipantId == p.Id)
+                .Select(r => new LinkResult(r.Status, r.Rank, r.CategoryRank, r.NetTime, r.GapToLeader, r.DistanceM, finishers))
+                .FirstOrDefaultAsync(ct);
+        }
         return new EventResult<LinkView>(new LinkView(
             new LinkEvent(RuntimeFactory.RuntimeId(ev.Id), ev.Name, ev.Location, UtcIso(ev.StartTime), ev.Sport.ToString().ToLowerInvariant(), ev.State == EventState.Finished),
             new LinkMe(Id(p.Id), p.Name, p.Bib, p.Category?.Name, p.Gender, p.Nickname, p.Status.ToString(),
                 new LinkLocked(Started(ev)), phoneSetUp),
-            p.Language, LinkHealth.Of(RuntimeOf(ev), Id(p.Id))), null);
+            p.Language, LinkHealth.Of(RuntimeOf(ev), Id(p.Id)), result), null);
     }
 
     private EventRuntime? RuntimeOf(EventEntity ev) => registry.Get(RuntimeFactory.RuntimeId(ev.Id));
@@ -311,7 +319,13 @@ public sealed record LinkMe(string Id, string Name, string Bib, string? Category
 
 public sealed record LinkLightAnswer(LinkHealth? Link);
 
-public sealed record LinkView(LinkEvent Event, LinkMe Me, string Language, LinkHealth? Link = null);
+/// <summary>
+/// The participant's own line of the stored results of a finished event (<c>finished|dnf|dns</c>, ranks for finishers only) and
+/// how many finished; null while the event runs or when no results were stored for them.
+/// </summary>
+public sealed record LinkResult(string Status, int? Rank, int? CategoryRank, TimeSpan? NetTime, TimeSpan? GapToLeader, double DistanceM, int Finishers);
+
+public sealed record LinkView(LinkEvent Event, LinkMe Me, string Language, LinkHealth? Link = null, LinkResult? Result = null);
 
 /// <summary>The errors of the participant link API (shape and helper of <see cref="EventErrors"/>).</summary>
 public static class ParticipantErrors

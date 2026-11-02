@@ -27,7 +27,8 @@ public sealed class PublicEventInfoTests(PostgresFixture postgres) : IClassFixtu
         Assert.Equal("2026-11-08T10:00:00Z", json.RootElement.GetProperty("startTime").GetString());
         Assert.Equal("cycling", json.RootElement.GetProperty("sport").GetString());
         Assert.Equal("ready", json.RootElement.GetProperty("state").GetString());
-        Assert.Equal(5, json.RootElement.EnumerateObject().Count());
+        Assert.Equal(JsonValueKind.Null, json.RootElement.GetProperty("endedAt").ValueKind);
+        Assert.Equal(6, json.RootElement.EnumerateObject().Count());
         Assert.DoesNotContain("@", body);
         Assert.DoesNotContain("organizer", body, StringComparison.OrdinalIgnoreCase);
     }

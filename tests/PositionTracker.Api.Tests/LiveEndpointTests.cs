@@ -120,6 +120,25 @@ public class LiveEndpointTests(ApiFactory shared) : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task The_organizer_view_of_a_finished_event_stays_at_its_finish_time()
+    {
+        using var factory = new ApiFactory();
+        using var client = OrganizerClient(factory);
+        factory.Clock.Advance(TimeSpan.FromMinutes(30)); // the riders have positions by now
+        var finishedAt = factory.Clock.GetUtcNow();
+        factory.Registry.SetFinished(ApiFactory.EventId, true, finishedAt);
+        var atFinish = await ReadJson(await client.GetAsync(LiveUrl));
+
+        factory.Clock.Advance(TimeSpan.FromHours(28));
+        var later = await ReadJson(await client.GetAsync(LiveUrl));
+
+        Assert.Equal(finishedAt, At(atFinish));
+        Assert.Equal(finishedAt, At(later));
+        Assert.Equal(atFinish.GetProperty("participants").ToString(), later.GetProperty("participants").ToString()); // no growing last signal, no late alarms
+        Assert.Equal(atFinish.GetProperty("countOffline").GetInt32(), later.GetProperty("countOffline").GetInt32());
+    }
+
+    [Fact]
     public async Task Public_course_answers_304_to_a_matching_ETag()
     {
         using var client = shared.CreateClient();

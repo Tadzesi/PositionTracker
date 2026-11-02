@@ -55,7 +55,16 @@ export interface LiveView { at: string; eventId: string; participants: LiveParti
 export type SpectatorParticipant = Pick<LiveParticipant,
   'participantId' | 'bib' | 'displayName' | 'category' | 'rank' | 'lap' | 'totalDistanceM' | 'lat' | 'lon' | 'speedMps' | 'paceSecPerKm' | 'state' | 'gapToLeader' | 'gapToAhead' | 'eta' | 'segments'>;
 export interface SpectatorView { at: string; eventId: string; participants: SpectatorParticipant[] }
-export interface PublicEventInfo { name: string; location: string; startTime: string; sport: Sport; state: 'ready' | 'live' | 'finished' }
+export interface PublicEventInfo { name: string; location: string; startTime: string; sport: Sport; state: 'ready' | 'live' | 'finished'; endedAt: string | null }
+export interface PublicResultRow {
+  rank: number | null; categoryRank: number | null; bib: string; name: string; category: string | null; status: 'finished' | 'dnf';
+  netTime: string | null; gapToLeader: string | null; distanceM: number;
+}
+export interface PublicResults { finished: number; dnf: number; dns: number; rows: PublicResultRow[] }
+export interface LinkResult {
+  status: 'finished' | 'dnf' | 'dns'; rank: number | null; categoryRank: number | null; netTime: string | null; gapToLeader: string | null;
+  distanceM: number; finishers: number;
+}
 export interface PublicCourse {
   event: { name: string; sport: Sport; startTime: string; spectatorDelaySeconds: number };
   laps: number; lapLengthM: number; closed: boolean; points: [number, number][]; profile?: [number, number][] | null; checkpoints: Checkpoint[];
@@ -76,7 +85,7 @@ export interface ResultsView {
 export interface LinkView {
   event: { id: string; name: string; location: string; startTime: string; sport: Sport; finished: boolean };
   me: { id: string; name: string; bib: string; category: string | null; gender: string; nickname: string | null; status: string; locked: { gender: boolean }; phoneSetUp: boolean };
-  language: string; link?: LinkHealth | null;
+  language: string; link?: LinkHealth | null; result?: LinkResult | null;
 }
 
 export interface AdminEvent {

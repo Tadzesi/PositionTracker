@@ -234,12 +234,15 @@ public sealed class EventRuntime
         }
     }
 
-    /// <summary>The organizer view at the current time: every participant in rank order, unranked ones last.</summary>
-    public LiveView BuildLiveView()
+    /// <summary>
+    /// The organizer view at the current time, or at <paramref name="at"/> (a finished event is shown as it was at its finish,
+    /// so the last signal, offline states and alarms stop there): every participant in rank order, unranked ones last.
+    /// </summary>
+    public LiveView BuildLiveView(DateTimeOffset? at = null)
     {
         lock (_lock)
         {
-            var now = _clock.GetUtcNow();
+            var now = at ?? _clock.GetUtcNow();
             var snapshots = _participants.ToDictionary(p => p.Key, p => p.Value.Tracker.GetSnapshot(now), StringComparer.Ordinal);
             var ranking = Ranking.Rank(_participants.Values
                 .Select(e => new RankInput(e.Info.Id, snapshots[e.Info.Id].TotalDistanceM,

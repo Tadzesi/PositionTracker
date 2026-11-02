@@ -330,6 +330,60 @@ describe('web app', () => {
     expect(screen.getByText(/phone clock is 71 s ahead/)).toBeInTheDocument();
   });
 
+  it('race control of a finished event says it has ended, shows the result counts and loads the frozen view once', async () => {
+    const calls = mockFetch({ 'GET /api/account/session': { body: ME },
+      'GET /api/events/e1/manage': { body: manage({ state: 'finished', running: true, endedAt: '2026-11-08T12:30:00Z' }) },
+      'GET /api/events/e1/live': { body: { at: '2026-11-08T12:30:00Z', eventId: 'e1', participants: [], countLive: 0, countDelayed: 0, countOffline: 3, countDnf: 0 } },
+      'GET /api/events/e1/results': { body: { eventId: 'e1', name: 'Derby', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling', state: 'finished',
+        provisional: false, endedAt: '2026-11-08T12:30:00Z', laps: 1, pointToPoint: false, finished: 5, dnf: 2, dns: 1, rows: [] } } });
+    renderAt('/org/events/e1/control');
+    expect(await screen.findByText('The event has finished')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Show the results' })).toHaveAttribute('href', '/org/events/e1/results');
+    expect((await screen.findByText('Finished at')).previousSibling).toHaveTextContent('13:30');
+    expect((await screen.findByText('DNS')).previousSibling).toHaveTextContent('1');
+    expect(screen.queryByText('Broadcasting')).toBeNull();
+    await new Promise((r) => setTimeout(r, 2500));
+    expect(calls.filter((c) => c.url.endsWith('/api/events/e1/live')).length).toBe(1);
+  });
+  it('the spectator page of a finished event no longer in memory shows the results with names only where the server gives them', async () => {
+    mockFetch({
+      'GET /api/events/e1/course': { status: 404, body: { code: 'not_found' } },
+      'GET /api/events/e1/public': { status: 404, body: { code: 'not_found' } },
+      'GET /api/events/e1/info': { body: { state: 'finished', name: 'Time trial', location: 'Zilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling', endedAt: '2026-11-08T12:30:00Z' } },
+      'GET /api/events/e1/public-results': { body: { finished: 1, dnf: 1, dns: 0, rows: [
+        { rank: 1, categoryRank: 1, bib: '7', name: 'Jana', category: 'Open', status: 'finished', netTime: '01:15:00', gapToLeader: '00:00:00', distanceM: 30000 },
+        { rank: null, categoryRank: null, bib: '9', name: '#9', category: 'Open', status: 'dnf', netTime: null, gapToLeader: null, distanceM: 12000 }] } },
+    });
+    renderAt('/e/e1');
+    expect(await screen.findByRole('heading', { name: 'Time trial' })).toBeInTheDocument();
+    expect(screen.getByText('The event has finished')).toBeInTheDocument();
+    expect(await screen.findByText('Jana')).toBeInTheDocument();
+    expect(screen.getByText('1:15:00')).toBeInTheDocument();
+    expect(screen.getByText('Winner')).toBeInTheDocument();
+    expect(screen.getByText('DNF · 12.00 km')).toBeInTheDocument();
+    expect(screen.queryByText('The event is not running yet')).toBeNull();
+  });
+  it('a participant of a finished event sees their own result above the stop panel', async () => {
+    mockFetch({ 'GET /api/p/done': { body: { event: { id: 'e1', name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling', finished: true },
+      me: { id: 'p7', name: 'Jana', bib: '7', category: 'Open', gender: 'female', nickname: null, status: 'Confirmed', locked: { gender: true }, phoneSetUp: true }, language: 'en', link: null,
+      result: { status: 'finished', rank: 2, categoryRank: 1, netTime: '01:30:00', gapToLeader: '00:05:00', distanceM: 30000, finishers: 12 } } } });
+    renderAt('/p?token=done');
+    expect(await screen.findByText('Your result')).toBeInTheDocument();
+    expect(screen.getByText('Place of 12').previousSibling).toHaveTextContent('2.');
+    expect(screen.getByText('Net time').previousSibling).toHaveTextContent('1:30:00');
+    expect(screen.getByText('Behind the winner').previousSibling).toHaveTextContent('+5:00');
+    expect(screen.getByRole('link', { name: 'All results' })).toHaveAttribute('href', '/e/e1?follow=p7');
+    expect(screen.getByText('Switch off location tracking')).toBeInTheDocument();
+  });
+  it('a participant who did not finish sees DNF and the distance', async () => {
+    mockFetch({ 'GET /api/p/dnf': { body: { event: { id: 'e1', name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling', finished: true },
+      me: { id: 'p7', name: 'Jana', bib: '7', category: null, gender: 'female', nickname: null, status: 'Confirmed', locked: { gender: true }, phoneSetUp: true }, language: 'en', link: null,
+      result: { status: 'dnf', rank: null, categoryRank: null, netTime: null, gapToLeader: null, distanceM: 12345, finishers: 12 } } } });
+    renderAt('/p?token=dnf');
+    expect(await screen.findByText('You did not reach the finish')).toBeInTheDocument();
+    expect(screen.getByText('12.35 km')).toBeInTheDocument();
+  });
+
   it('the stop link is the fixed OwnTracks quiet-mode config', () => {
     expect(STOP_DEEP_LINK).toBe('owntracks:///config?inline=eyJfdHlwZSI6ImNvbmZpZ3VyYXRpb24iLCJtb25pdG9yaW5nIjotMX0%3D');
   });

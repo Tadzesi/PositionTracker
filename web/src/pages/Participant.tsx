@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { ApiError, BASE, get, post, put } from '../lib/api';
-import { formatDateTime } from '../lib/format';
+import { formatDateTime, formatDuration, formatGap, formatKm, parseSpan } from '../lib/format';
 import { useI18n, type Lang } from '../lib/i18n';
 import { useLoad, usePoll } from '../lib/hooks';
-import type { LinkView } from '../lib/types';
+import type { LinkResult, LinkView } from '../lib/types';
 import { LinkDot, useLinkText } from '../components/LinkLight';
 import { ErrorBanner, Field, Loading, StatusBadge, bannerError } from '../components/Ui';
 import { StopTrackingPanel } from '../components/StopTrackingPanel';
@@ -68,7 +68,11 @@ function Flow({ token, view, reload }: { token: string; view: LinkView; reload: 
         <p className="mute">{view.event.location} · {formatDateTime(view.event.startTime, lang)}</p>
         <p><b>{me.name}</b> · #{me.bib}{me.category ? ` · ${me.category}` : ''} <StatusBadge value={me.status} label={statusLabel} /></p>
       </div>
-      {view.event.finished ? <StopTrackingPanel /> : (
+      {view.event.finished ? (
+        <>
+          <OwnResult result={view.result ?? null} eventId={view.event.id} participantId={me.id} />
+          <StopTrackingPanel />
+        </>) : (
         <>
           <Step1 token={token} view={view} reload={reload} />
           {me.status === 'Confirmed' && <ConnectionCard token={token} initial={view.link ?? null} />}
@@ -82,6 +86,34 @@ function Flow({ token, view, reload }: { token: string; view: LinkView; reload: 
           {me.status === 'Confirmed' && <SpectatorLink eventId={view.event.id} participantId={me.id} name={me.name} />}
           <Share />
         </>)}
+    </div>
+  );
+}
+
+/** The participant's own line of the results once the event has finished, and the way to the public results. */
+function OwnResult({ result, eventId, participantId }: { result: LinkResult | null; eventId: string; participantId: string }) {
+  const { t } = useI18n();
+  const url = `${BASE}/e/${eventId}?follow=${participantId}`;
+  return (
+    <div className="card stack">
+      <h2>{t('Váš výsledok', 'Your result')}</h2>
+      {!result || result.status === 'dns' ? (
+        <p className="mute">{t('Na trati sme od vás nezachytili žiadnu polohu, preto nemáte výsledok.', 'We received no position of yours on the course, so you have no result.')}</p>
+      ) : result.status === 'finished' ? (
+        <div className="stats">
+          <div className="stat"><b>{result.rank ?? '–'}.</b><span>{t(`Poradie z ${result.finishers}`, `Place of ${result.finishers}`)}</span></div>
+          <div className="stat"><b>{formatDuration(parseSpan(result.netTime))}</b><span>{t('Čistý čas', 'Net time')}</span></div>
+          <div className="stat"><b>{result.rank === 1 ? t('Víťaz', 'Winner') : formatGap(result.gapToLeader)}</b><span>{t('Strata na víťaza', 'Behind the winner')}</span></div>
+          {result.categoryRank !== null && <div className="stat"><b>{result.categoryRank}.</b><span>{t('V kategórii', 'In the category')}</span></div>}
+        </div>
+      ) : (
+        <div className="stats">
+          <div className="stat"><b>DNF</b><span>{t('Do cieľa ste nedorazili', 'You did not reach the finish')}</span></div>
+          <div className="stat"><b>{formatKm(result.distanceM)}</b><span>{t('Prejdené', 'Distance')}</span></div>
+        </div>
+      )}
+      <p className="mute">{t('Oficiálne výsledky vydáva organizátor.', 'The organizer issues the official results.')}</p>
+      <div className="row"><a className="btn" href={url}><span>{t('Všetky výsledky', 'All results')}</span></a></div>
     </div>
   );
 }

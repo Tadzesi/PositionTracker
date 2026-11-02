@@ -709,6 +709,7 @@ public sealed class EventManagementTests(PostgresFixture postgres) : IClassFixtu
         Assert.Equal(host.Clock.GetUtcNow(), ended.EndedAt);
         Assert.Same(runtime, host.Registry.Get(runtimeId));
         Assert.True(host.Registry.IsFinished(runtimeId));
+        Assert.Equal(ended.EndedAt, host.Registry.FinishedAt(runtimeId));
         await AssertErrorAsync(await PostFixAsync(device, runtimeId, Start.AddMinutes(-4)), HttpStatusCode.Conflict, "event_finished");
         await AssertErrorAsync(await device.PostAsJsonAsync($"/api/events/{runtimeId}/actions", new { action = "sos" }),
             HttpStatusCode.Conflict, "event_finished");
@@ -795,6 +796,9 @@ public sealed class EventManagementTests(PostgresFixture postgres) : IClassFixtu
         Assert.False(second.Registry.IsFinished(liveId.ToString("D")));
         Assert.NotNull(second.Registry.Get(finishedId.ToString("D")));
         Assert.True(second.Registry.IsFinished(finishedId.ToString("D")));
+        Assert.Null(second.Registry.FinishedAt(liveId.ToString("D")));
+        await using (var check = Db(second))
+            Assert.Equal((await check.Events.SingleAsync(e => e.Id == finishedId)).EndedAt, second.Registry.FinishedAt(finishedId.ToString("D")));
 
         await using var db = Db(second);
         var p = await db.Participants.SingleAsync(x => x.EventId == finishedId);

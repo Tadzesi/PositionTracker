@@ -68,7 +68,8 @@ public sealed class LiveBroadcaster(
             }
             try
             {
-                var view = runtime.BuildLiveView();
+                // a finished event is shown as it was at its finish: its views do not age
+                var view = runtime.BuildLiveView(registry.FinishedAt(eventId));
                 feed.Push(runtime, view);
                 await hub.Clients.Group(LiveHub.OrganizerGroup(eventId))
                     .SendAsync(LiveHub.LiveUpdateMethod, await acks.ApplyAsync(view, cancellationToken), cancellationToken);

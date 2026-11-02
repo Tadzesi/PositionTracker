@@ -4,7 +4,7 @@ import { get } from '../lib/api';
 import { formatDateTime, formatDuration, formatGap, formatKm, formatSpeed, formatTime, parseSpan } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 import { useLoad, usePoll } from '../lib/hooks';
-import type { PublicCourse, PublicEventInfo, SpectatorParticipant, SpectatorView } from '../lib/types';
+import type { PublicCourse, PublicEventInfo, PublicResults, SpectatorParticipant, SpectatorView } from '../lib/types';
 import MapView, { pointAt, type MapMarker } from '../components/MapView';
 import LiveProfile, { type LiveProfileRider } from '../components/LiveProfile';
 import { lapDistance } from '../lib/profileCluster';
@@ -24,8 +24,11 @@ export default function Spectator() {
   const stateLabel = useStateLabel();
   // the course does not change while the event runs: it is fetched until it arrives (the event may not be live yet), then no more
   const course = usePoll(() => get<PublicCourse>(`/api/events/${id}/course`), 15000, [id], { stopWhen: () => true });
-  // before the go-live the course answers 404: the public header says what the page is about meanwhile
-  const info = useLoad(async () => (course.error ? await get<PublicEventInfo>(`/api/events/${id}/info`).catch(() => null) : null), [id, !!course.error && !course.data]);
+  // the public header: what the page is about before the go-live (the course answers 404 then) and whether the event has finished;
+  // asked every minute until it has finished, then no more
+  const info = usePoll(() => get<PublicEventInfo>(`/api/events/${id}/info`), 60000, [id], { stopWhen: (i) => i.state === 'finished' });
+  const finished = info.data?.state === 'finished';
+  const results = useLoad(() => (finished ? get<PublicResults>(`/api/events/${id}/public-results`).catch(() => null) : Promise.resolve(null)), [id, finished]);
   const view = usePoll(() => get<SpectatorView>(`/api/events/${id}/public`), 3000, [id]);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
@@ -83,7 +86,8 @@ export default function Spectator() {
 
   if (course.error && !course.data) {
     if (info.data && info.data.state === 'ready') return <BeforeStart info={info.data} />;
-    if (info.loading) return <Loading />;
+    if (info.data && finished) return <AfterFinish info={info.data} results={results.data} />;
+    if (!info.data && !info.error) return <Loading />;
     return (
       <div className="card narrow stack">
         <h2>{t('Podujatie ešte nebeží', 'The event is not running yet')}</h2>
@@ -98,10 +102,12 @@ export default function Spectator() {
   return (
     <div className="stack">
       <h1>{course.data.event.name}</h1>
-      <div className="banner" role="note">
-        {t(`Polohy sú oneskorené o ${delay} s a poradie je orientačné. Oficiálne výsledky vydáva organizátor.`,
-          `Positions are delayed by ${delay} s and the ranking is indicative. The organizer issues the official results.`)}
-      </div>
+      {finished ? <FinishedNote endedAt={info.data?.endedAt ?? null} /> : (
+        <div className="banner" role="note">
+          {t(`Polohy sú oneskorené o ${delay} s a poradie je orientačné. Oficiálne výsledky vydáva organizátor.`,
+            `Positions are delayed by ${delay} s and the ranking is indicative. The organizer issues the official results.`)}
+        </div>)}
+      {finished && results.data && <ResultsCard results={results.data} />}
       <ErrorBanner error={view.error} />
       {alertFor && (
         <div className="banner ok" role="alert">
@@ -117,7 +123,7 @@ export default function Spectator() {
               checkpoints={course.data.checkpoints.map((c) => ({ name: c.name, distM: c.lapDistanceM }))}
               riders={profileRiders} selectedId={focus} onSelect={setFocus} />
           </div>
-          {sel && <Followed p={sel} sport={sport} followed={followed.includes(sel.participantId)} onToggle={() => toggle(sel.participantId)}
+          {sel && <Followed p={sel} sport={sport} eventFinished={finished} followed={followed.includes(sel.participantId)} onToggle={() => toggle(sel.participantId)}
             notify={notify.has(sel.participantId)} onNotify={async () => {
               const next = new Set(notify);
               if (next.has(sel.participantId)) next.delete(sel.participantId); else {
@@ -176,8 +182,59 @@ function BeforeStart({ info }: { info: PublicEventInfo }) {
   );
 }
 
-function Followed({ p, sport, followed, onToggle, notify, onNotify }: {
-  p: SpectatorParticipant; sport: 'running' | 'cycling'; followed: boolean; onToggle: () => void; notify: boolean; onNotify: () => void;
+function FinishedNote({ endedAt }: { endedAt: string | null }) {
+  const { t, lang } = useI18n();
+  return (
+    <div className="banner ok" role="status">
+      <b>{t('Podujatie skončilo', 'The event has finished')}</b>{endedAt && <> · {formatDateTime(endedAt, lang)}</>}.{' '}
+      {t('Mapa ukazuje posledné polohy. Oficiálne výsledky vydáva organizátor.', 'The map shows the last positions. The organizer issues the official results.')}
+    </div>
+  );
+}
+
+/** After the runtime has left the memory (some days after the finish): the header, the finish time and the results. */
+function AfterFinish({ info, results }: { info: PublicEventInfo; results: PublicResults | null }) {
+  const { lang } = useI18n();
+  return (
+    <div className="stack">
+      <div className="card stack">
+        <h1>{info.name}</h1>
+        <p className="mute">{info.location} · {formatDateTime(info.startTime, lang)}</p>
+      </div>
+      <FinishedNote endedAt={info.endedAt} />
+      {results ? <ResultsCard results={results} /> : <Loading />}
+    </div>
+  );
+}
+
+/** The public results: a name only where the participant agreed (the server decides), DNF after the finishers. */
+function ResultsCard({ results }: { results: PublicResults }) {
+  const { t } = useI18n();
+  return (
+    <div className="card stack">
+      <h2>{t('Výsledky', 'Results')}</h2>
+      <div className="stats">
+        <div className="stat"><b>{results.finished}</b><span>{t('Dokončili', 'Finished')}</span></div>
+        <div className="stat"><b>{results.dnf}</b><span>DNF</span></div>
+      </div>
+      {results.rows.length === 0 ? <p className="mute">{t('Bez výsledkov.', 'No results.')}</p> : (
+        <div className="scroll"><table>
+          <thead><tr><th>P</th><th>#</th><th>{t('Meno', 'Name')}</th><th>{t('Kategória', 'Category')}</th>
+            <th className="num">{t('Čas', 'Time')}</th><th className="num">{t('Strata', 'Gap')}</th></tr></thead>
+          <tbody>{results.rows.map((r) => (
+            <tr key={r.bib}>
+              <td>{r.rank ?? '–'}</td><td>{r.bib}</td><td>{r.name}</td><td>{r.category ?? ''}</td>
+              <td className="num">{r.status === 'finished' ? formatDuration(parseSpan(r.netTime)) : `DNF · ${formatKm(r.distanceM)}`}</td>
+              <td className="num">{r.rank === 1 ? t('Víťaz', 'Winner') : r.status === 'finished' ? formatGap(r.gapToLeader) : '–'}</td>
+            </tr>))}</tbody>
+        </table></div>)}
+      <p className="dim">{t('Mená zobrazujeme len so súhlasom pretekára.', 'Names are shown only with the rider’s consent.')}</p>
+    </div>
+  );
+}
+
+function Followed({ p, sport, eventFinished, followed, onToggle, notify, onNotify }: {
+  p: SpectatorParticipant; sport: 'running' | 'cycling'; eventFinished: boolean; followed: boolean; onToggle: () => void; notify: boolean; onNotify: () => void;
 }) {
   const { t, lang } = useI18n();
   const stateLabel = useStateLabel();
@@ -196,9 +253,9 @@ function Followed({ p, sport, followed, onToggle, notify, onNotify }: {
         <StatusBadge value={p.state} label={stateLabel(p.state)} />
       </div>
       <div>
-        <span className="mute">{p.state === 'finished' ? t('V cieli', 'Finished') : t('Predpokladaný príchod do cieľa', 'Expected at the finish')}</span>
-        <div className="big">{p.state === 'finished' ? '🏁' : p.eta ? formatTime(p.eta.expected, lang) : '–'}</div>
-        {p.eta && p.state !== 'finished' && <span className="mute">{formatTime(p.eta.earliest, lang)} – {formatTime(p.eta.latest, lang)}{p.eta.approximate ? ' ≈' : ''}</span>}
+        <span className="mute">{p.state === 'finished' ? t('V cieli', 'Finished') : eventFinished ? t('Do cieľa nedorazil', 'Did not reach the finish') : t('Predpokladaný príchod do cieľa', 'Expected at the finish')}</span>
+        <div className="big">{p.state === 'finished' ? '🏁' : eventFinished ? 'DNF' : p.eta ? formatTime(p.eta.expected, lang) : '–'}</div>
+        {p.eta && p.state !== 'finished' && !eventFinished && <span className="mute">{formatTime(p.eta.earliest, lang)} – {formatTime(p.eta.latest, lang)}{p.eta.approximate ? ' ≈' : ''}</span>}
       </div>
       <div className="stats">
         <div className="stat"><b>{formatKm(p.totalDistanceM)}</b><span>{t('Prejdené', 'Distance')}</span></div>
@@ -213,7 +270,7 @@ function Followed({ p, sport, followed, onToggle, notify, onNotify }: {
         </div>)}
       <div className="row">
         <button className="btn small" aria-pressed={followed} onClick={onToggle}><span>{followed ? '★ ' : '☆ '}{followed ? t('Sledujem', 'Following') : t('Sledovať', 'Follow')}</span></button>
-        <button className="btn small" aria-pressed={notify} onClick={onNotify}><span>{notify ? '🔔 ' : '🔕 '}{t('Upozorniť v cieli', 'Notify me at the finish')}</span></button>
+        {!eventFinished && <button className="btn small" aria-pressed={notify} onClick={onNotify}><span>{notify ? '🔔 ' : '🔕 '}{t('Upozorniť v cieli', 'Notify me at the finish')}</span></button>}
         <button className="btn small ghost" onClick={share}><span>{copied ? t('Odkaz skopírovaný', 'Link copied') : t('Zdieľať', 'Share')}</span></button>
       </div>
       {notify && <p className="mute">{t('Upozornenie sa zobrazí na tejto stránke, kým je otvorená.', 'The alert is shown on this page while it stays open.')}</p>}

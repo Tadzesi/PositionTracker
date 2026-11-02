@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { get, post } from '../lib/api';
-import { formatDuration, formatGap, formatKm, formatSpeed, formatTime, parseSpan } from '../lib/format';
+import { formatDateTime, formatDuration, formatGap, formatKm, formatSpeed, formatTime, parseSpan } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 import { useLoad, usePoll } from '../lib/hooks';
-import type { LiveParticipant, LiveView, PublicCourse } from '../lib/types';
+import type { LiveParticipant, LiveView, PublicCourse, ResultsView } from '../lib/types';
 import MapView, { pointAt, type MapMarker } from '../components/MapView';
 import LiveProfile, { type LiveProfileRider } from '../components/LiveProfile';
 import { lapDistance } from '../lib/profileCluster';
@@ -20,7 +21,10 @@ export default function RaceControl() {
   const [onlyAlarms, setOnlyAlarms] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const running = event.state === 'live' || event.state === 'finished';
-  const live = usePoll(() => get<LiveView>(`/api/events/${event.eventId}/live`), 2000, [event.eventId, running]);
+  // a finished event is shown as it was at its finish: nothing changes any more, so it is loaded once
+  const finished = event.state === 'finished';
+  const live = usePoll(() => get<LiveView>(`/api/events/${event.eventId}/live`), 2000, [event.eventId, running, finished], { stopWhen: () => finished });
+  const results = useLoad(() => (finished ? get<ResultsView>(`/api/events/${event.eventId}/results`) : Promise.resolve(null)), [event.eventId, finished]);
   const course = useLoad(() => get<PublicCourse>(`/api/events/${event.eventId}/course`).catch(() => null), [event.eventId, event.state]);
 
   const view = live.data;
@@ -58,13 +62,28 @@ export default function RaceControl() {
   return (
     <div className="stack">
       <ErrorBanner error={error ?? live.error} />
+      {finished && (
+        <div className="banner ok" role="status">
+          <b>{t('Podujatie je ukončené', 'The event has finished')}</b>
+          {event.endedAt && <> · {formatDateTime(event.endedAt, lang)}</>}.{' '}
+          {t('Polohy sa už neprijímajú; mapa a poradie ukazujú stav v čase ukončenia.', 'Positions are no longer accepted; the map and the standings show the state at the finish.')}{' '}
+          <Link className="btn small" to="../results" relative="path"><span>{t('Zobraziť výsledky', 'Show the results')}</span></Link>
+        </div>)}
+      {finished ? (
+        <div className="stats">
+          <div className="stat"><b>{results.data?.finished ?? '–'}</b><span>{t('Dokončili', 'Finished')}</span></div>
+          <div className="stat"><b>{results.data?.dnf ?? '–'}</b><span>DNF</span></div>
+          <div className="stat"><b>{results.data?.dns ?? '–'}</b><span>DNS</span></div>
+          <div className="stat"><b>{event.endedAt ? formatTime(event.endedAt, lang) : '–'}</b><span>{t('Ukončené', 'Finished at')}</span></div>
+        </div>
+      ) : (
       <div className="stats">
         <div className="stat"><b>{view?.countLive ?? 0}</b><span>{t('Vysiela', 'Broadcasting')}</span></div>
         <div className="stat"><b>{view?.countDelayed ?? 0}</b><span>{t('Oneskorení', 'Delayed')}</span></div>
         <div className="stat"><b>{view?.countOffline ?? 0}</b><span>Offline</span></div>
         <div className="stat"><b>{view?.countDnf ?? 0}</b><span>DNF</span></div>
         <div className="stat"><b>{view ? formatTime(view.at, lang) : '–'}</b><span>{t('Čas údajov', 'Data time')}</span></div>
-      </div>
+      </div>)}
       <div className="race">
         <div className="stack">
           <MapView points={course.data?.points ?? []} markers={markers} checkpoints={cps ?? []} selectedId={selected} onSelect={setSelected} className="map tall" />
@@ -108,14 +127,16 @@ export default function RaceControl() {
                 </tr>))}</tbody>
             </table></div>
           </div>
-          {sel && <Telemetry p={sel} sport={event.sport} eventId={event.eventId} act={act} />}
+          {sel && <Telemetry p={sel} sport={event.sport} eventId={event.eventId} act={act} finished={finished} />}
         </div>
       </div>
     </div>
   );
 }
 
-function Telemetry({ p, sport, eventId, act }: { p: LiveParticipant; sport: 'running' | 'cycling'; eventId: string; act: (fn: () => Promise<void>) => Promise<void> }) {
+function Telemetry({ p, sport, eventId, act, finished }: {
+  p: LiveParticipant; sport: 'running' | 'cycling'; eventId: string; act: (fn: () => Promise<void>) => Promise<void>; finished: boolean;
+}) {
   const { t, lang } = useI18n();
   const stateLabel = useStateLabel();
   const signal = parseSpan(p.lastSignalAgo);
@@ -132,14 +153,14 @@ function Telemetry({ p, sport, eventId, act }: { p: LiveParticipant; sport: 'run
         <div className="stat"><b>{p.gradePercent.toFixed(1)} %</b><span>{t('Sklon', 'Grade')}</span></div>
         <div className="stat"><b>{p.batteryPct === null ? '–' : `${Math.round(p.batteryPct)} %`}</b><span>{t('Batéria', 'Battery')}</span></div>
         <div className="stat"><b>{p.gpsAccuracyM === null ? '–' : `${Math.round(p.gpsAccuracyM)} m`}</b><span>GPS</span></div>
-        <div className="stat"><b>{signal === null ? '–' : formatDuration(signal)}</b><span>{t('Posledný signál', 'Last signal')}</span></div>
-        <div className="stat"><b>{p.eta ? formatTime(p.eta.expected, lang) : '–'}</b><span>ETA{p.eta?.approximate ? ' ≈' : ''}</span></div>
+        <div className="stat"><b>{signal === null ? '–' : formatDuration(signal)}</b><span>{finished ? t('Posledný signál pred koncom', 'Last signal before the finish') : t('Posledný signál', 'Last signal')}</span></div>
+        {!finished && <div className="stat"><b>{p.eta ? formatTime(p.eta.expected, lang) : '–'}</b><span>ETA{p.eta?.approximate ? ' ≈' : ''}</span></div>}
       </div>
       <p>{p.segments.map((s, i) => <span key={i} className={`sector ${s.colour}`} title={formatDuration(parseSpan(s.time))} />)}</p>
-      <div className="row">
+      {!finished && <div className="row">
         <button className="btn small danger" disabled={p.state === 'dnf' || p.state === 'finished'}
           onClick={() => { if (window.confirm(t(`Označiť #${p.bib} ako DNF?`, `Mark #${p.bib} as DNF?`))) act(() => post(`/api/events/${eventId}/participants/${p.participantId}/dnf`)); }}><span>{t('Označiť DNF', 'Mark DNF')}</span></button>
-      </div>
+      </div>}
     </div>
   );
 }

@@ -19,7 +19,9 @@ namespace PositionTracker.Api.Endpoints;
 /// <c>GET /api/events/{eventId}/public</c> (anonymous) returns the delayed <see cref="SpectatorView"/>, empty
 /// until a view is at least the spectator delay old. Unknown events are 404;
 /// <c>GET /api/events/{eventId}/info</c> (anonymous) returns the header of a published event (name, location, start, sport, state)
-/// also before it has a runtime; a Draft, unknown or malformed event is 404.
+/// also before it has a runtime; a Draft, unknown or malformed event is 404;
+/// <c>GET /api/events/{eventId}/public-results</c> (anonymous) returns the stored results of a finished event with names only
+/// where the participant agreed (and is not a minor); 404 for any other event.
 /// </summary>
 public static class LiveEndpoints
 {
@@ -30,6 +32,7 @@ public static class LiveEndpoints
         group.MapGet("/public", GetPublic);
         group.MapGet("/course", GetCourse);
         group.MapGet("/info", GetInfo);
+        group.MapGet("/public-results", GetPublicResults);
         return app;
     }
 
@@ -45,7 +48,7 @@ public static class LiveEndpoints
                 return Results.NotFound();
         }
         return registry.Get(eventId) is { } runtime
-            ? Results.Ok(await acks.ApplyAsync(runtime.BuildLiveView(), context.RequestAborted))
+            ? Results.Ok(await acks.ApplyAsync(runtime.BuildLiveView(registry.FinishedAt(eventId)), context.RequestAborted))
             : Results.NotFound();
     }
 
@@ -85,8 +88,8 @@ public static class LiveEndpoints
     }
 
     /// <summary>
-    /// The public header of an event that is not a Draft: <c>{name,location,startTime,sport,state}</c> with <c>state</c> one of
-    /// <c>ready|live|finished</c>. Nothing about the organizer or the participants.
+    /// The public header of an event that is not a Draft: <c>{name,location,startTime,sport,state,endedAt}</c> with <c>state</c> one of
+    /// <c>ready|live|finished</c> and <c>endedAt</c> null until it finished. Nothing about the organizer or the participants.
     /// </summary>
     private static async Task<IResult> GetInfo(string eventId, HttpContext context, IDbContextFactory<AppDbContext> contexts,
         IOptions<PersistenceOptions> persistence)
@@ -94,14 +97,58 @@ public static class LiveEndpoints
         if (!persistence.Value.Enabled || !EventService.TryParseId(eventId, out var id)) return Results.NotFound();
         await using var db = await contexts.CreateDbContextAsync(context.RequestAborted);
         var found = await db.Events.AsNoTracking().Where(e => e.Id == id && e.State != EventState.Draft)
-            .Select(e => new { e.Name, e.Location, e.StartTime, e.Sport, e.State }).FirstOrDefaultAsync(context.RequestAborted);
+            .Select(e => new { e.Name, e.Location, e.StartTime, e.Sport, e.State, e.EndedAt }).FirstOrDefaultAsync(context.RequestAborted);
         if (found is null) return Results.NotFound();
         context.Response.Headers.CacheControl = "no-cache";
         return Results.Ok(new
         {
             name = found.Name, location = found.Location,
-            startTime = found.StartTime.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture),
+            startTime = Utc(found.StartTime),
             sport = found.Sport.ToString().ToLowerInvariant(), state = found.State.ToString().ToLowerInvariant(),
+            endedAt = found.State == EventState.Finished && found.EndedAt is { } ended ? Utc(ended) : null,
+        });
+    }
+
+    private static string Utc(DateTimeOffset at) =>
+        at.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// The results of a finished event for anyone: <c>{finished,dnf,dns,rows:[{rank,categoryRank,bib,name,category,status,netTime,
+    /// gapToLeader,distanceM}]}</c>, finishers in rank order and then those who did not finish (DNS only counted). <c>name</c> follows
+    /// the spectator rule on the participant's current consent: the nickname or the name if they agreed and are not a minor, else
+    /// <c>#bib</c>. Times are whole seconds. Nothing else about the participants (no gender, wave, start or speeds).
+    /// </summary>
+    private static async Task<IResult> GetPublicResults(string eventId, HttpContext context, IDbContextFactory<AppDbContext> contexts,
+        IOptions<PersistenceOptions> persistence)
+    {
+        if (!persistence.Value.Enabled || !EventService.TryParseId(eventId, out var id)) return Results.NotFound();
+        var ct = context.RequestAborted;
+        await using var db = await contexts.CreateDbContextAsync(ct);
+        if (!await db.Events.AsNoTracking().AnyAsync(e => e.Id == id && e.State == EventState.Finished, ct)) return Results.NotFound();
+        var rows = await db.ResultRows.AsNoTracking().Where(r => r.EventId == id)
+            .Select(r => new
+            {
+                r.Rank, r.CategoryRank, r.Bib, r.Category, r.Status, r.NetTime, r.GapToLeader, r.DistanceM, r.IsMinor,
+                Person = db.Participants.Where(p => p.Id == r.ParticipantId)
+                    .Select(p => new { p.Name, p.Nickname, p.NicknameHidden, p.ShowNameToSpectators, p.IsMinor }).FirstOrDefault(),
+            })
+            .ToListAsync(ct);
+        static TimeSpan? Seconds(TimeSpan? t) => t is { } v ? TimeSpan.FromSeconds(Math.Round(v.TotalSeconds)) : null;
+        context.Response.Headers.CacheControl = "no-cache";
+        return Results.Ok(new
+        {
+            finished = rows.Count(r => r.Status == "finished"), dnf = rows.Count(r => r.Status == "dnf"), dns = rows.Count(r => r.Status == "dns"),
+            rows = rows.Where(r => r.Status != "dns")
+                .OrderBy(r => r.Rank ?? int.MaxValue).ThenByDescending(r => r.DistanceM).ThenBy(r => r.Bib, StringComparer.OrdinalIgnoreCase)
+                .Select(r => new
+                {
+                    rank = r.Rank, categoryRank = r.CategoryRank, bib = r.Bib,
+                    name = r.Person is { ShowNameToSpectators: true, IsMinor: false } person && !r.IsMinor
+                        ? (!person.NicknameHidden && !string.IsNullOrWhiteSpace(person.Nickname) ? person.Nickname : person.Name)
+                        : "#" + r.Bib,
+                    category = r.Category, status = r.Status, netTime = Seconds(r.NetTime), gapToLeader = Seconds(r.GapToLeader),
+                    distanceM = Math.Round(r.DistanceM),
+                }),
         });
     }
 

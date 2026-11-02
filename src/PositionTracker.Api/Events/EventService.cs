@@ -436,7 +436,7 @@ public sealed class EventService(
     private async Task<EventError?> RepeatAsync(EventEntity ev, CancellationToken ct)
     {
         var runtimeId = RuntimeFactory.RuntimeId(ev.Id);
-        if (ev.State == EventState.Finished) registry.SetFinished(runtimeId, true);
+        if (ev.State == EventState.Finished) registry.SetFinished(runtimeId, true, ev.EndedAt);
         if (ev.State != EventState.Live || registry.Get(runtimeId) is not null) return null;
         EventRuntime runtime;
         try
@@ -522,7 +522,7 @@ public sealed class EventService(
         ev.EndedAt = clock.GetUtcNow();
         ev.Version = Guid.NewGuid();
         // Refuse ingest from now on; if the change does not commit, the event is still live and takes ingest again.
-        registry.SetFinished(runtimeId, true);
+        registry.SetFinished(runtimeId, true, ev.EndedAt);
         // the results are kept in the database from now on: the runtime leaves the memory some days after the end
         if (registry.Get(runtimeId) is { } runtime && !await db.ResultRows.AnyAsync(r => r.EventId == ev.Id, ct))
             db.ResultRows.AddRange(await ResultsService.SnapshotAsync(db, ev, runtime, ct));

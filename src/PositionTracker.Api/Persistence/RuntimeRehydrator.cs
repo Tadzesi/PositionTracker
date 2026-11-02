@@ -55,7 +55,7 @@ public sealed class RuntimeRehydrator(
             if (registry.Get(eventId) is not null) continue;
             try
             {
-                registry.Add(await factory.BuildAsync(db, ev, ct), finished: ev.State == EventState.Finished);
+                registry.Add(await factory.BuildAsync(db, ev, ct), finished: ev.State == EventState.Finished, ev.EndedAt);
                 rebuilt++;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)

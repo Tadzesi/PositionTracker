@@ -6,26 +6,27 @@ namespace PositionTracker.Api.Events;
 /// <summary>
 /// The running events of this process, keyed by <see cref="EventSettings.EventId"/>. Thread-safe. A runtime of a
 /// finished event stays registered (read-only, for viewing the results) and is flagged <see cref="IsFinished"/>:
-/// the device endpoints refuse it with 409 <c>event_finished</c>.
+/// the device endpoints refuse it with 409 <c>event_finished</c>. The finish time (<see cref="FinishedAt"/>) is when its views stop:
+/// nothing after it is shown, so a finished event does not age (no growing "last signal", no late offline alarms).
 /// </summary>
 public sealed class EventRegistry
 {
     private readonly ConcurrentDictionary<string, EventRuntime> _events = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, byte> _finished = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, DateTimeOffset?> _finished = new(StringComparer.Ordinal);
 
     /// <summary>Registers the runtime and returns it; throws <see cref="ArgumentException"/> if the id is taken.</summary>
     public EventRuntime Add(EventRuntime runtime) => Add(runtime, finished: false);
 
     /// <summary>
-    /// Registers the runtime, already flagged finished when <paramref name="finished"/> (so it never accepts ingest);
-    /// throws <see cref="ArgumentException"/> if the id is taken.
+    /// Registers the runtime, already flagged finished when <paramref name="finished"/> (so it never accepts ingest), at
+    /// <paramref name="finishedAt"/> when known; throws <see cref="ArgumentException"/> if the id is taken.
     /// </summary>
-    public EventRuntime Add(EventRuntime runtime, bool finished)
+    public EventRuntime Add(EventRuntime runtime, bool finished, DateTimeOffset? finishedAt = null)
     {
         ArgumentNullException.ThrowIfNull(runtime);
         var id = runtime.Settings.EventId;
         var wasFinished = _finished.ContainsKey(id);
-        if (finished) _finished[id] = 0;
+        if (finished) _finished[id] = finishedAt;
         if (!_events.TryAdd(id, runtime))
         {
             if (finished && !wasFinished) _finished.TryRemove(id, out _);
@@ -45,10 +46,15 @@ public sealed class EventRegistry
     /// <summary>Whether the event is finished: its runtime (if registered) is read-only.</summary>
     public bool IsFinished(string eventId) => _finished.ContainsKey(eventId);
 
-    /// <summary>Flags the event finished (or, with false, takes the flag back after a failed state change).</summary>
-    public void SetFinished(string eventId, bool finished)
+    /// <summary>When the event finished, or null if it is not finished (or the time is not known).</summary>
+    public DateTimeOffset? FinishedAt(string eventId) => _finished.GetValueOrDefault(eventId);
+
+    /// <summary>
+    /// Flags the event finished at <paramref name="at"/> (or, with false, takes the flag back after a failed state change).
+    /// </summary>
+    public void SetFinished(string eventId, bool finished, DateTimeOffset? at = null)
     {
-        if (finished) _finished[eventId] = 0;
+        if (finished) _finished[eventId] = at;
         else _finished.TryRemove(eventId, out _);
     }
 
