@@ -158,7 +158,7 @@
  "fin_cta": "Try the demo again",
  "fin_app": "Create an account and start your race",
  "nav_app": "Open the app",
- "foot": "The demo on this page uses made-up data. Map data © OpenStreetMap contributors.",
+ "foot": "Data on this page: the riders, the course and their positions in the live demo are made up and simulated by your browser itself; nothing is sent to the server. The screenshots come from the real application with sample data, not real participants. The sample GPX file and the gpx.studio screenshots serve only as a guide. Map data © OpenStreetMap contributors (ODbL licence); your browser loads the map tiles from OpenStreetMap servers.",
  "foot_cookies": "Only settings you chose, no cookies, no tracking.",
  "foot_privacy": "Privacy and cookies",
  "lang_g": "Language",
