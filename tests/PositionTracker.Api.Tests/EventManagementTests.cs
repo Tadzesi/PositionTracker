@@ -112,6 +112,92 @@ public sealed class EventManagementTests(PostgresFixture postgres) : IClassFixtu
 
     // ----- creation -----
 
+    // ----- deletion -----
+
+    [Fact]
+    public async Task An_unconfirmed_organizer_deletes_their_draft()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "anna@example.org", confirmed: false);
+        var id = await SeedEventAsync(host, org.OrganizerId, EventState.Draft, null);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await org.SendAsync(HttpMethod.Delete, $"/api/events/{id:D}", Body(new { }))).StatusCode);
+
+        await using var db = Db(host);
+        Assert.False(await db.Events.AnyAsync(e => e.Id == id));
+        Assert.Equal(HttpStatusCode.NotFound, (await org.GetAsync($"/api/events/{id:D}/manage")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Deleting_a_ready_event_removes_its_participants_their_links_and_unsent_invitations()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "anna@example.org");
+        var id = await SeedEventAsync(host, org.OrganizerId, EventState.Ready, LoopGpx);
+        var keep = await SeedEventAsync(host, org.OrganizerId, EventState.Ready, LoopGpx);
+        foreach (var ev in new[] { id, keep })
+            Assert.Equal(HttpStatusCode.Created, (await org.PostAsync($"/api/events/{ev:D}/participants",
+                new { name = "Jana", email = $"jana-{ev:N}@example.org", gender = "female", language = "sk" })).StatusCode);
+        Guid gone;
+        await using (var before = Db(host))
+        {
+            gone = await before.Participants.Where(p => p.EventId == id).Select(p => p.Id).SingleAsync();
+            Assert.True(await before.Outbox.AnyAsync(m => m.ParticipantId == gone));
+            Assert.True(await before.LinkTokens.AnyAsync(t => t.SubjectId == gone));
+        }
+
+        Assert.Equal(HttpStatusCode.NoContent, (await org.SendAsync(HttpMethod.Delete, $"/api/events/{id:D}", Body(new { }))).StatusCode);
+
+        await using var db = Db(host);
+        Assert.False(await db.Events.AnyAsync(e => e.Id == id));
+        Assert.False(await db.Participants.AnyAsync(p => p.EventId == id));
+        Assert.False(await db.Outbox.AnyAsync(m => m.ParticipantId == gone || m.ToAddress == $"jana-{id:N}@example.org"));
+        Assert.False(await db.LinkTokens.AnyAsync(t => t.SubjectId == gone));
+        Assert.False(await db.Courses.AnyAsync(c => c.EventId == id));
+        // the other event is untouched
+        Assert.True(await db.Participants.AnyAsync(p => p.EventId == keep));
+        Assert.True(await db.Outbox.AnyAsync(m => m.ToAddress == $"jana-{keep:N}@example.org"));
+    }
+
+    [Fact]
+    public async Task Deleting_a_finished_event_removes_its_results_and_its_runtime_and_a_live_one_is_refused()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "anna@example.org");
+        var id = await SeedEventAsync(host, org.OrganizerId, EventState.Ready, LoopGpx);
+        await SeedParticipantAsync(host, id, ParticipantStatus.Confirmed);
+        Assert.Equal(HttpStatusCode.OK, (await StateAsync(org, id, "live")).StatusCode);
+
+        await AssertErrorAsync(await org.SendAsync(HttpMethod.Delete, $"/api/events/{id:D}", Body(new { })), HttpStatusCode.Conflict, "event_live");
+        Assert.NotNull(host.Registry.Get(id.ToString("D")));
+
+        Assert.Equal(HttpStatusCode.OK, (await StateAsync(org, id, "finished")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await org.SendAsync(HttpMethod.Delete, $"/api/events/{id:D}", Body(new { }))).StatusCode);
+
+        Assert.Null(host.Registry.Get(id.ToString("D")));
+        await using var db = Db(host);
+        Assert.False(await db.ResultRows.AnyAsync(r => r.EventId == id));
+        Assert.False(await db.Participants.AnyAsync(p => p.EventId == id));
+        Assert.Equal(HttpStatusCode.NotFound, (await Client(host).GetAsync($"/api/events/{id:D}/public-results")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Another_organizers_event_cannot_be_deleted_and_the_header_is_required()
+    {
+        await using var host = Host();
+        var anna = await SessionAsync(host, "anna@example.org");
+        var bob = await SessionAsync(host, "bob@example.org");
+        var id = await SeedEventAsync(host, anna.OrganizerId, EventState.Draft, null);
+
+        await AssertErrorAsync(await bob.SendAsync(HttpMethod.Delete, $"/api/events/{id:D}", Body(new { })), HttpStatusCode.NotFound, "not_found");
+        Assert.Equal(HttpStatusCode.BadRequest, (await anna.SendAsync(HttpMethod.Delete, $"/api/events/{id:D}", Body(new { }), header: false)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await anna.SendAsync(HttpMethod.Delete, "/api/events/not-a-guid", Body(new { }))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Send(Client(host), HttpMethod.Delete, $"/api/events/{id:D}", Body(new { }))).StatusCode);
+
+        await using var db = Db(host);
+        Assert.True(await db.Events.AnyAsync(e => e.Id == id));
+    }
+
     [Fact]
     public async Task Creating_an_event_works_at_the_address_with_a_trailing_slash_the_web_app_uses()
     {

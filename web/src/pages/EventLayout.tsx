@@ -1,6 +1,6 @@
 import { createContext, useContext, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
-import { BASE, get, post, put } from '../lib/api';
+import { BASE, del, get, post, put } from '../lib/api';
 import { formatDateTime, localInputToUtc, utcToLocalInput } from '../lib/format';
 import { useI18n } from '../lib/i18n';
 import { useLoad, type Loaded } from '../lib/hooks';
@@ -153,6 +153,50 @@ export function Setup() {
       <Categories disabled={!confirmed || locked} />
       <Waves disabled={!confirmed || locked} />
       <Deadline disabled={!confirmed || event.state === 'finished'} />
+      {event.state !== 'live' && <DeleteEvent listPath={base.startsWith('/admin') ? '/admin' : '/org'} />}
+    </div>
+  );
+}
+
+/**
+ * Deleting the event with all its data. Only typing the event's name enables the button, so it is not one careless tap; a live
+ * event cannot be deleted (finish it first).
+ */
+function DeleteEvent({ listPath }: { listPath: string }) {
+  const { event } = useManage();
+  const { t } = useI18n();
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const matches = typed.trim().toLowerCase() === event.name.trim().toLowerCase();
+  const people = event.participants.invited + event.participants.confirmed + event.participants.declined + event.participants.emailFailed;
+  const remove = async () => {
+    setBusy(true); setError(null);
+    try { await del(`/api/events/${event.eventId}`); navigate(listPath, { replace: true }); } catch (x) { setError(x); setBusy(false); }
+  };
+  return (
+    <div className="card stack">
+      <h2>{t('Odstrániť podujatie', 'Delete the event')}</h2>
+      {!open ? (
+        <div className="row"><button type="button" className="btn danger" onClick={() => setOpen(true)}><span>{t('Odstrániť podujatie…', 'Delete the event…')}</span></button></div>
+      ) : (
+        <>
+          <p>{t('Podujatie sa odstráni natrvalo spolu so všetkými údajmi: trasou, kategóriami, vlnami, účastníkmi, ich polohami a výsledkami. Nedá sa to vrátiť.',
+            'The event is deleted for good with all its data: course, categories, waves, participants, their positions and the results. This cannot be undone.')}</p>
+          {people > 0 && <p className="mute">{t(`Účastníkov (${people}) nebudeme informovať; ich odkazy prestanú fungovať a neodoslané pozvánky sa zahodia.`,
+            `The participants (${people}) are not told; their links stop working and invitations not yet sent are dropped.`)}</p>}
+          <Field label={t(`Pre potvrdenie napíšte názov podujatia: ${event.name}`, `To confirm, type the event name: ${event.name}`)} name="confirmName">
+            <input id="confirmName" autoComplete="off" value={typed} onChange={(e) => setTyped(e.target.value)} />
+          </Field>
+          <ErrorBanner error={error} />
+          <div className="row">
+            <button type="button" className="btn danger" disabled={!matches || busy} onClick={remove}><span>{t('Odstrániť natrvalo', 'Delete for good')}</span></button>
+            <button type="button" className="btn ghost" onClick={() => { setOpen(false); setTyped(''); setError(null); }}><span>{t('Zrušiť', 'Cancel')}</span></button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

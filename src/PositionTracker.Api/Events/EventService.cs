@@ -389,6 +389,34 @@ public sealed class EventService(
 
     // ----- state -----
 
+    /// <summary>
+    /// Deletes the event with everything that belongs to it: participants (with their consents, device tokens and positions),
+    /// course, categories, waves, results, the participants' invitation links and their emails in the outbox (also those not sent
+    /// yet, so no invitation to a deleted event goes out). Nobody is notified. A live event is refused (409 <c>event_live</c>);
+    /// the row is locked first, so a concurrent go-live either happens before (and the delete is refused) or fails on the gone row.
+    /// A finished event's read-only runtime leaves the memory.
+    /// </summary>
+    public async Task<EventError?> DeleteAsync(Guid organizerId, string eventId, CancellationToken ct)
+    {
+        if (!TryParseId(eventId, out var id)) return EventErrors.NotFound;
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var ev = await db.Events
+            .FromSql($"""SELECT * FROM "Events" WHERE "Id" = {id} AND "OrganizerId" = {organizerId} FOR UPDATE""")
+            .AsNoTracking().SingleOrDefaultAsync(ct);
+        if (ev is null) return EventErrors.NotFound;
+        if (ev.State == EventState.Live) return EventErrors.EventLive;
+
+        var participants = db.Participants.Where(p => p.EventId == id).Select(p => p.Id);
+        await db.Outbox.Where(m => m.ParticipantId != null && participants.Contains(m.ParticipantId.Value)).ExecuteDeleteAsync(ct);
+        await db.LinkTokens.Where(t => t.Purpose == nameof(LinkPurpose.ParticipantInvite) && participants.Contains(t.SubjectId)).ExecuteDeleteAsync(ct);
+        await db.Events.Where(e => e.Id == id).ExecuteDeleteAsync(ct); // the rest goes with the event (cascades)
+        await tx.CommitAsync(ct);
+
+        registry.Remove(RuntimeFactory.RuntimeId(id));
+        logger.LogInformation("Event {EventId} ({State}) was deleted by its organizer.", RuntimeFactory.RuntimeId(id), ev.State);
+        return null;
+    }
+
     public async Task<EventResult<EventManageView>> SetStateAsync(Guid organizerId, string eventId, string? state, CancellationToken ct)
     {
         EventState target;

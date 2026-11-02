@@ -46,6 +46,10 @@ public static class EventErrors
         "The new start would put a start wave or the confirmation deadline outside the allowed range. Change the waves or the deadline first.",
         "startTime");
 
+    public static readonly EventError EventLive = new(StatusCodes.Status409Conflict, "event_live",
+        "Podujatie práve beží naživo a nedá sa odstrániť. Najprv ho ukončite.",
+        "The event is live and cannot be deleted. Finish it first.");
+
     public static readonly EventError EventFinished = new(StatusCodes.Status409Conflict, "event_finished",
         "Podujatie už skončilo; polohy a akcie sa už neprijímajú.",
         "The event has finished; positions and actions are no longer accepted.");

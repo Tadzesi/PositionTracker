@@ -187,6 +187,28 @@ describe('web app', () => {
     expect(screen.getByText('290–340 m')).toBeInTheDocument();
   });
 
+  it('the organizer deletes an event only after typing its name and lands on the event list', async () => {
+    const calls = mockFetch({ 'GET /api/account/session': { body: ME }, 'GET /api/events/e1/manage': { body: manage({ state: 'ready' }) },
+      'GET /api/events/e1/course-preview': { body: PREVIEW }, 'DELETE /api/events/e1': { status: 204 }, 'GET /api/events': { body: { emailMode: 'smtp', events: [] } } });
+    renderAt('/org/events/e1');
+    await userEvent.click(await screen.findByRole('button', { name: 'Delete the event…' }));
+    expect(screen.getByText(/The participants \(15\) are not told/)).toBeInTheDocument();
+    const confirm = screen.getByRole('button', { name: 'Delete for good' });
+    expect(confirm).toBeDisabled();
+    await userEvent.type(screen.getByLabelText(/To confirm, type the event name/), 'Derb');
+    expect(confirm).toBeDisabled();
+    await userEvent.type(screen.getByLabelText(/To confirm, type the event name/), 'y');
+    await userEvent.click(confirm);
+    expect(await screen.findByText('Create your first event')).toBeInTheDocument();
+    expect(calls.some((c) => c.method === 'DELETE' && c.url.endsWith('/api/events/e1'))).toBe(true);
+  });
+  it('a live event offers no delete', async () => {
+    mockFetch({ 'GET /api/account/session': { body: ME }, 'GET /api/events/e1/manage': { body: manage({ state: 'live', running: true }) }, 'GET /api/events/e1/course-preview': { body: PREVIEW } });
+    renderAt('/org/events/e1');
+    expect(await screen.findByText('Race control', { selector: 'span' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete the event…' })).toBeNull();
+  });
+
   it('saving categories drops a row left empty and confirms the save in the section', async () => {
     const saved = manage({ categories: [{ id: 'c1', name: 'Muži', gender: 'male', minAge: null, maxAge: null }, { id: 'c2', name: 'Ženy', gender: 'female', minAge: null, maxAge: null }] });
     const calls = mockFetch({ 'GET /api/account/session': { body: ME }, 'GET /api/events/e1/manage': { body: manage() }, 'GET /api/events/e1/course-preview': { body: PREVIEW },

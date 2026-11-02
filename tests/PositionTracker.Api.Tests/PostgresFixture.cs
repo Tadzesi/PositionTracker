@@ -11,7 +11,8 @@ namespace PositionTracker.Api.Tests;
 /// </summary>
 public sealed class PostgresFixture : IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:17-alpine").Build();
+    // every test database keeps its own idle connection pool until the process ends: the default 100 clients run out in a large class
+    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:17-alpine").WithCommand("-c", "max_connections=500").Build();
 
     public Task InitializeAsync() => _container.StartAsync();
 

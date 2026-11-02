@@ -36,6 +36,8 @@ namespace PositionTracker.Api.Events;
 /// <item><c>POST /api/events/{id}/state {state: "ready"|"live"|"finished"}</c> → 200 view (repeating the current state
 /// is a success); 409 <c>invalid_transition|course_missing|no_confirmed_participants|conflict</c>, 500
 /// <c>runtime_failed</c>.</item>
+/// <item><c>DELETE /api/events/{id}</c> → 204, the event and all its data are gone (also before email confirmation); 409
+/// <c>event_live</c> for a live event, 404 for another organizer's or an unknown event.</item>
 /// </list>
 /// Without a database every route answers 503 <c>unavailable</c>; a database failure too. Answers carry
 /// <c>Cache-Control: no-store</c>. Nothing personal is logged (ids and exception types only).
@@ -67,8 +69,15 @@ public static class EventManagementEndpoints
         group.MapPut("/{eventId}/waves", PutWavesAsync).RequireAuthorization(CookieAuth.EmailConfirmedOrganizerPolicy);
         group.MapPost("/{eventId}/state", SetStateAsync).RequireAuthorization(CookieAuth.EmailConfirmedOrganizerPolicy);
         group.MapPut("/{eventId}/confirmation-deadline", PutDeadlineAsync).RequireAuthorization(CookieAuth.EmailConfirmedOrganizerPolicy);
+        group.MapDelete("/{eventId}", DeleteAsync);
         return app;
     }
+
+    // an unconfirmed organizer may delete the drafts they created, as they may create them
+    private static async Task<IResult> DeleteAsync(string eventId, HttpContext context, EventService events) =>
+        Organizer(context) is not { } organizer ? AccountErrors.Unauthorized()
+        : await events.DeleteAsync(organizer, eventId, context.RequestAborted) is { } e ? EventErrors.Result(e)
+        : Results.NoContent();
 
     private static async Task<IResult> UpdateAsync(string eventId, HttpContext context, EventService events, IOptions<JsonOptions> json)
     {
