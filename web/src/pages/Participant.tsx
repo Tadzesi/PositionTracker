@@ -79,8 +79,33 @@ function Flow({ token, view, reload }: { token: string; view: LinkView; reload: 
             </div>)}
           {me.status === 'Confirmed' && !phoneIsSetUp && <Step2 token={token} onToken={setDeviceToken} replaces={redo} />}
           {deviceToken && <Step3 token={token} deviceToken={deviceToken} />}
+          {me.status === 'Confirmed' && <SpectatorLink eventId={view.event.id} participantId={me.id} name={me.name} />}
           <Share />
         </>)}
+    </div>
+  );
+}
+
+/** A link to the public spectator page that follows this participant; the family can open it before the start. */
+function SpectatorLink({ eventId, participantId, name }: { eventId: string; participantId: string; name: string }) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+  const url = `${location.origin}${BASE}/e/${eventId}?follow=${participantId}`;
+  const share = async () => {
+    try {
+      if (navigator.share) await navigator.share({ title: name, url });
+      else { await navigator.clipboard.writeText(url); setCopied(true); }
+    } catch { /* cancelled */ }
+  };
+  return (
+    <div className="card stack">
+      <h2>{t('Odkaz pre divákov', 'Link for spectators')}</h2>
+      <p className="mute">{t('Pošlite ho rodine – uvidia vás na mape od štartu.', 'Send it to your family – they will see you on the map from the start.')}</p>
+      <p><a href={url}>{url}</a></p>
+      <div className="row">
+        <button type="button" className="btn" onClick={share}><span>{t('Zdieľať', 'Share')}</span></button>
+        {copied && <span className="mute" role="status">{t('Skopírované', 'Copied')}</span>}
+      </div>
     </div>
   );
 }

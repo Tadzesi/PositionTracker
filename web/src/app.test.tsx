@@ -147,6 +147,18 @@ describe('web app', () => {
     expect(screen.getByText('290–340 m')).toBeInTheDocument();
   });
 
+  it('the organizer sees the spectator link once the event is ready, not in draft', async () => {
+    mockFetch({ 'GET /api/account/session': { body: ME }, 'GET /api/events/e1/manage': { body: manage({ state: 'ready' }) }, 'GET /api/events/e1/course-preview': { body: PREVIEW } });
+    renderAt('/org/events/e1');
+    expect(await screen.findByText('Public link for spectators:')).toBeInTheDocument();
+  });
+  it('the organizer sees no spectator link while the event is a draft', async () => {
+    mockFetch({ 'GET /api/account/session': { body: ME }, 'GET /api/events/e1/manage': { body: manage() }, 'GET /api/events/e1/course-preview': { body: PREVIEW } });
+    renderAt('/org/events/e1');
+    expect(await screen.findByText('What next')).toBeInTheDocument();
+    expect(screen.queryByText('Public link for spectators:')).toBeNull();
+  });
+
   it('a course without elevation says why there is no profile and no ascent', async () => {
     mockFetch({ 'GET /api/account/session': { body: ME }, 'GET /api/events/e1/manage': { body: manage() },
       'GET /api/events/e1/course-preview': { body: { ...PREVIEW, hasElevation: false, minElevationM: null, maxElevationM: null, points: PREVIEW.points.map((p) => [p[0], p[1], null, p[3]]) } } });
@@ -289,6 +301,12 @@ describe('web app', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Email me a new link' }));
     expect(await screen.findByText('We have sent a new link to your email address.')).toBeInTheDocument();
     expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/api/p/old/renew'))).toBe(true);
+  });
+  it('a confirmed participant gets a spectator link that follows them', async () => {
+    mockFetch({ 'GET /api/p/ok': { body: { event: { id: 'e1', name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling' }, me: { id: 'p7', name: 'Jana', bib: '7', category: null, gender: 'female', nickname: null, status: 'Confirmed', locked: { gender: false }, phoneSetUp: false }, language: 'en', link: null } },
+      'GET /api/p/ok/link': { body: { link: null } } });
+    renderAt('/p?token=ok');
+    expect(await screen.findByRole('link', { name: /\/e\/e1\?follow=p7$/ })).toBeInTheDocument();
   });
   it('a confirmed participant sees whether the data leave the phone, and what to fix', async () => {
     const link = { level: 'warning', lastBatchAgoSeconds: 2, lastPositionAgoSeconds: 2, accuracyM: 4, clockAheadSeconds: 71, batteryPct: 80, problems: ['clock'], earlyOnly: false };

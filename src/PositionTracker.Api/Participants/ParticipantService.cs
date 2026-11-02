@@ -41,8 +41,8 @@ public sealed class ParticipantService(AppDbContext db, LinkTokenService links, 
         if (p is null || ev is null) return ParticipantErrors.LinkInvalid;
         var phoneSetUp = await db.DeviceTokens.AnyAsync(t => t.ParticipantId == p.Id && t.RevokedAt == null, ct);
         return new EventResult<LinkView>(new LinkView(
-            new LinkEvent(ev.Name, ev.Location, UtcIso(ev.StartTime), ev.Sport.ToString().ToLowerInvariant(), ev.State == EventState.Finished),
-            new LinkMe(p.Name, p.Bib, p.Category?.Name, p.Gender, p.Nickname, p.Status.ToString(),
+            new LinkEvent(RuntimeFactory.RuntimeId(ev.Id), ev.Name, ev.Location, UtcIso(ev.StartTime), ev.Sport.ToString().ToLowerInvariant(), ev.State == EventState.Finished),
+            new LinkMe(Id(p.Id), p.Name, p.Bib, p.Category?.Name, p.Gender, p.Nickname, p.Status.ToString(),
                 new LinkLocked(Started(ev)), phoneSetUp),
             p.Language, LinkHealth.Of(RuntimeOf(ev), Id(p.Id))), null);
     }
@@ -303,11 +303,11 @@ public sealed record StatusAnswer(string Status);
 public sealed record ConsentAnswer(string DeviceToken, string EventId);
 
 /// <param name="Finished">The event is over: the page shows how to switch tracking off instead of the setup steps.</param>
-public sealed record LinkEvent(string Name, string Location, string StartTime, string Sport, bool Finished);
+public sealed record LinkEvent(string Id, string Name, string Location, string StartTime, string Sport, bool Finished);
 
 public sealed record LinkLocked(bool Gender);
 
-public sealed record LinkMe(string Name, string Bib, string? Category, string Gender, string? Nickname, string Status, LinkLocked Locked, bool PhoneSetUp);
+public sealed record LinkMe(string Id, string Name, string Bib, string? Category, string Gender, string? Nickname, string Status, LinkLocked Locked, bool PhoneSetUp);
 
 public sealed record LinkLightAnswer(LinkHealth? Link);
 

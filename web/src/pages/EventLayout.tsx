@@ -147,7 +147,7 @@ export function Setup() {
             <button type="button" className="btn danger" disabled={busy} onClick={advance}><span>{nextLabel}</span></button>
           </div>
         )}
-        {event.state === 'live' && <p className="mute">{t('Verejný odkaz pre divákov:', 'Public link for spectators:')} <a href={`${BASE}/e/${event.eventId}`}>{`${location.origin}${BASE}/e/${event.eventId}`}</a></p>}
+        {event.state !== 'draft' && <p className="mute">{t('Verejný odkaz pre divákov:', 'Public link for spectators:')} <a href={`${BASE}/e/${event.eventId}`}>{`${location.origin}${BASE}/e/${event.eventId}`}</a></p>}
       </div>
       <CourseSection disabled={!confirmed || locked} />
       <Categories disabled={!confirmed || locked} run={run} />

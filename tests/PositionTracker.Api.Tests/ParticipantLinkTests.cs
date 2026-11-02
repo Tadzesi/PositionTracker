@@ -50,11 +50,13 @@ public sealed class ParticipantLinkTests(PostgresFixture postgres) : IClassFixtu
         Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
         using var json = JsonDocument.Parse(body);
         var e = json.RootElement.GetProperty("event");
+        Assert.Equal(ev.ToString("D"), e.GetProperty("id").GetString());
         Assert.Equal("Jarná časovka", e.GetProperty("name").GetString());
         Assert.Equal("Žilina", e.GetProperty("location").GetString());
         Assert.Equal("2026-11-08T10:00:00Z", e.GetProperty("startTime").GetString());
         Assert.Equal("cycling", e.GetProperty("sport").GetString());
         var me = json.RootElement.GetProperty("me");
+        Assert.Equal(pid.ToString("D"), me.GetProperty("id").GetString());
         Assert.Equal("Jana Nováková", me.GetProperty("name").GetString());
         Assert.Equal("1", me.GetProperty("bib").GetString());
         Assert.Equal("Elite", me.GetProperty("category").GetString());
