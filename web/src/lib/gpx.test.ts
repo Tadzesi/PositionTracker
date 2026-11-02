@@ -16,6 +16,11 @@ describe('parseGpx', () => {
     expect(p.points[0][3]).toBe(0);
   });
 
+  it('tells a closed course (the end within 100 m of the start) from an open one', () => {
+    expect(parseGpx(gpx([[49, 18, 300], [49.01, 18, 320], [49.02, 18, 310]]))!.closed).toBe(false);
+    expect(parseGpx(gpx([[49, 18, 300], [49.01, 18, 320], [49.0005, 18, 310]]))!.closed).toBe(true); // ~56 m apart
+  });
+
   it('says there is no elevation when a point lacks it', () => {
     const p = parseGpx(gpx([[49, 18, 300], [49.01, 18, null]]))!;
     expect(p.hasElevation).toBe(false);

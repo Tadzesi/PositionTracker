@@ -72,7 +72,7 @@ export default function OrgEvents() {
                     <td>
                       <Link to={`/org/events/${e.eventId}`} onClick={(x) => x.stopPropagation()}>{e.name}</Link>
                       <div className="mute">{e.location}</div>
-                      <span className="sub">{sportLabel(t, e.sport)} · {e.lapLengthM ? `${e.laps > 1 ? `${e.laps} × ` : ''}${(e.lapLengthM / 1000).toFixed(1)} km` : t('bez trasy', 'no course')}</span>
+                      <span className="sub">{sportLabel(t, e.sport)} · {e.lapLengthM ? `${e.laps > 1 && !e.pointToPoint ? `${e.laps} × ` : ''}${(e.lapLengthM / 1000).toFixed(1)} km${e.pointToPoint ? ' · A → B' : ''}` : t('bez trasy', 'no course')}</span>
                     </td>
                     <td>{formatDateTime(e.startTime, lang)}</td>
                     <td><Participants e={e} /></td>

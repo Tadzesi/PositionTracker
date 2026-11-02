@@ -20,6 +20,11 @@ public sealed class EventEntity
     public Sport Sport { get; set; }
     public EventState State { get; set; }
     public int Laps { get; set; }
+    /// <summary>
+    /// A point-to-point race (start A, finish B) instead of laps: <see cref="Laps"/> is always 1 and the course is
+    /// presented without laps. Tracking is the same as for one lap.
+    /// </summary>
+    public bool PointToPoint { get; set; }
     public int SpectatorDelaySeconds { get; set; }
     public byte[]? GpxBytes { get; set; }
     public string? CheckpointsJson { get; set; }

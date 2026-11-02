@@ -14,7 +14,9 @@ public sealed record UpdateEventRequest(string? Name, string? Location, string? 
 
 public sealed record CheckpointRequest(string? Name, double? LapDistanceM);
 
-public sealed record CourseRequest(string? GpxBase64, int? Laps, List<CheckpointRequest?>? Checkpoints, int? SpectatorDelaySeconds);
+/// <param name="PointToPoint">A point-to-point race (start A, finish B) without laps; <c>Laps</c> is then ignored and stored as 1.</param>
+public sealed record CourseRequest(string? GpxBase64, int? Laps, List<CheckpointRequest?>? Checkpoints, int? SpectatorDelaySeconds,
+    bool? PointToPoint = null);
 
 public sealed record CategoryRequest(string? Name, string? Gender, int? MinAge, int? MaxAge);
 
@@ -32,7 +34,7 @@ public sealed record CreatedEvent(string EventId);
 public sealed record EventSummary(
     string EventId, string Name, string Location,
     [property: JsonConverter(typeof(UtcTimestampConverter))] DateTimeOffset StartTime,
-    Sport Sport, EventState State, int Laps, double? LapLengthM, ParticipantCounts Participants);
+    Sport Sport, EventState State, int Laps, bool PointToPoint, double? LapLengthM, ParticipantCounts Participants);
 
 /// <param name="EmailMode"><c>simulated</c> or <c>smtp</c> (controller ruling P8): whether mails really go out.</param>
 public sealed record EventList(string EmailMode, IReadOnlyList<EventSummary> Events);
@@ -53,7 +55,7 @@ public sealed record ParticipantCounts(int Invited, int Confirmed, int Declined,
 public sealed record EventManageView(
     string EventId, string Name, string Location,
     [property: JsonConverter(typeof(UtcTimestampConverter))] DateTimeOffset StartTime,
-    Sport Sport, EventState State, int Laps, int SpectatorDelaySeconds, CourseView? Course,
+    Sport Sport, EventState State, int Laps, bool PointToPoint, int SpectatorDelaySeconds, CourseView? Course,
     IReadOnlyList<CategoryView> Categories, IReadOnlyList<WaveView> Waves, ParticipantCounts Participants,
     bool Running, string EmailMode,
     [property: JsonConverter(typeof(UtcTimestampConverter))] DateTimeOffset CreatedAt,
@@ -91,5 +93,5 @@ public sealed record CheckpointPlace(string Name, double LapDistanceM, double La
 /// <see cref="EventService.MaxPreviewPoints"/> points, each <c>[lat, lon, elevationM|null, distanceFromLapStartM]</c>.
 /// </summary>
 public sealed record CoursePreview(
-    double LapLengthM, int Laps, bool Closed, bool HasElevation, double? MinElevationM, double? MaxElevationM,
+    double LapLengthM, int Laps, bool PointToPoint, bool Closed, bool HasElevation, double? MinElevationM, double? MaxElevationM,
     double AscentM, double DescentM, IReadOnlyList<double?[]> Points, IReadOnlyList<CheckpointPlace> Checkpoints);

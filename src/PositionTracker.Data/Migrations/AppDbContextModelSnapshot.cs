@@ -396,6 +396,9 @@ namespace PositionTracker.Data.Migrations
                     b.Property<Guid>("OrganizerId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("PointToPoint")
+                        .HasColumnType("boolean");
+
                     b.Property<int>("SpectatorDelaySeconds")
                         .HasColumnType("integer");
 

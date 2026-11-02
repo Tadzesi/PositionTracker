@@ -5,12 +5,13 @@ export interface Me { name: string; email: string; language: string; emailConfir
 export interface ParticipantCounts { invited: number; confirmed: number; declined: number; emailFailed: number }
 export interface EventSummary {
   eventId: string; name: string; location: string; startTime: string; sport: Sport; state: EventState;
-  laps: number; lapLengthM: number | null; participants: ParticipantCounts;
+  /** A point-to-point race (start A, finish B, no laps; laps is 1). */
+  laps: number; pointToPoint: boolean; lapLengthM: number | null; participants: ParticipantCounts;
 }
 export interface CheckpointPlace { name: string; lapDistanceM: number; lat: number; lon: number }
 /** GET /api/events/{id}/course-preview: points are [lat, lon, elevation|null, distance from the lap start]. */
 export interface CoursePreview {
-  lapLengthM: number; laps: number; closed: boolean; hasElevation: boolean; minElevationM: number | null; maxElevationM: number | null;
+  lapLengthM: number; laps: number; pointToPoint: boolean; closed: boolean; hasElevation: boolean; minElevationM: number | null; maxElevationM: number | null;
   ascentM: number; descentM: number; points: [number, number, number | null, number][]; checkpoints: CheckpointPlace[];
 }
 export interface Checkpoint { name: string; lapDistanceM: number }
@@ -18,7 +19,7 @@ export interface CourseView { lapLengthM: number; ascentM: number; descentM: num
 export interface CategoryView { id: string; name: string; gender: string | null; minAge: number | null; maxAge: number | null }
 export interface WaveView { id: string; name: string; startTime: string }
 export interface ManageView {
-  eventId: string; name: string; location: string; startTime: string; sport: Sport; state: EventState; laps: number;
+  eventId: string; name: string; location: string; startTime: string; sport: Sport; state: EventState; laps: number; pointToPoint: boolean;
   spectatorDelaySeconds: number; course: CourseView | null; categories: CategoryView[]; waves: WaveView[];
   participants: ParticipantCounts;
   running: boolean; emailMode: string; createdAt: string; endedAt: string | null; confirmationDeadline: string | null;
@@ -68,7 +69,7 @@ export interface ResultLine {
 }
 export interface ResultsView {
   eventId: string; name: string; location: string; startTime: string; sport: Sport; state: string; provisional: boolean; endedAt: string | null;
-  laps: number; finished: number; dnf: number; dns: number; rows: ResultLine[];
+  laps: number; pointToPoint: boolean; finished: number; dnf: number; dns: number; rows: ResultLine[];
 }
 
 export interface LinkView {

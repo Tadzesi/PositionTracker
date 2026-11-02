@@ -124,13 +124,13 @@ describe('web app', () => {
 
   const ME = { name: 'Anna', email: 'a@x', language: 'en', emailConfirmed: true, emailMode: 'smtp' };
   const manage = (over: Record<string, unknown> = {}) => ({
-    eventId: 'e1', name: 'Derby', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling', state: 'draft', laps: 1, spectatorDelaySeconds: 30,
+    eventId: 'e1', name: 'Derby', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling', state: 'draft', laps: 1, pointToPoint: false, spectatorDelaySeconds: 30,
     course: { lapLengthM: 12400, ascentM: 310, descentM: 305, pointCount: 4, closed: true, uploadedAt: '2026-10-30T10:00:00Z', checkpoints: [{ name: 'Bufet', lapDistanceM: 3000 }] },
     categories: [], waves: [], participants: { invited: 3, confirmed: 9, declined: 1, emailFailed: 2 }, running: false, emailMode: 'smtp',
     createdAt: '2026-10-30T10:00:00Z', endedAt: null, confirmationDeadline: null, ...over,
   });
   const PREVIEW = {
-    lapLengthM: 12400, laps: 1, closed: true, hasElevation: true, minElevationM: 290, maxElevationM: 340, ascentM: 310, descentM: 305,
+    lapLengthM: 12400, laps: 1, pointToPoint: false, closed: true, hasElevation: true, minElevationM: 290, maxElevationM: 340, ascentM: 310, descentM: 305,
     points: [[49, 18, 300, 0], [49.01, 18, 340, 4000], [49.02, 18, 290, 8000], [49.03, 18, 300, 12400]], checkpoints: [{ name: 'Bufet', lapDistanceM: 6200, lat: 49.015, lon: 18 }],
   };
 
@@ -195,6 +195,39 @@ describe('web app', () => {
     const body = JSON.parse(calls.find((c) => c.method === 'PUT' && c.url === '/api/events/e1/course')!.body!);
     expect(body.gpxBase64).toBeUndefined();
     expect(body.checkpoints).toEqual([{ name: 'Bufet', lapDistanceM: 3000 }, { name: 'Kopec', lapDistanceM: 9000 }]);
+  });
+
+  it('a race from A to B has no laps: the laps field goes away, the course is described without laps and saved as one pass', async () => {
+    const calls = mockFetch({ 'GET /api/account/session': { body: ME }, 'GET /api/events/e1/manage': { body: manage() }, 'GET /api/events/e1/course-preview': { body: PREVIEW },
+      'PUT /api/events/e1/course': { body: manage({ pointToPoint: true }) } });
+    renderAt('/org/events/e1');
+    await screen.findByText('Checkpoints');
+    expect(screen.getByLabelText('Laps (1–10)')).toBeInTheDocument();
+    expect(screen.getByText('Lap length')).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText('Race type'), 'a-b');
+    expect(screen.queryByLabelText('Laps (1–10)')).toBeNull();
+    expect(screen.getByText('Course length')).toBeInTheDocument();
+    expect(screen.getByText(/finish at its end \(point B\)/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Distance from the start (km)')).toHaveValue('3');
+    expect(screen.getByRole('button', { name: 'Add a point at half of the course' })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/events/e1/course')).toBe(true));
+    const body = JSON.parse(calls.find((c) => c.method === 'PUT' && c.url === '/api/events/e1/course')!.body!);
+    expect(body).toMatchObject({ pointToPoint: true, laps: 1 });
+    expect(await screen.findByText('From A to B')).toBeInTheDocument(); // the event summary of the saved race
+  });
+
+  it('more than one lap of an open course is refused before saving', async () => {
+    mockFetch({ 'GET /api/account/session': { body: ME }, 'GET /api/events/e1/manage': { body: manage({ course: { ...manage().course, closed: false } }) },
+      'GET /api/events/e1/course-preview': { body: { ...PREVIEW, closed: false } } });
+    renderAt('/org/events/e1');
+    const laps = await screen.findByLabelText('Laps (1–10)');
+    await userEvent.clear(laps);
+    await userEvent.type(laps, '2');
+    expect(await screen.findByText(/can be ridden only once/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
   });
 
   it('a checkpoint can be removed one by one or all at once', async () => {

@@ -260,12 +260,15 @@ Guid formatted `D` (lower case); only that canonical form reaches an event (uppe
   stripped), the same rule as for organizer names at sign-up. `startTime`: UTC ISO 8601 with `Z`, strictly in the future (at most 5 years
   ahead). `sport`: `running` or `cycling`. Invalid input: `400 validation_failed` + `field`.
 - `GET /api/events` → `{emailMode, events:[{eventId,name,location,startTime,sport,state}]}`;
-  `GET /api/events/{id}/manage` → name, location, start, sport, state, laps, spectator delay, `course`
+  `GET /api/events/{id}/manage` → name, location, start, sport, state, laps, `pointToPoint`, spectator delay, `course`
   (`lapLengthM, ascentM, descentM` per lap, `pointCount, closed, uploadedAt, checkpoints`) or null, categories,
   waves, participant counts per status, `running` (runtime registered in this process), `emailMode`
   (`simulated`|`smtp`: whether mails really go out, ruling P8), `createdAt`, `endedAt`.
-- `PUT /api/events/{id}/course {gpxBase64, laps?, checkpoints?:[{name,lapDistanceM}], spectatorDelaySeconds?}`
-  (laps default 1, delay default 30 s). Everything is validated before the database is touched: `laps_invalid`
+- `PUT /api/events/{id}/course {gpxBase64, laps?, pointToPoint?, checkpoints?:[{name,lapDistanceM}], spectatorDelaySeconds?}`
+  (laps default 1, delay default 30 s). `pointToPoint: true` is a race from A to B without laps: laps are ignored and
+  stored as 1, tracking is that of one lap, the organizer UI and the results CSV leave laps out (no `Kolá` column,
+  splits named `Úsek N`); the course may be open or closed. The migration `EventPointToPoint` marks existing one-lap
+  events on an open course as point-to-point. Everything is validated before the database is touched: `laps_invalid`
   (1–10), `delay_invalid` (5–300 s), `checkpoint_invalid` (name 1–60 characters, names unique ignoring case,
   distances distinct and strictly inside the lap, at most 50), `gpx_invalid` (missing, not base64, not GPX, DTD, fewer
   than 2 points: parsed by the hardened `GpxParser`), `413 gpx_too_large` (over 1 MB decoded; line-wrapped base64 is accepted; the body cap is 2 MB),

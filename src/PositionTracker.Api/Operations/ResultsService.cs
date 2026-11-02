@@ -29,7 +29,7 @@ public sealed record ResultLine(
 /// <param name="Provisional">True while the event is not finished: the lines are the standing now, not the results.</param>
 public sealed record ResultsView(
     string EventId, string Name, string Location, DateTimeOffset StartTime, string Sport, string State, bool Provisional,
-    DateTimeOffset? EndedAt, int Laps, int Finished, int Dnf, int Dns, IReadOnlyList<ResultLine> Rows);
+    DateTimeOffset? EndedAt, int Laps, bool PointToPoint, int Finished, int Dnf, int Dns, IReadOnlyList<ResultLine> Rows);
 
 /// <summary>
 /// The results of an event for its organizer. While the event runs they are the standing computed from the runtime; when the
@@ -117,7 +117,7 @@ public sealed class ResultsService(AppDbContext db, EventRegistry registry)
 
         return new EventResult<ResultsView>(new ResultsView(
             ev.Id.ToString("D"), ev.Name, ev.Location, ev.StartTime, ev.Sport.ToString().ToLowerInvariant(), ev.State.ToString().ToLowerInvariant(),
-            ev.State != EventState.Finished, ev.EndedAt, ev.Laps,
+            ev.State != EventState.Finished, ev.EndedAt, ev.Laps, ev.PointToPoint,
             lines.Count(l => l.Status == "finished"), lines.Count(l => l.Status == "dnf"), lines.Count(l => l.Status == "dns"), lines), null);
     }
 
@@ -125,7 +125,7 @@ public sealed class ResultsService(AppDbContext db, EventRegistry registry)
     /// The results as CSV for the organizer to publish: <c>;</c> separated with a comma as the decimal mark (the Slovak spreadsheet
     /// default), UTF-8 with a byte order mark. With <paramref name="namesOnlyWithConsent"/> a name appears only where the participant
     /// agreed to show it (and is not a minor), the others are listed by nickname or number. A cell that could be read as a formula is
-    /// made harmless.
+    /// made harmless. A point-to-point race has no laps column and its splits are named by section only.
     /// </summary>
     public static string ToCsv(ResultsView view, bool namesOnlyWithConsent)
     {
@@ -138,7 +138,8 @@ public sealed class ResultsService(AppDbContext db, EventRegistry registry)
             "Poradie", "Poradie v kategórii", "Poradie podľa pohlavia", "Číslo", "Meno", "Kategória", "Vlna", "Pohlavie", "Stav", "Štart", "Cieľ",
             "Čistý čas", "Strata", "Vzdialenosť (km)", "Kolá", "Priemerná rýchlosť (km/h)", "Najvyššia rýchlosť (km/h)", "Čas v pohybe",
             "Čas státia", "Stúpanie (m)", "Klesanie (m)", "Poznámka",
-        }.Concat(splitKeys.Select(k => $"Kolo {k.Lap}, úsek {k.SegmentIndex + 1}")));
+        }.Where((_, i) => !view.PointToPoint || i != LapsColumn)
+            .Concat(splitKeys.Select(k => view.PointToPoint ? $"Úsek {k.SegmentIndex + 1}" : $"Kolo {k.Lap}, úsek {k.SegmentIndex + 1}")));
         foreach (var r in view.Rows)
         {
             var name = !namesOnlyWithConsent || (r.NameConsent && !r.IsMinor) ? r.Name : (string.IsNullOrWhiteSpace(r.Nickname) ? "#" + r.Bib : r.Nickname);
@@ -151,10 +152,13 @@ public sealed class ResultsService(AppDbContext db, EventRegistry registry)
                 (r.DistanceM / 1000).ToString("0.00", c), r.Laps.ToString(c), (r.AvgSpeedMps * 3.6).ToString("0.0", c),
                 (r.MaxSpeedMps * 3.6).ToString("0.0", c), Span(r.MovingTime), Span(r.StoppedTime), r.AscentM.ToString("0", c), r.DescentM.ToString("0", c),
                 r.StartMissed ? $"Štart nezaznamenaný (prvá poloha na {(r.StartObservedM / 1000).ToString("0.0", c)} km)" : null,
-            }.Concat(splitKeys.Select(k => Span(r.Splits.FirstOrDefault(s => s.Lap == k.Lap && s.SegmentIndex == k.SegmentIndex)?.Time))));
+            }.Where((_, i) => !view.PointToPoint || i != LapsColumn).Concat(splitKeys.Select(k => Span(r.Splits.FirstOrDefault(s => s.Lap == k.Lap && s.SegmentIndex == k.SegmentIndex)?.Time))));
         }
         return sb.ToString();
     }
+
+    /// <summary>Index of the "Kolá" column, left out for a point-to-point race.</summary>
+    private const int LapsColumn = 14;
 
     private static string? Span(TimeSpan? t) =>
         t is { } s ? $"{(int)s.TotalHours}:{s.Minutes:00}:{s.Seconds:00}" : null;

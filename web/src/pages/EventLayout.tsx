@@ -39,7 +39,7 @@ export default function EventLayout() {
       </div>
       <p className="mute" style={{ marginTop: -8 }}>
         {sportLabel(t, e.sport)} · {e.location} · {formatDateTime(e.startTime, lang)}
-        {e.course ? ` · ${e.laps > 1 ? `${e.laps} × ` : ''}${(e.course.lapLengthM / 1000).toFixed(2)} km` : ''}
+        {e.course ? ` · ${e.laps > 1 && !e.pointToPoint ? `${e.laps} × ` : ''}${(e.course.lapLengthM / 1000).toFixed(2)} km${e.pointToPoint ? ' · A → B' : ''}` : ''}
       </p>
       <EmailModeNotice mode={e.emailMode} />
       <nav className="tabs" aria-label="event">
@@ -83,7 +83,11 @@ export function Setup() {
   const toCourse = () => document.getElementById('course')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   const steps = [
-    { done: !!event.course, title: t('Nahrajte trasu', 'Upload the course'), hint: event.course ? t(`${(event.course.lapLengthM / 1000).toFixed(2)} km na kolo`, `${(event.course.lapLengthM / 1000).toFixed(2)} km per lap`) : t('Súbor GPX s trasou jedného kola.', 'A GPX file with the route of one lap.'),
+    { done: !!event.course, title: t('Nahrajte trasu', 'Upload the course'), hint: event.course
+        ? event.pointToPoint
+          ? t(`${(event.course.lapLengthM / 1000).toFixed(2)} km z bodu A do bodu B`, `${(event.course.lapLengthM / 1000).toFixed(2)} km from A to B`)
+          : t(`${(event.course.lapLengthM / 1000).toFixed(2)} km na kolo`, `${(event.course.lapLengthM / 1000).toFixed(2)} km per lap`)
+        : t('Súbor GPX s trasou jedného kola alebo z bodu A do bodu B.', 'A GPX file with the route of one lap or from A to B.'),
       action: <button type="button" className="btn small" onClick={toCourse}><span>{t('Prejsť na trasu', 'Go to the course')}</span></button> },
     { done: total > 0, title: t('Pozvite účastníkov', 'Invite participants'), hint: total > 0 ? t(`${total} pozvaných`, `${total} invited`) : t('Každý dostane e-mail s odkazom na potvrdenie.', 'Everybody gets an email with a link to confirm.'),
       action: <Link className="btn small" to={`${base}/participants`}><span>{t('Účastníci', 'Participants')}</span></Link> },
@@ -124,8 +128,10 @@ export function Setup() {
           <div className="stat"><b>{formatDateTime(event.startTime, lang)}</b><span>{t('Štart', 'Start')}</span></div>
           <div className="stat"><b>{event.location}</b><span>{t('Miesto', 'Location')}</span></div>
           <div className="stat"><b>{sportLabel(t, event.sport)}</b><span>{t('Šport', 'Sport')}</span></div>
-          <div className="stat"><b>{event.course ? `${event.laps} × ${(event.course.lapLengthM / 1000).toFixed(2)} km` : '–'}</b><span>{t('Kolá × dĺžka', 'Laps × length')}</span></div>
-          <div className="stat"><b>{event.course ? `${Math.round(event.course.ascentM)} m` : '–'}</b><span>{t('Stúpanie / kolo', 'Ascent / lap')}</span></div>
+          {event.pointToPoint
+            ? <div className="stat"><b>{event.course ? `${(event.course.lapLengthM / 1000).toFixed(2)} km` : '–'}</b><span>{t('Z bodu A do bodu B', 'From A to B')}</span></div>
+            : <div className="stat"><b>{event.course ? `${event.laps} × ${(event.course.lapLengthM / 1000).toFixed(2)} km` : '–'}</b><span>{t('Kolá × dĺžka', 'Laps × length')}</span></div>}
+          <div className="stat"><b>{event.course ? `${Math.round(event.course.ascentM)} m` : '–'}</b><span>{event.pointToPoint ? t('Stúpanie', 'Ascent') : t('Stúpanie / kolo', 'Ascent / lap')}</span></div>
         </div>
         <h3>{t('Účastníci', 'Participants')}</h3>
         <div className="stats">

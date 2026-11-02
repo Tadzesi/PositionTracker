@@ -56,7 +56,7 @@ public sealed class EventService(
     {
         var events = await db.Events.AsNoTracking().Where(e => e.OrganizerId == organizerId)
             .OrderByDescending(e => e.StartTime).ThenBy(e => e.Id)
-            .Select(e => new { e.Id, e.Name, e.Location, e.StartTime, e.Sport, e.State, e.Laps, HasGpx = e.GpxBytes != null })
+            .Select(e => new { e.Id, e.Name, e.Location, e.StartTime, e.Sport, e.State, e.Laps, e.PointToPoint, HasGpx = e.GpxBytes != null })
             .ToListAsync(ct);
         var ids = events.Select(e => e.Id).ToList();
         var lapLengths = await db.Courses.AsNoTracking().Where(c => ids.Contains(c.EventId))
@@ -71,7 +71,7 @@ public sealed class EventService(
                 Of(ParticipantStatus.Declined), Of(ParticipantStatus.EmailFailed));
         }
         return new EventList(emailMode.Mode, events
-            .Select(e => new EventSummary(RuntimeFactory.RuntimeId(e.Id), e.Name, e.Location, e.StartTime, e.Sport, e.State, e.Laps,
+            .Select(e => new EventSummary(RuntimeFactory.RuntimeId(e.Id), e.Name, e.Location, e.StartTime, e.Sport, e.State, e.Laps, e.PointToPoint,
                 e.HasGpx && lapLengths.TryGetValue(e.Id, out var lap) ? lap : null, CountsOf(e.Id)))
             .ToList());
     }
@@ -175,14 +175,15 @@ public sealed class EventService(
             return new CheckpointPlace(c.Name, c.LapDistanceM, Math.Round(at.Lat, 6), Math.Round(at.Lon, 6));
         }).ToList();
         return new EventResult<CoursePreview>(new CoursePreview(
-            course.LapLengthM, ev.Laps, course.IsClosed, course.HasElevation,
+            course.LapLengthM, ev.Laps, ev.PointToPoint, course.IsClosed, course.HasElevation,
             elevations.Count > 0 ? Math.Round(elevations.Min(), 1) : null, elevations.Count > 0 ? Math.Round(elevations.Max(), 1) : null,
             course.AscentPerLapM, course.DescentPerLapM, points, places), null);
     }
 
     public async Task<EventResult<EventManageView>> PutCourseAsync(Guid organizerId, string eventId, CourseRequest request, CancellationToken ct)
     {
-        var laps = request.Laps ?? 1;
+        var pointToPoint = request.PointToPoint ?? false;
+        var laps = pointToPoint ? 1 : request.Laps ?? 1;
         if (laps is < 1 or > MaxLaps) return EventErrors.LapsInvalid;
         var delay = request.SpectatorDelaySeconds ?? DefaultSpectatorDelaySeconds;
         if (TimeSpan.FromSeconds(delay) < EventSettings.MinSpectatorDelay || TimeSpan.FromSeconds(delay) > EventSettings.MaxSpectatorDelay)
@@ -214,6 +215,7 @@ public sealed class EventService(
         var now = clock.GetUtcNow();
         ev.GpxBytes = gpx;
         ev.Laps = laps;
+        ev.PointToPoint = pointToPoint;
         ev.SpectatorDelaySeconds = delay;
         ev.CheckpointsJson = RuntimeFactory.CheckpointsJsonOf(course.Checkpoints);
         ev.Version = Guid.NewGuid();
@@ -602,7 +604,7 @@ public sealed class EventService(
         int Count(ParticipantStatus s) => counts.SingleOrDefault(c => c.Status == s)?.Count ?? 0;
         var runtimeId = RuntimeFactory.RuntimeId(ev.Id);
         return new EventManageView(
-            runtimeId, ev.Name, ev.Location, ev.StartTime, ev.Sport, ev.State, ev.Laps, ev.SpectatorDelaySeconds,
+            runtimeId, ev.Name, ev.Location, ev.StartTime, ev.Sport, ev.State, ev.Laps, ev.PointToPoint, ev.SpectatorDelaySeconds,
             course is null || ev.GpxBytes is null
                 ? null
                 : new CourseView(course.LapLengthM, course.AscentM, course.DescentM, course.PointCount, course.IsClosed,

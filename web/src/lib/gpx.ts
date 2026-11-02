@@ -9,9 +9,13 @@ export interface ParsedGpx {
   hasElevation: boolean;
   minEle: number | null;
   maxEle: number | null;
+  /** The end lies at most 100 m from the start (as the server decides): only such a course can have more than one lap. */
+  closed: boolean;
 }
 
 const MAX_POINTS = 1200;
+/** Course.ClosedToleranceM on the server. */
+const CLOSED_TOLERANCE_M = 100;
 const rad = (d: number) => (d * Math.PI) / 180;
 
 export function haversineM(aLat: number, aLon: number, bLat: number, bLon: number): number {
@@ -48,6 +52,7 @@ export function parseGpx(text: string): ParsedGpx | null {
   return {
     points, count: raw.length, lengthM: cum[cum.length - 1], hasElevation,
     minEle: eles.length ? Math.min(...eles) : null, maxEle: eles.length ? Math.max(...eles) : null,
+    closed: haversineM(raw[0].lat, raw[0].lon, raw[raw.length - 1].lat, raw[raw.length - 1].lon) <= CLOSED_TOLERANCE_M,
   };
 }
 

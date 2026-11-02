@@ -241,6 +241,39 @@ public sealed class EventManagementTests(PostgresFixture postgres) : IClassFixtu
     }
 
     [Fact]
+    public async Task A_point_to_point_course_is_stored_with_one_lap_and_shown_without_laps_until_laps_are_chosen_again()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "anna@example.org");
+        var id = await CreatedAsync(org);
+        var open = Convert.ToBase64String(Gpx(DemoCourses.Loop().Take(200).ToList()));
+
+        // The laps sent along are ignored: a point-to-point race is ridden once.
+        var response = await org.PutAsync($"/api/events/{id}/course", new { gpxBase64 = open, laps = 3, pointToPoint = true });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var stored = await EventAsync(host, id);
+        Assert.Equal((1, true), (stored.Laps, stored.PointToPoint));
+        using (var manage = await JsonAsync(response))
+        {
+            Assert.True(manage.RootElement.GetProperty("pointToPoint").GetBoolean());
+            Assert.Equal(1, manage.RootElement.GetProperty("laps").GetInt32());
+            Assert.False(manage.RootElement.GetProperty("course").GetProperty("closed").GetBoolean());
+        }
+        using (var list = await JsonAsync(await org.GetAsync("/api/events")))
+            Assert.True(list.RootElement.GetProperty("events")[0].GetProperty("pointToPoint").GetBoolean());
+        using (var preview = await JsonAsync(await org.GetAsync($"/api/events/{id}/course-preview")))
+            Assert.True(preview.RootElement.GetProperty("pointToPoint").GetBoolean());
+
+        // A closed course may be point-to-point as well (e.g. out and back); without the flag the event has laps again.
+        Assert.Equal(HttpStatusCode.OK, (await org.PutAsync($"/api/events/{id}/course", new { gpxBase64 = Convert.ToBase64String(LoopGpx), pointToPoint = true })).StatusCode);
+        Assert.True((await EventAsync(host, id)).PointToPoint);
+        Assert.Equal(HttpStatusCode.OK, (await PutCourseAsync(org, id, laps: 2)).StatusCode);
+        stored = await EventAsync(host, id);
+        Assert.Equal((2, false), (stored.Laps, stored.PointToPoint));
+    }
+
+    [Fact]
     public async Task A_valid_course_is_stored_with_its_parameters_and_shown_in_the_manage_view()
     {
         await using var host = Host();

@@ -44,8 +44,10 @@ public class ResultsServiceTests
         Assert.Equal(["finished", "finished", "finished", "dnf", "dns"], lines.Select(l => l.Status));
     }
 
-    private static ResultsView View(params ResultLine[] rows) =>
-        new("e", "Race", "Place", T0, "cycling", "finished", false, T0.AddHours(2), 3, rows.Length, 0, 0, rows);
+    private static ResultsView View(params ResultLine[] rows) => View(false, rows);
+
+    private static ResultsView View(bool pointToPoint, params ResultLine[] rows) =>
+        new("e", "Race", "Place", T0, "cycling", "finished", false, T0.AddHours(2), pointToPoint ? 1 : 3, pointToPoint, rows.Length, 0, 0, rows);
 
     private static ResultLine Line(string bib, string name, bool consent, bool minor = false, string? nickname = null) =>
         new(A, 1, 1, 1, bib, name, nickname, "male", "Open", null, minor, consent, "finished", T0, T0.AddHours(1), TimeSpan.FromMinutes(75),
@@ -70,6 +72,22 @@ public class ResultsServiceTests
         Assert.Contains("37,50", lines[1]);           // a decimal comma
         Assert.Contains(";0:10:00", lines[1]);        // the sector time column
         Assert.Contains("Nováková", ResultsService.ToCsv(View(Line("7", "Jana Nováková", false)), namesOnlyWithConsent: false));
+    }
+
+    [Fact]
+    public void A_point_to_point_csv_has_no_laps_column_and_names_the_splits_by_section_only()
+    {
+        var laps = ResultsService.ToCsv(View(Line("7", "Jana", consent: true)), namesOnlyWithConsent: false).Split("\r\n");
+        var p2p = ResultsService.ToCsv(View(true, Line("7", "Jana", consent: true)), namesOnlyWithConsent: false).Split("\r\n");
+
+        Assert.Contains(";Kolá;", laps[0]);
+        Assert.EndsWith(";Kolo 1, úsek 1", laps[0]);
+        Assert.DoesNotContain("Kolá", p2p[0]);
+        Assert.DoesNotContain("Kolo", p2p[0]);
+        Assert.EndsWith(";Úsek 1", p2p[0]);
+        Assert.Equal(laps[0].Split(';').Length - 1, p2p[0].Split(';').Length);
+        Assert.Equal(p2p[0].Split(';').Length, p2p[1].Split(';').Length);
+        Assert.Contains(";37,50;28,8;", p2p[1]); // the distance is followed by the average speed, the laps cell is gone
     }
 
     [Theory]
