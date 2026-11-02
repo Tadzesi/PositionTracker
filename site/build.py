@@ -177,6 +177,43 @@ def prefix_paths(h, prefix):
                   lambda m: '%s="%s%s"' % (m.group(1), prefix, m.group(2)), h)
 
 
+HYPHENATOR = {'sk': 'sk_SK', 'en': 'en_US'}
+
+
+def hyphenate(h, lang):
+    """Prepares the visible text for justified lines. A hyphenated word (e-mail, sign-in) is wrapped in <span class="nw"> so a line
+    never breaks at its own hyphen; a longer plain word gets soft hyphens (&shy;) by the rules of the page language (pyphen), so
+    every browser can split it the same way. styles.css turns the soft hyphens off except in the justified running text.
+    In Slovak a one-letter preposition or conjunction (a, s, v, k, z, o, u, i) is joined to the next word by a no-break space.
+    Tags, attributes, the head and script/style/template/code contents are left alone; names with capitals inside (OwnTracks)
+    and words with digits are not split."""
+    import pyphen
+    dic = pyphen.Pyphen(lang=HYPHENATOR[lang], left=2, right=3)
+
+    def word(m):
+        w = m.group(1)
+        if '-' in w:
+            return '<span class="nw">%s</span>' % w
+        if len(w) < 7 or not w.isalpha() or any(c.isupper() for c in w[1:]):
+            return w
+        return dic.inserted(w, hyphen='&shy;')
+
+    head_end = h.index('</head>')
+    parts = re.split(r'(<[^>]+>|&\w+;|&#\d+;)', h[head_end:])
+    skip = 0
+    for i, part in enumerate(parts):
+        if part.startswith('<'):
+            m = re.match(r'<(/?)(script|style|template|textarea|code)\b', part, flags=re.I)
+            if m:
+                skip += -1 if m.group(1) else 1
+        elif skip == 0 and not part.startswith('&'):
+            part = re.sub(r'(?<![\w-])(\w+(?:-\w+)*)(?![\w-])', word, part)
+            if lang == 'sk':  # a one-letter preposition or conjunction never ends a line (Slovak typography)
+                part = re.sub(r'(?<![\w&;])([aAiIkKoOsSuUvVzZ]) (?=\S|$)','\\1&nbsp;', part)
+            parts[i] = part
+    return h[:head_end] + ''.join(parts)
+
+
 def render(lang):
     h = TEMPLATE
     if lang == 'en':
@@ -199,6 +236,7 @@ def render(lang):
     for k, v in repl.items():
         h = h.replace(k, v)
     h = h.replace('[[jsonld]]', jsonld(h, lang))
+    h = hyphenate(h, lang)
     assert '[[' not in h, re.findall(r'\[\[\w+\]\]', h)
     return h
 

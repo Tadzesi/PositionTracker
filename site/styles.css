@@ -263,3 +263,22 @@ summary{padding:6px 0;min-height:44px;display:flex;align-items:center}
 
 /* the note under the demo uses the whole width of the page instead of a 62-character column */
 .stage + .small{max-width:none;font-size:.82rem;line-height:1.4;margin-top:10px!important}
+
+/* Running text: justified, split at the soft hyphens build.py puts in by the rules of the page language (the same in every browser,
+   unlike hyphens:auto), the last line stays left. Elsewhere (headings, buttons, the demo) the soft hyphens are ignored. A hyphenated
+   word (e-mail, sign-in) is a .nw span and never breaks at its own hyphen. */
+body{-webkit-hyphens:none;hyphens:none}
+.lead,.who p,.who li,.how p,.story p,details p,.spec dd,figcaption,.steps p,.steps ol.sub li,.tip,.stage + .small{
+  text-align:justify;text-align-last:start;-webkit-hyphens:manual;hyphens:manual}
+.nw{white-space:nowrap}
+/* a text spans the width of the block it belongs to: the intro of "What is" the two spec columns under it, the texts and tips of a
+   guide step the step (with its example images), a caption its picture, an answer its question */
+#what .lead,.steps p,.steps ol.sub,.tip,figcaption,details p,.story p{max-width:none}
+/* a paragraph right after an example picture keeps a gap to the picture caption */
+.steps figure.ex + p{margin-top:22px}
+/* the bold title of a caption is a heading: never split or stretched */
+figcaption b{text-align:start;-webkit-hyphens:none;hyphens:none}
+/* the four role columns are too narrow (about 30 characters) for justified lines: left aligned, only split at the soft hyphens */
+.who p,.who li{text-align:start}
+/* on a phone the short spec lines (one or two lines, few words) would get wide gaps when justified */
+@media (max-width:640px){.spec dd{text-align:start}}
