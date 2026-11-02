@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { ApiError, BASE, get, post, put } from '../lib/api';
 import { formatDateTime } from '../lib/format';
@@ -145,6 +145,7 @@ function Step2({ token, onToken }: { token: string; onToken: (t: string) => void
         <li>{t('Organizátor vidí vašu polohu presne a hneď.', 'The organizer sees your position exactly and immediately.')}</li>
         <li>{t('Diváci ju vidia oneskorene a len počas pretekov.', 'Spectators see it delayed, and only during the race.')}</li>
         <li>{t('Polohy sa uchovávajú 30 dní po skončení podujatia, potom sa zmažú. Vymazanie môžete kedykoľvek požiadať u organizátora.', 'Positions are kept for 30 days after the event, then deleted. You can ask the organizer to delete them at any time.')}</li>
+        <li>{t('Viac v ', 'More in the ')}<Link to="/privacy" target="_blank">{t('zásadách ochrany osobných údajov', 'privacy notice')}</Link>.</li>
       </ul>
       <ErrorBanner error={bannerError(error, ['locationConsent', 'showNameToSpectators'])} />
       <label className="check"><input type="checkbox" checked={location} onChange={(e) => setLocation(e.target.checked)} />

@@ -15,6 +15,7 @@ const Results = lazy(() => import('./pages/Results'));
 const ParticipantPage = lazy(() => import('./pages/Participant'));
 const Spectator = lazy(() => import('./pages/Spectator'));
 const Admin = lazy(() => import('./pages/Admin'));
+const Privacy = lazy(() => import('./pages/Privacy'));
 
 export default function App() {
   return (
@@ -40,6 +41,7 @@ export default function App() {
         </Route>
         <Route path="p" element={<ParticipantPage />} />
         <Route path="e/:id" element={<Spectator />} />
+        <Route path="privacy" element={<Privacy />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

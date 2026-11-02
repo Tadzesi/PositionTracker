@@ -55,6 +55,7 @@ export function SignUp() {
       <Field label="E-mail" name="email" error={error}>
         <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
       </Field>
+      <p className="mute">{t('Vytvorením účtu beriete na vedomie ', 'By creating an account you acknowledge the ')}<Link to="/privacy">{t('zásady ochrany osobných údajov', 'privacy notice')}</Link>.</p>
       <button className="btn primary" disabled={busy}><span>{t('Vytvoriť účet', 'Create account')}</span></button>
     </form>
   );

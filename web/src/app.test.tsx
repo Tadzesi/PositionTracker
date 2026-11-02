@@ -32,6 +32,14 @@ describe('web app', () => {
     expect(screen.getByRole('link', { name: 'Vytvoriť účet organizátora' })).toBeInTheDocument();
   });
 
+  it('every page links the privacy notice from the footer; the notice lists the stored cookie and browser data', async () => {
+    mockFetch({});
+    renderAt('/', 'sk');
+    await userEvent.click(await screen.findByRole('link', { name: 'Ochrana osobných údajov a cookies' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Ochrana osobných údajov a cookies' })).toBeInTheDocument();
+    for (const name of ['__Secure-pt-session', 'pt-lang', 'pt-theme', 'pt-follow-…']) expect(screen.getByText(name)).toBeInTheDocument();
+  });
+
   it('sign-up posts with the browser headers and shows the check-your-email page', async () => {
     const calls = mockFetch({ 'POST /api/account/signup': { status: 202, body: { status: 'accepted' } } });
     renderAt('/account/signup');

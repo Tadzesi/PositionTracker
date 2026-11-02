@@ -114,6 +114,12 @@ export default function Layout() {
         </div>
       </header>
       <main><div className="wrap"><Suspense fallback={<Loading />}><Outlet /></Suspense></div></main>
+      <footer className="sitefoot">
+        <div className="wrap">
+          <span>{t('Len nevyhnutné cookies a vami zvolené nastavenia, žiadne sledovanie.', 'Only strictly necessary cookies and settings you chose, no tracking.')}</span>
+          <Link to="/privacy">{t('Ochrana osobných údajov a cookies', 'Privacy and cookies')}</Link>
+        </div>
+      </footer>
     </>
   );
 }
