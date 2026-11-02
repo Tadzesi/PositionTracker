@@ -12,6 +12,8 @@
     ['Oliver Smith', '', 0.8, true], ['Adriana Pavlíková', '', 0.76, true], ['Filip Urban', '', 0.72, true],
   ];
   const LAPS = 3, SECTORS = 6, DELAY = 15, CHECKPOINTS = [0.4, 0.8];
+  // the elevation of the sample lap (m above sea level) at a fraction of the lap: invented, two long climbs with some rolling on top
+  const eleAt = (f) => 310 + 48 * Math.sin(f * Math.PI * 4 + 0.6) + 14 * Math.sin(f * Math.PI * 11);
 
   // the sample course of the screenshots: a wavy loop of about 5.5 km
   function courseLatLng() {
@@ -55,6 +57,86 @@
       const f = (d - cum[lo]) / (cum[hi] - cum[lo] || 1);
       return [pts[lo][0] + (pts[hi][0] - pts[lo][0]) * f, pts[lo][1] + (pts[hi][1] - pts[lo][1]) * f];
     }
+
+    // ----- elevation profile under the map: where the riders are on the lap. Riders that would overlap are merged into a purple bubble
+    // with a count; the selected, followed and alarmed riders and the first three stay single (the same rules as the application) -----
+    const prof = document.createElement('div');
+    prof.className = 'prof';
+    prof.innerHTML = '<h3></h3><svg role="img"></svg><p class="pnote"></p>';
+    prof.querySelector('h3').textContent = t('Jazdci na výškovom profile trate', 'Riders on the elevation profile of the lap');
+    prof.querySelector('.pnote').textContent = t('Modrá značka = štartové číslo jazdca, fialová bublina = skupina jazdcov (počet). Kliknutím vyberiete jazdca.',
+      'Blue mark = the rider\'s bib, purple bubble = a group of riders (their number). Click to select a rider.');
+    root.appendChild(prof);
+    const profSvg = prof.querySelector('svg');
+    profSvg.setAttribute('aria-label', t('Poloha jazdcov na výškovom profile jedného kola', 'Riders on the elevation profile of one lap'));
+    const PROF = { h: 150, l: 40, r: 10, t: 48, b: 26, rows: 2, rowH: 22, gap: 24 };
+    const profSamples = Array.from({ length: 161 }, (_, i) => [(i / 160) * lap, eleAt(i / 160)]);
+    const eMin = Math.min(...profSamples.map((p) => p[1])), eMax = Math.max(...profSamples.map((p) => p[1]));
+    let profStatic = '', profW = 0;
+    function drawProfile(ord) {
+      const W = Math.max(280, Math.round(profSvg.clientWidth || prof.clientWidth || 600));
+      // a narrow screen has less room side by side, so the marks get a third row
+      PROF.rows = W < 600 ? 3 : 2; PROF.t = 14 + PROF.rows * PROF.rowH + 12; PROF.h = PROF.t + 100 + PROF.b - 26;
+      const iw = W - PROF.l - PROF.r, ih = PROF.h - PROF.t - PROF.b;
+      const x = (dd) => PROF.l + (dd / lap) * iw, y = (e) => PROF.t + (1 - (e - eMin) / (eMax - eMin)) * ih;
+      if (W !== profW) {
+        profW = W;
+        const path = profSamples.map((p, i) => (i ? 'L' : 'M') + x(p[0]).toFixed(1) + ',' + y(p[1]).toFixed(1)).join('');
+        profStatic = '<path class="parea" d="' + path + 'L' + x(lap).toFixed(1) + ',' + (PROF.t + ih) + 'L' + x(0).toFixed(1) + ',' + (PROF.t + ih) + 'Z"/>'
+          + '<path class="pline" d="' + path + '"/>'
+          + '<text class="pax" x="' + (PROF.l - 6) + '" y="' + (PROF.t + 4) + '" text-anchor="end">' + Math.round(eMax) + ' m</text>'
+          + '<text class="pax" x="' + (PROF.l - 6) + '" y="' + (PROF.t + ih) + '" text-anchor="end">' + Math.round(eMin) + ' m</text>'
+          + [0, 0.25, 0.5, 0.75, 1].map((f) => '<text class="pax" x="' + x(lap * f).toFixed(1) + '" y="' + (PROF.h - 7) + '" text-anchor="'
+            + (f === 0 ? 'start' : f === 1 ? 'end' : 'middle') + '">' + ((lap * f) / 1000).toFixed(1) + ' km</text>').join('')
+          + CHECKPOINTS.map((f) => '<line class="pcp" x1="' + x(lap * f).toFixed(1) + '" x2="' + x(lap * f).toFixed(1) + '" y1="' + PROF.t + '" y2="' + (PROF.t + ih) + '"/>').join('');
+        profSvg.setAttribute('viewBox', '0 0 ' + W + ' ' + PROF.h);
+      }
+      const eleHere = (dd) => eleAt(dd / lap);
+      // distance in the current lap; a finished rider stands at the end
+      const items = ord.map(({ r, d: dd }, pos) => {
+        const lapD = r.finishT !== null ? lap : Math.max(0, dd) % lap;
+        const sel = r.i === selected, fol = view === 'spectator' && followed.has(r.i);
+        const warn = view === 'organizer' && (r.alarms.stopped || r.alarms.offCourse);
+        const dim = view === 'spectator' && followed.size > 0 && !fol && !sel;
+        return { r, pos, lapD, sel, fol, warn, dim, pinned: sel || fol || warn || pos < 3 };
+      });
+      const free = items.filter((it) => !it.pinned).sort((a, b) => a.lapD - b.lapD);
+      const groups = [];
+      let cur = [];
+      const flush = () => { if (cur.length) { groups.push({ members: cur, d: cur.reduce((s, m) => s + m.lapD, 0) / cur.length }); cur = []; } };
+      free.forEach((it) => { if (cur.length && x(it.lapD) - x(cur[cur.length - 1].lapD) >= PROF.gap) flush(); cur.push(it); });
+      flush();
+      items.filter((it) => it.pinned).forEach((it) => groups.push({ members: [it], d: it.lapD }));
+      groups.sort((a, b) => a.d - b.d);
+      const right = Array(PROF.rows).fill(-Infinity);
+      let marks = '';
+      groups.forEach((g) => {
+        const gx = x(g.d), single = g.members.length === 1, m = g.members[0];
+        const w = single ? 24 : 30, left = gx - w / 2;
+        let row = right.findIndex((rr) => left >= rr + 2);
+        if (row < 0) row = right.indexOf(Math.min(...right));
+        right[row] = gx + w / 2;
+        const cy = 14 + row * PROF.rowH + PROF.rowH / 2 - 2, dotY = y(eleHere(g.d));
+        const names = g.members.map((it) => '#' + (it.r.i + 1) + ' ' + shownName(it.r)).join(', ');
+        const cls = 'pm' + (single ? (m.sel ? ' sel' : '') + (m.fol ? ' fol' : '') + (m.warn ? ' warn' : '') + (m.dim ? ' dim' : '') : ' grp');
+        marks += '<g class="' + cls + '" role="button" tabindex="0" data-i="' + g.members.map((it) => it.r.i).join(',') + '" aria-label="' + names.replace(/"/g, '') + '">'
+          + '<title>' + names.replace(/</g, '') + '</title>'
+          + '<line class="stem" x1="' + gx.toFixed(1) + '" x2="' + gx.toFixed(1) + '" y1="' + (cy + 9) + '" y2="' + dotY.toFixed(1) + '"/>'
+          + '<circle class="pin" cx="' + gx.toFixed(1) + '" cy="' + dotY.toFixed(1) + '" r="3.5"/>'
+          + '<rect class="tag" x="' + left.toFixed(1) + '" y="' + (cy - 10) + '" width="' + w + '" height="20" rx="10"/>'
+          + '<text x="' + gx.toFixed(1) + '" y="' + (cy + 4) + '" text-anchor="middle">' + (single ? m.r.i + 1 : g.members.length) + '</text></g>';
+      });
+      profSvg.innerHTML = profStatic + marks;
+    }
+    // a click or Enter on a mark selects the rider (a bubble: the best placed one inside it)
+    const pickMark = (e) => {
+      const g = e.target.closest && e.target.closest('[data-i]');
+      if (!g) return false;
+      select(Number(g.dataset.i.split(',')[0]));
+      return true;
+    };
+    profSvg.addEventListener('click', pickMark);
+    profSvg.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && pickMark(e)) e.preventDefault(); });
 
     const map = L.map($('.map'), { zoomControl: true, scrollWheelZoom: false, dragging: !L.Browser.mobile, tap: false, zoomSnap: 0.25 });
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -285,6 +367,7 @@
         }
         if (tower.children[pos] !== li) tower.insertBefore(li, tower.children[pos] || null);
       });
+      drawProfile(ord);
       followView(false);
       if (view === 'spectator' && !flagsEl.querySelector('.note')) {
         flagsEl.innerHTML = '';

@@ -224,6 +224,24 @@ summary{padding:6px 0;min-height:44px;display:flex;align-items:center}
 @media (max-width:520px){.top nav>a.appnav{display:none}.seg a{padding:0 9px}.seg button{padding:0 9px}.top .wrap{padding:0 12px}.logo{font-size:1.25rem}}
 
 /* The map demo starts after the page has loaded: the stage keeps its size meanwhile and the map fades in */
+.stage .prof{grid-column:1/-1;border-top:2px solid #ffffff22;background:#071a3c;padding:12px 14px 6px;min-width:0}
+.prof h3{margin:0 0 4px;font-stretch:75%;font-weight:800;font-style:italic;text-transform:uppercase;font-size:1rem;letter-spacing:.04em;color:#EAF0FF}
+.prof svg{display:block;width:100%;height:auto}
+.prof .pnote{margin:2px 0 6px;font-size:.78rem;color:#9DB0D6}
+.prof .parea{fill:#ffffff14}.prof .pline{fill:none;stroke:#FF4B2B;stroke-width:2}
+.prof .pax{fill:#9DB0D6;font:11px var(--font)}
+.prof .pcp{stroke:#FACC15;stroke-width:1.5;stroke-dasharray:3 3}
+.prof .pm{cursor:pointer;outline:none}
+.prof .pm .stem{stroke:#9DB0D6;stroke-width:1;opacity:.6}.prof .pm .pin{fill:#fff;stroke:#071a3c;stroke-width:1.5}
+.prof .pm .tag{fill:#3DA5FF;stroke:#fff;stroke-width:1.5}
+.prof .pm text{fill:#fff;font:700 11px var(--font);pointer-events:none}
+.prof .pm.sel .tag{stroke:#FFD60A;stroke-width:3}
+.prof .pm.fol .tag{stroke:#FF4B2B;stroke-width:3}
+.prof .pm.warn .tag{fill:#FF1E3C}
+.prof .pm.dim{opacity:.55}
+.prof .pm.grp .tag{fill:#A855F7}
+.prof .pm:focus-visible .tag{stroke:#fff;stroke-width:3}
+@media (max-width:600px){.prof .pax{font-size:12px}}
 .stage .map{opacity:0;transition:opacity .4s}
 .stage.ready .map{opacity:1}
 /* reserve the space the demo fills in later (9 riders of 47 px; the callout under the map on narrow screens), so nothing jumps */
