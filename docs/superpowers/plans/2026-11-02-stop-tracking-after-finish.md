@@ -124,7 +124,7 @@ Email copy (exact):
   1. Persistence disabled → return.
   2. Memo says done, or memo `seenAt` is known and `now - seenAt < NoticeGrace` → return.
   3. `ExecuteUpdateAsync` set `TrackingAfterFinishAt = now` where id matches and it is null; read the stored value into the memo.
-  4. If `now - seenAt >= NoticeGrace`: in one transaction `ExecuteUpdateAsync` set `StopNoticeQueuedAt = now` where it is null; when 1 row changed, load event + organizer, build the email (`stopUrl = PublicBaseUrl.TrimEnd('/') + StopTrackingPath + "?lang=" + (sk ? "sk" : "en")`, delivery address via `EmailAddress.ToDeliveryAddress`), add `EmailOutbox.Create(message, null, now)`, commit; mark memo done.
+  4. If `now - seenAt >= NoticeGrace`: in one transaction `ExecuteUpdateAsync` set `StopNoticeQueuedAt = now` where it is null; when 1 row changed, load event + organizer, build the email (`stopUrl = PublicBaseUrl.TrimEnd('/') + StopTrackingPath + "?lang=" + (sk ? "sk" : "en")`, delivery address via `EmailAddress.ToDeliveryAddress`), add `EmailOutbox.Create(message, participantId, now)` (so deleting the participant's data deletes it), commit; mark memo done.
   In `OwnTracksEndpoints`, the finished branch calls `NoteAsync` inside `try/catch` (database failures and `OperationCanceledException` not from `RequestAborted` are logged as a warning without ids of the token, then ignored) and then returns the stop command.
 - [ ] **Step 4: Run** the filter → PASS; `dotnet test` → PASS (incl. `MigrationTests`).
 - [ ] **Step 5: Commit** `feat: email a participant whose phone still tracks 10 minutes after the finish`.

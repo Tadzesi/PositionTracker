@@ -107,7 +107,8 @@ public static class OwnTracksEndpoints
 
     /// <summary>
     /// Records the request after the finish (and emails the participant if the phone keeps sending, see
-    /// <see cref="ITrackingStopNotifier"/>). Best effort: a database failure is logged and the stop command is answered anyway.
+    /// <see cref="ITrackingStopNotifier"/>). Best effort: any failure (database, an undeliverable address, ...) is logged and the
+    /// stop command is answered anyway, so a phone that keeps sending is never left without it.
     /// </summary>
     private static async Task NoteAfterFinishAsync(HttpContext context, string eventId, string participantId)
     {
@@ -115,7 +116,7 @@ public static class OwnTracksEndpoints
         {
             await context.RequestServices.GetRequiredService<ITrackingStopNotifier>().NoteAsync(eventId, participantId, context.RequestAborted);
         }
-        catch (Exception ex) when (EventService.IsDatabaseFailure(ex) && !context.RequestAborted.IsCancellationRequested)
+        catch (Exception ex) when (!context.RequestAborted.IsCancellationRequested)
         {
             context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("PositionTracker.OwnTracks").LogWarning(
                 "Event {EventId}, participant {ParticipantId}: the request after the finish could not be recorded ({ExceptionType}).",

@@ -58,7 +58,8 @@ public sealed class TrackingStopNotifier(AppDbContext db, TrackingStopMemo memo,
             .ExecuteUpdateAsync(s => s.SetProperty(p => p.StopNoticeQueuedAt, now), ct);
         if (claimed == 1 && await MessageAsync(pid, ct) is { } message)
         {
-            db.Outbox.Add(EmailOutbox.Create(message, null, now));
+            // tied to the participant, so deleting the participant's data deletes the notice too
+            db.Outbox.Add(EmailOutbox.Create(message, pid, now));
             await db.SaveChangesAsync(ct);
         }
         await tx.CommitAsync(ct);
@@ -71,13 +72,14 @@ public sealed class TrackingStopNotifier(AppDbContext db, TrackingStopMemo memo,
         var ev = p is null ? null : await db.Events.AsNoTracking().SingleOrDefaultAsync(e => e.Id == p.EventId, ct);
         var organizer = ev is null ? null : await db.Organizers.AsNoTracking().SingleOrDefaultAsync(o => o.Id == ev.OrganizerId, ct);
         var baseUrl = email.Value.PublicBaseUrl;
-        if (p is null || ev is null || organizer is null || !EmailLinks.IsHttpUrl(baseUrl)) return null;
+        var to = p is null ? null : DeliveryOrNull(p.Email);
+        if (p is null || ev is null || organizer is null || to is null || !EmailLinks.IsHttpUrl(baseUrl)) return null;
         var language = string.Equals(p.Language, "sk", StringComparison.OrdinalIgnoreCase) ? "sk" : "en";
         var stopUrl = baseUrl!.TrimEnd('/') + StopTrackingPath + "?lang=" + language;
         var message = EmailTemplates.TrackingStillOn(p, ev, organizer, stopUrl, language);
         return message with
         {
-            ToAddress = EmailAddress.ToDeliveryAddress(p.Email),
+            ToAddress = to,
             ReplyToAddress = message.ReplyToAddress is null ? null : DeliveryOrNull(organizer.Email),
         };
     }

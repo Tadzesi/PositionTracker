@@ -333,6 +333,7 @@ public sealed class OwnTracksTests(PostgresFixture postgres) : IClassFixture<Pos
         await using var db = ParticipantLinkTests.Db(host);
         var mail = Assert.Single(await db.Outbox.Where(o => o.Purpose == EmailPurpose.TrackingStop).ToListAsync());
         Assert.Equal("rider1@example.com", mail.ToAddress);
+        Assert.Equal(pid, mail.ParticipantId); // deleting the participant's data deletes the notice too
         Assert.Contains("https://tracker.example.org/stop-tracking?lang=sk", mail.TextBody);
         Assert.Equal(t.AddMinutes(10), (await db.Participants.SingleAsync(x => x.Id == pid)).StopNoticeQueuedAt);
     }
@@ -368,6 +369,25 @@ public sealed class OwnTracksTests(PostgresFixture postgres) : IClassFixture<Pos
         var response = await PostAsync(client, "1", token, Location(host));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(StopAnswer, await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task The_stop_command_is_returned_even_when_the_notice_fails_for_another_reason()
+    {
+        await using var host = Host(services: s => s.AddScoped<ITrackingStopNotifier, BrokenNotifier>());
+        var (ev, _, token) = await LiveRiderAsync(host);
+        await FinishAsync(host, ev);
+        using var client = host.CreateClient();
+
+        var response = await PostAsync(client, "1", token, Location(host));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(StopAnswer, await response.Content.ReadAsStringAsync());
+    }
+
+    private sealed class BrokenNotifier : ITrackingStopNotifier
+    {
+        public Task NoteAsync(string eventId, string participantId, CancellationToken ct) =>
+            throw new ArgumentException("The address cannot be delivered.");
     }
 
     private sealed class FailingNotifier : ITrackingStopNotifier
