@@ -100,7 +100,8 @@ td{padding:8px;border-bottom:1px solid var(--panel2);vertical-align:middle}
 
 .map{height:420px;border:1px solid var(--line);border-radius:4px;background:var(--panel)}
 .map.tall{height:60vh;min-height:320px}
-.mapwrap{position:relative}
+/* its own stacking context: the Leaflet panes (z-index up to 1000) and the map button stay under the sticky top bar (z-index 20) */
+.mapwrap{position:relative;isolation:isolate}
 .mapbtn{position:absolute;z-index:1000;top:80px;left:10px;transform:none}
 .mk{display:flex;align-items:center;justify-content:center;border-radius:50%;border:2px solid var(--ink);background:var(--blue);color:#fff;font:700 11px var(--ui);box-shadow:0 1px 4px var(--shadow)}
 .mk.sos{background:var(--red)}.mk.dim{background:var(--dim)}.mk.sel{outline:3px solid var(--yellow)}
