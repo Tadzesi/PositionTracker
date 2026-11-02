@@ -328,6 +328,11 @@ public sealed class RegistrationTests(PostgresFixture postgres) : IClassFixture<
         var now = host.Clock.GetUtcNow();
         await SetStartAsync(host, ev, now.AddDays(20));
         var pid = await ParticipantIdAsync(await CreateAsync(org, ev, "move@example.org"));
+        var otherEv = await SeedEventAsync(host, org.OrganizerId, EventState.Ready);
+        await SetStartAsync(host, otherEv, now.AddDays(20));
+        var otherPid = await ParticipantIdAsync(await CreateAsync(org, otherEv, "other@example.org"));
+        DateTimeOffset otherExpiry;
+        await using (var db = Db(host)) otherExpiry = (await db.LinkTokens.SingleAsync(t => t.SubjectId == otherPid)).ExpiresAt;
         Assert.Equal(HttpStatusCode.Accepted, (await org.PostAsync($"{Participants(ev)}/{pid}/resend", new { })).StatusCode); // supersedes the first token
 
         Task<HttpResponseMessage> Move(DateTimeOffset start) => org.PutAsync($"/api/events/{ev}",
@@ -343,6 +348,7 @@ public sealed class RegistrationTests(PostgresFixture postgres) : IClassFixture<
         {
             Assert.Equal(now.AddDays(47), (await db.LinkTokens.SingleAsync(t => t.SubjectId == pid && t.RevokedAt == null)).ExpiresAt);
             Assert.Equal(revokedExpiry, (await db.LinkTokens.SingleAsync(t => t.Id == revoked.Id)).ExpiresAt);
+            Assert.Equal(otherExpiry, (await db.LinkTokens.SingleAsync(t => t.SubjectId == otherPid)).ExpiresAt); // another event is untouched
         }
 
         Assert.Equal(HttpStatusCode.OK, (await Move(now.AddDays(25))).StatusCode);

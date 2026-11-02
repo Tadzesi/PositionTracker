@@ -137,9 +137,10 @@ public sealed class EventService(
         ev.StartTime = start;
         ev.Sport = sport;
         ev.Version = Guid.NewGuid();
+        // A changed start extends the live invitation links (never shortens them) in the same transaction as the save.
+        await using var tx = startChanged ? await db.Database.BeginTransactionAsync(ct) : null;
         var saved = await SaveAndViewAsync(ev, ct);
-        // A later start extends the live invitation links (never shortens them).
-        if (saved.Error is null && startChanged)
+        if (tx is not null && saved.Error is null)
         {
             var until = start + LinkTokenService.InviteAfterStart;
             var purpose = nameof(LinkPurpose.ParticipantInvite);
@@ -147,6 +148,7 @@ public sealed class EventService(
             await db.LinkTokens
                 .Where(t => t.Purpose == purpose && t.RevokedAt == null && t.ExpiresAt < until && participantIds.Contains(t.SubjectId))
                 .ExecuteUpdateAsync(s => s.SetProperty(t => t.ExpiresAt, until), ct);
+            await tx.CommitAsync(ct);
         }
         // A running (or finished) event shows the new name to spectators at once.
         if (saved.Error is null) registry.Get(RuntimeFactory.RuntimeId(ev.Id))?.Rename(name);
