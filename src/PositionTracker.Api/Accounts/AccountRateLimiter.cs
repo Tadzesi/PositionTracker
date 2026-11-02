@@ -42,6 +42,7 @@ public sealed class AccountRateLimiter
     private readonly HourlyCounter _mailsPerEmail;
     private readonly HourlyCounter _mailsGlobal;
     private readonly HourlyCounter _redeemsPerIp;
+    private readonly HourlyCounter _codesPerEmail;
     private readonly TimeProvider _clock;
     private readonly ILogger<AccountRateLimiter> _logger;
     private readonly int _globalCap;
@@ -58,6 +59,7 @@ public sealed class AccountRateLimiter
         _mailsPerEmail = new HourlyCounter(clock, o.MailsPerEmailPerHour, o.RateLimitMaxKeys);
         _mailsGlobal = new HourlyCounter(clock, o.GlobalMailsPerHour, 1);
         _redeemsPerIp = new HourlyCounter(clock, o.LinkRedeemsPerIpPerHour, o.RateLimitMaxKeys);
+        _codesPerEmail = new HourlyCounter(clock, o.CodeAttemptsPerEmailPerHour, o.RateLimitMaxKeys);
         _globalCap = o.GlobalMailsPerHour;
         _clock = clock;
         _logger = logger;
@@ -116,6 +118,10 @@ public sealed class AccountRateLimiter
 
     /// <summary>Takes one link redemption of the IP's bucket.</summary>
     public bool TryTakeRedeem(IPAddress? ip) => _redeemsPerIp.TryTake(Key("redeem", IpBucket(ip)));
+
+    /// <summary>Takes one code attempt for the address (whatever the IP); false (and counted) when the hour's attempts are used up.</summary>
+    public bool TryTakeCodeAttempt(string normalizedEmail) =>
+        _codesPerEmail.TryTake(Key("code", normalizedEmail)) || Refuse("code");
 
     /// <summary>The IPv4 address (also from an IPv4-mapped IPv6 address) or the IPv6 /64 prefix; "unknown" without one.</summary>
     internal static string IpBucket(IPAddress? ip)

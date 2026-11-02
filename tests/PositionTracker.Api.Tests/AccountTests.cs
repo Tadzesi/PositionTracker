@@ -60,11 +60,16 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         var (kind, token) = Link(mail);
         Assert.Equal("confirm", kind);
 
-        var stored = Assert.Single(await LinkTokensAsync(host));
-        Assert.Equal(nameof(LinkPurpose.OrganizerEmailConfirm), stored.Purpose);
+        var tokens = await LinkTokensAsync(host);
+        Assert.Equal(2, tokens.Count); // the link and the code
+        var stored = Assert.Single(tokens, t => t.Purpose == nameof(LinkPurpose.OrganizerEmailConfirm));
         Assert.Equal(organizer.Id, stored.SubjectId);
         Assert.Equal(SHA256.HashData(Encoding.UTF8.GetBytes(token)), stored.TokenHash);
         Assert.Equal(at.AddDays(14), stored.ExpiresAt);
+        var code = Assert.Single(tokens, t => t.Purpose == nameof(LinkPurpose.OrganizerCode));
+        Assert.Equal(organizer.Id, code.SubjectId);
+        Assert.Equal(at.AddHours(1), code.ExpiresAt);
+        Assert.DoesNotContain(Code(mail), Encoding.UTF8.GetString(code.TokenHash)); // only a hash is stored
     }
 
     [Fact]
@@ -929,6 +934,85 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         Assert.DoesNotContain("secret.person", text, StringComparison.OrdinalIgnoreCase);
     }
 
+    // ----- codes typed on the asking page -----
+
+    [Fact]
+    public async Task The_sign_in_mail_carries_a_code_in_the_subject_and_body_that_signs_in_once()
+    {
+        await using var host = Host();
+        var client = Client(host);
+        Assert.Equal(HttpStatusCode.Accepted, (await SignUpAsync(client, "Anna", "anna@example.org", "sk")).StatusCode);
+        await ConfirmByMailAsync(host, client, "anna@example.org");
+        Assert.Equal(HttpStatusCode.Accepted, (await SignInAsync(client, "Anna@Example.org")).StatusCode);
+        var mail = (await OutboxAsync(host)).Last(m => m.Purpose == EmailPurpose.SignIn);
+        var code = Code(mail);
+        Assert.StartsWith(code + " – ", mail.Subject);
+        Assert.Contains(code, mail.HtmlBody);
+        Assert.Matches(@"https://tracker\.example\.org/account/signin\?token=", mail.TextBody); // the link is still there
+
+        var first = await CodeAsync(client, " anna@example.org ", code[..3] + " " + code[3..]);
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        var cookie = SessionCookie(first);
+        Assert.NotNull(cookie);
+        Assert.Equal(HttpStatusCode.OK, (await MeAsync(client, cookie!)).StatusCode);
+        await AssertErrorAsync(await CodeAsync(client, "anna@example.org", code), HttpStatusCode.BadRequest, "code_invalid", "code");
+    }
+
+    [Fact]
+    public async Task The_sign_up_code_confirms_the_email_and_signs_in()
+    {
+        await using var host = Host();
+        var client = Client(host);
+        Assert.Equal(HttpStatusCode.Accepted, (await SignUpAsync(client, "Anna", "anna@example.org", "en")).StatusCode);
+        var mail = (await OutboxAsync(host)).Single(m => m.Purpose == EmailPurpose.OrganizerEmailConfirmation);
+        Assert.Contains("The code is valid for 1 hour", mail.TextBody);
+
+        var response = await CodeAsync(client, "anna@example.org", Code(mail));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(SessionCookie(response));
+        await using var db = Db(host);
+        Assert.NotNull((await db.Organizers.SingleAsync()).EmailConfirmedAt);
+    }
+
+    [Fact]
+    public async Task A_wrong_expired_or_foreign_code_and_an_unknown_address_answer_the_same()
+    {
+        await using var host = Host();
+        var client = Client(host);
+        Assert.Equal(HttpStatusCode.Accepted, (await SignUpAsync(client, "Anna", "anna@example.org", "sk")).StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, (await SignUpAsync(client, "Bob", "bob@example.org", "sk")).StatusCode);
+        var mails = await OutboxAsync(host);
+        var anna = Code(mails.Single(m => m.ToAddress == "anna@example.org"));
+        var bob = Code(mails.Single(m => m.ToAddress == "bob@example.org"));
+        var wrong = anna == "000000" ? "000001" : "000000";
+
+        await AssertErrorAsync(await CodeAsync(client, "anna@example.org", wrong), HttpStatusCode.BadRequest, "code_invalid", "code");
+        if (bob != anna)
+            await AssertErrorAsync(await CodeAsync(client, "anna@example.org", bob), HttpStatusCode.BadRequest, "code_invalid", "code");
+        await AssertErrorAsync(await CodeAsync(client, "nobody@example.org", anna), HttpStatusCode.BadRequest, "code_invalid", "code");
+        await AssertErrorAsync(await CodeAsync(client, "anna@example.org", "12ab56"), HttpStatusCode.BadRequest, "code_invalid", "code");
+
+        host.Clock.Advance(LinkTokenService.ConfirmCodeLifetime);
+        await AssertErrorAsync(await CodeAsync(client, "anna@example.org", anna), HttpStatusCode.BadRequest, "code_invalid", "code");
+    }
+
+    [Fact]
+    public async Task Code_attempts_are_limited_per_address_whatever_the_IP()
+    {
+        await using var host = Host(configure: f => f.Settings["Accounts:CodeAttemptsPerEmailPerHour"] = "3");
+        Assert.Equal(HttpStatusCode.Accepted, (await SignUpAsync(Client(host), "Anna", "anna@example.org", "sk")).StatusCode);
+        var code = Code((await OutboxAsync(host)).Single());
+        var wrong = code == "000000" ? "000001" : "000000";
+
+        for (var i = 0; i < 3; i++)
+            Assert.Equal(HttpStatusCode.BadRequest, (await CodeAsync(Client(host, $"198.51.100.{i + 1}"), "anna@example.org", wrong)).StatusCode);
+        await AssertErrorAsync(await CodeAsync(Client(host, "198.51.100.9"), "anna@example.org", code), HttpStatusCode.TooManyRequests, "rate_limited");
+
+        // another address has its own attempts
+        await AssertErrorAsync(await CodeAsync(Client(host, "198.51.100.10"), "bob@example.org", code), HttpStatusCode.BadRequest, "code_invalid", "code");
+    }
+
     // ----- helpers -----
 
     private ApiFactory Host(int minResponseMs = 0, Action<ApiFactory>? configure = null, Action<IServiceCollection>? services = null)
@@ -1001,6 +1085,17 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
 
     private static Task<HttpResponseMessage> ConfirmAsync(HttpClient client, string token) =>
         PostAsync(client, "/api/account/confirm", new { token });
+
+    private static Task<HttpResponseMessage> CodeAsync(HttpClient client, string email, string code) =>
+        PostAsync(client, "/api/account/code", new { email, code });
+
+    /// <summary>The six-digit code of an account mail (from the text body).</summary>
+    private static string Code(EmailOutboxEntity mail)
+    {
+        var match = Regex.Match(mail.TextBody, @"^    (\d{6})$", RegexOptions.Multiline);
+        Assert.True(match.Success, "The mail has no code.");
+        return match.Groups[1].Value;
+    }
 
     private static Task<HttpResponseMessage> RedeemAsync(HttpClient client, string token) =>
         PostAsync(client, "/api/account/signin/redeem", new { token });

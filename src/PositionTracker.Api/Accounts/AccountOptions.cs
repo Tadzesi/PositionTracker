@@ -35,6 +35,12 @@ public sealed class AccountOptions
     /// <summary>Confirmation and sign-in link redemptions per IP bucket and hour; beyond, 429 <c>rate_limited</c>.</summary>
     public int LinkRedeemsPerIpPerHour { get; set; } = 60;
 
+    /// <summary>
+    /// Code attempts per address and hour (right or wrong); beyond, 429 <c>rate_limited</c>. With six digits and a code living
+    /// 15 minutes (an hour for a sign-up) a guess succeeds with a chance of about 1 in 100 000 per hour.
+    /// </summary>
+    public int CodeAttemptsPerEmailPerHour { get; set; } = 10;
+
     /// <summary>Keys each limiter keeps at most (memory bound); the oldest windows are evicted beyond.</summary>
     public int RateLimitMaxKeys { get; set; } = 100_000;
 

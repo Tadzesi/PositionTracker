@@ -47,7 +47,7 @@ export function SignUp() {
   return (
     <form className="card narrow stack" onSubmit={submit}>
       <h2>{t('Účet organizátora', 'Organizer account')}</h2>
-      <p className="mute">{t('Bez hesla: prihlasujete sa jednorazovým odkazom z e-mailu.', 'No password: you sign in with a one-time link sent by email.')}</p>
+      <p className="mute">{t('Bez hesla: prihlasujete sa jednorazovým kódom alebo odkazom z e-mailu.', 'No password: you sign in with a one-time code or link sent by email.')}</p>
       <ErrorBanner error={bannerError(error, ['name', 'email'])} />
       <Field label={t('Meno', 'Name')} name="name" error={error}>
         <input id="name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" required />
@@ -63,11 +63,25 @@ export function SignUp() {
 
 const RESEND_COOLDOWN_S = 30;
 
+/**
+ * After the mail is asked for: the six-digit code from the mail is typed right here, so the organizer stays in this browser (a
+ * phone mail app opens the link inside itself). The link in the mail works as well.
+ */
 function Sent({ email, resend, onChangeAddress }: { email: string; resend: () => Promise<void>; onChangeAddress: () => void }) {
   const { t } = useI18n();
+  const { refresh } = useSession();
+  const navigate = useNavigate();
   const [wait, setWait] = useState(RESEND_COOLDOWN_S);
   const [again, setAgain] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [code, setCode] = useState('');
+  const [codeError, setCodeError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const enter = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true); setCodeError(null);
+    try { await post('/api/account/code', { email, code }); await refresh(); navigate('/org', { replace: true }); } catch (x) { setCodeError(x); setBusy(false); }
+  };
   useEffect(() => {
     if (wait <= 0) return;
     const id = window.setTimeout(() => setWait((w) => w - 1), 1000);
@@ -80,11 +94,20 @@ function Sent({ email, resend, onChangeAddress }: { email: string; resend: () =>
   return (
     <div className="card narrow stack">
       <h2>{t('Skontrolujte e-mail', 'Check your email')}</h2>
-      <p>{t(`Ak je adresa ${email} platná, poslali sme na ňu odkaz. Platí krátko a dá sa použiť raz.`,
-        `If ${email} is valid we have sent a link to it. It is short-lived and works once.`)}</p>
-      <p className="mute">{t('Otvorte ho v tomto prehliadači. Ak e-mail nevidíte, pozrite aj spam.', 'Open it in this browser. If you do not see the email, check your spam folder too.')}</p>
+      <p>{t(`Ak je adresa ${email} platná, poslali sme na ňu e-mail so 6-miestnym kódom. Zadajte ho sem – túto stránku nemusíte opúšťať.`,
+        `If ${email} is valid we have sent it an email with a 6-digit code. Enter it here – you do not need to leave this page.`)}</p>
+      <form className="stack" onSubmit={enter}>
+        <ErrorBanner error={codeError} />
+        <Field label={t('Kód z e-mailu', 'Code from the email')} name="code">
+          <input id="code" inputMode="numeric" autoComplete="one-time-code" maxLength={7} value={code} autoFocus
+            onChange={(e) => setCode(e.target.value.replace(/[^0-9 ]/g, ''))} style={{ fontSize: '1.4rem', letterSpacing: '.3em', maxWidth: 200 }} />
+        </Field>
+        <div className="row"><button className="btn primary" disabled={busy || code.replace(/ /g, '').length !== 6}><span>{t('Pokračovať', 'Continue')}</span></button></div>
+      </form>
+      <p className="mute">{t('Kód je aj v predmete e-mailu, takže ho uvidíte už v upozornení. Namiesto kódu môžete otvoriť odkaz z e-mailu. Ak e-mail nevidíte, pozrite aj spam.',
+        'The code is also in the email subject, so the notification already shows it. Instead of the code you can open the link in the email. If you do not see the email, check your spam folder too.')}</p>
       <ErrorBanner error={error} />
-      {again && <div className="banner ok" role="status">{t('Odkaz sme poslali znova.', 'We sent the link again.')}</div>}
+      {again && <div className="banner ok" role="status">{t('E-mail s novým kódom sme poslali znova.', 'We sent an email with a new code again.')}</div>}
       <div className="row">
         <button type="button" className="btn" onClick={send} disabled={wait > 0}>
           <span>{wait > 0 ? t(`Poslať znova (${wait} s)`, `Send again (${wait} s)`) : t('Poslať znova', 'Send again')}</span>
@@ -129,7 +152,7 @@ export function SignIn() {
       <Field label="E-mail" name="email" error={error}>
         <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
       </Field>
-      <button className="btn primary" disabled={busy}><span>{t('Poslať prihlasovací odkaz', 'Send a sign-in link')}</span></button>
+      <button className="btn primary" disabled={busy}><span>{t('Poslať prihlasovací kód', 'Send a sign-in code')}</span></button>
       <p className="mute">{t('Nemáte účet?', 'No account yet?')} <Link to="/account/signup">{t('Vytvoriť', 'Create one')}</Link></p>
     </form>
   );

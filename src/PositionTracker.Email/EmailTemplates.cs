@@ -127,7 +127,8 @@ public static class EmailTemplates
           "If you do not want any further messages about this event, reply to this email – your reply goes to the organizer.";
 
     /// <summary>The organizer's one-time sign-in link (valid 15 minutes, single use).</summary>
-    public static EmailMessage SignIn(OrganizerEntity o, string signInUrl)
+    /// <param name="code">The six-digit code for the page where the sign-in was asked for (null: a link only).</param>
+    public static EmailMessage SignIn(OrganizerEntity o, string signInUrl, string? code = null)
     {
         ArgumentNullException.ThrowIfNull(o);
         RequireHttpUrl(signInUrl);
@@ -136,30 +137,36 @@ public static class EmailTemplates
         var content = new Content
         {
             Greeting = sk ? $"Dobrý deň, {name}," : $"Hello {name},",
-            Intro = sk ? $"na prihlásenie do {ProductName} kliknite na tlačidlo:" : $"click the button to sign in to {ProductName}:",
+            Intro = code is null
+                ? (sk ? $"na prihlásenie do {ProductName} kliknite na tlačidlo:" : $"click the button to sign in to {ProductName}:")
+                : (sk ? $"na prihlásenie do {ProductName} zadajte tento kód na stránke, kde ste zadali e-mail:" : $"to sign in to {ProductName}, enter this code on the page where you entered your email:"),
+            Code = code,
+            BeforeButton = code is null ? null : sk ? "Alebo kliknite na tlačidlo:" : "Or click the button:",
             Button = sk ? "Prihlásiť sa" : "Sign in",
             Url = signInUrl,
             After = sk
                 ?
                 [
-                    "Odkaz je platný 15 minút a dá sa použiť iba raz.",
+                    code is null ? "Odkaz je platný 15 minút a dá sa použiť iba raz." : "Kód aj odkaz sú platné 15 minút a dajú sa použiť iba raz.",
                     "Ak ste o prihlásenie nežiadali, tento e-mail ignorujte; bez kliknutia na odkaz sa nikto neprihlási.",
                 ]
                 :
                 [
-                    "The link is valid for 15 minutes and can be used only once.",
+                    code is null ? "The link is valid for 15 minutes and can be used only once." : "The code and the link are valid for 15 minutes and can be used only once.",
                     "If you did not ask to sign in, ignore this email; nobody is signed in without the link.",
                 ],
             Footer = sk
                 ? $"Túto správu ste dostali, pretože pre túto adresu bolo vyžiadané prihlásenie do {ProductName}. Nejde o marketingovú správu."
                 : $"You received this message because a sign-in to {ProductName} was requested for this address. It is not marketing.",
         };
-        var subject = sk ? $"Prihlásenie do {ProductName}" : $"Sign in to {ProductName}";
+        // the code in the subject: a phone shows it in the notification, so the mail need not even be opened
+        var subject = (code is null ? "" : $"{code} – ") + (sk ? $"Prihlásenie do {ProductName}" : $"Sign in to {ProductName}");
         return Render(o.Email, name, subject, sk, content, EmailPurpose.SignIn);
     }
 
     /// <summary>Confirmation of a new organizer's email address (valid 14 days).</summary>
-    public static EmailMessage ConfirmOrganizerEmail(OrganizerEntity o, string confirmUrl)
+    /// <param name="code">The six-digit code for the sign-up page (valid an hour; null: a link only).</param>
+    public static EmailMessage ConfirmOrganizerEmail(OrganizerEntity o, string confirmUrl, string? code = null)
     {
         ArgumentNullException.ThrowIfNull(o);
         RequireHttpUrl(confirmUrl);
@@ -168,27 +175,33 @@ public static class EmailTemplates
         var content = new Content
         {
             Greeting = sk ? $"Dobrý deň, {name}," : $"Hello {name},",
-            Intro = sk
-                ? $"ďakujeme za registráciu organizátora v {ProductName}. Potvrďte, prosím, že táto e-mailová adresa patrí vám:"
-                : $"thank you for signing up as an organizer in {ProductName}. Please confirm that this email address is yours:",
+            Intro = code is null
+                ? (sk
+                    ? $"ďakujeme za registráciu organizátora v {ProductName}. Potvrďte, prosím, že táto e-mailová adresa patrí vám:"
+                    : $"thank you for signing up as an organizer in {ProductName}. Please confirm that this email address is yours:")
+                : (sk
+                    ? $"ďakujeme za registráciu organizátora v {ProductName}. Na potvrdenie e-mailu zadajte tento kód na stránke registrácie:"
+                    : $"thank you for signing up as an organizer in {ProductName}. To confirm your email, enter this code on the sign-up page:"),
+            Code = code,
+            BeforeButton = code is null ? null : sk ? "Alebo kliknite na tlačidlo:" : "Or click the button:",
             Button = sk ? "Potvrdiť e-mail" : "Confirm email",
             Url = confirmUrl,
             After = sk
                 ?
                 [
-                    "Odkaz je platný 14 dní.",
+                    code is null ? "Odkaz je platný 14 dní." : "Kód je platný 1 hodinu, odkaz 14 dní.",
                     "Ak ste sa neregistrovali, tento e-mail ignorujte; bez potvrdenia sa účet nedá použiť na pozývanie účastníkov.",
                 ]
                 :
                 [
-                    "The link is valid for 14 days.",
+                    code is null ? "The link is valid for 14 days." : "The code is valid for 1 hour, the link for 14 days.",
                     "If you did not sign up, ignore this email; without confirmation the account cannot invite participants.",
                 ],
             Footer = sk
                 ? $"Túto správu ste dostali, pretože s touto adresou bola vytvorená registrácia v {ProductName}. Nejde o marketingovú správu."
                 : $"You received this message because this address was used to sign up in {ProductName}. It is not marketing.",
         };
-        var subject = sk ? "Potvrďte svoju e-mailovú adresu" : "Confirm your email address";
+        var subject = (code is null ? "" : $"{code} – ") + (sk ? "Potvrďte svoju e-mailovú adresu" : "Confirm your email address");
         return Render(o.Email, name, subject, sk, content, EmailPurpose.OrganizerEmailConfirmation);
     }
 
@@ -221,6 +234,8 @@ public static class EmailTemplates
         public required string Greeting { get; init; }
         public required string Intro { get; init; }
         public (string Label, string Value)[] Details { get; init; } = [];
+        /// <summary>A one-time code shown large (digits only).</summary>
+        public string? Code { get; init; }
         public string? BeforeButton { get; init; }
         public string? Button { get; init; }
         public string? Url { get; init; }
@@ -237,6 +252,7 @@ public static class EmailTemplates
         text.Append(c.Greeting).Append("\n\n").Append(c.Intro).Append("\n\n");
         foreach (var (label, value) in c.Details) text.Append(label).Append(": ").Append(value).Append('\n');
         if (c.Details.Length > 0) text.Append('\n');
+        if (c.Code is not null) text.Append("    ").Append(c.Code).Append("\n\n");
         if (c.BeforeButton is not null) text.Append(c.BeforeButton).Append('\n');
         if (c.Url is not null) text.Append(c.Button).Append(": ").Append(c.Url).Append("\n\n");
         foreach (var line in c.After) text.Append(line).Append('\n');
@@ -259,6 +275,9 @@ public static class EmailTemplates
                     .Append(h(value)).Append("</strong></td></tr>");
             html.Append("</table>");
         }
+        if (c.Code is not null)
+            html.Append("<p style=\"margin:0 0 20px;font-family:Consolas,'Courier New',monospace;font-size:32px;font-weight:bold;letter-spacing:6px;\">")
+                .Append(h(c.Code)).Append("</p>");
         if (c.BeforeButton is not null) html.Append("<p style=\"margin:0 0 12px;\">").Append(h(c.BeforeButton)).Append("</p>");
         if (c.Url is not null)
         {

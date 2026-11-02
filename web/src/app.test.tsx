@@ -92,6 +92,38 @@ describe('web app', () => {
     expect(await screen.findByText('My events', { selector: 'h1' })).toBeInTheDocument();
   });
 
+  it('the code from the sign-in mail is typed on the same page and opens the events without leaving the browser', async () => {
+    const routes: Record<string, { status?: number; body?: unknown }> = { 'POST /api/account/signin': { status: 202, body: { status: 'accepted' } },
+      'POST /api/account/code': { body: {} }, 'GET /api/account/session': { body: NO_SESSION }, 'GET /api/events': { body: { emailMode: 'smtp', events: [] } } };
+    const calls = mockFetch(routes);
+    const inner = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/account/code') routes['GET /api/account/session'] = { body: { name: 'A', email: 'anna@example.org', language: 'en', emailConfirmed: true, emailMode: 'smtp' } };
+      return inner(url, init);
+    }));
+    renderAt('/account/signin');
+    await userEvent.type(await screen.findByLabelText('E-mail'), 'anna@example.org');
+    await userEvent.click(screen.getByRole('button', { name: 'Send a sign-in code' }));
+    const continueButton = await screen.findByRole('button', { name: 'Continue' });
+    expect(continueButton).toBeDisabled();
+    await userEvent.type(screen.getByLabelText('Code from the email'), '123 45x6');
+    await userEvent.click(continueButton);
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/account/code' && c.body === JSON.stringify({ email: 'anna@example.org', code: '123 456' }))).toBe(true));
+    expect(await screen.findByText('My events', { selector: 'h1' })).toBeInTheDocument();
+  });
+  it('a wrong code says so and keeps the page', async () => {
+    mockFetch({ 'POST /api/account/signup': { status: 202, body: { status: 'accepted' } },
+      'POST /api/account/code': { status: 400, body: { code: 'code_invalid', field: 'code', message: { sk: 'Zlý kód', en: 'The code is wrong or no longer valid.' } } } });
+    renderAt('/account/signup');
+    await userEvent.type(await screen.findByLabelText('Name'), 'Anna');
+    await userEvent.type(screen.getByLabelText('E-mail'), 'anna@example.org');
+    await userEvent.click(screen.getByRole('button', { name: 'Create account' }));
+    await userEvent.type(await screen.findByLabelText('Code from the email'), '000000');
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(await screen.findByText('The code is wrong or no longer valid.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Code from the email')).toBeInTheDocument();
+  });
+
   it('a signed-in organizer is sent from the landing and sign-in pages straight to the events', async () => {
     const me = { name: 'Anna', email: 'a@x', language: 'en', emailConfirmed: true, emailMode: 'smtp' };
     mockFetch({ 'GET /api/account/session': { body: me }, 'GET /api/events': { body: { emailMode: 'smtp', events: [] } } });
@@ -107,7 +139,7 @@ describe('web app', () => {
     renderAt('/account/signin?token=old');
     await userEvent.click(await screen.findByRole('button', { name: 'Continue to my events' }));
     expect(await screen.findByText('This link has expired')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Send a sign-in link' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send a sign-in code' })).toBeInTheDocument();
   });
 
   it('creating an event posts to /api/events/ (not the address browsers may remember a redirect for) and opens the new event', async () => {

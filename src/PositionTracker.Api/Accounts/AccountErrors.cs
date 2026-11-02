@@ -48,6 +48,10 @@ public static class AccountErrors
         "Požiadavka musí mať obsah typu application/json.",
         "The request body must be of type application/json.");
 
+    public static IResult CodeInvalid() => Results.Json(new ApiError("code_invalid", new LocalizedText(
+        "Kód nie je správny alebo už neplatí. Skontrolujte ho, prípadne si dajte poslať nový e-mail.",
+        "The code is wrong or no longer valid. Check it, or have a new email sent."), "code"), statusCode: StatusCodes.Status400BadRequest);
+
     public static IResult RateLimited() => Error(StatusCodes.Status429TooManyRequests, "rate_limited",
         "Príliš veľa pokusov. Skúste to, prosím, neskôr.",
         "Too many attempts. Please try again later.");

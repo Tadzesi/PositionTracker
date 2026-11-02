@@ -7,8 +7,12 @@ using PositionTracker.Data.Entities;
 
 namespace PositionTracker.Api.Accounts;
 
-/// <summary>What an emailed link is for; a token only works for the purpose it was issued for.</summary>
-public enum LinkPurpose { OrganizerEmailConfirm, OrganizerSignIn, ParticipantInvite }
+/// <summary>
+/// What an emailed link is for; a token only works for the purpose it was issued for. <see cref="OrganizerCode"/> is the
+/// six-digit code mailed with a confirmation or sign-in link, typed on the page where the organizer asked for the mail (so a
+/// phone that opens the link inside the mail app is not needed).
+/// </summary>
+public enum LinkPurpose { OrganizerEmailConfirm, OrganizerSignIn, ParticipantInvite, OrganizerCode }
 
 /// <summary>
 /// <see cref="Superseded"/>: a newer token of the same purpose and subject replaced it. <see cref="Unknown"/>: no
@@ -35,6 +39,10 @@ public sealed class LinkTokenService(AppDbContext db, TimeProvider clock)
     public static readonly TimeSpan EmailConfirmLifetime = TimeSpan.FromDays(14);
     public static readonly TimeSpan SignInLifetime = TimeSpan.FromMinutes(15);
     public static readonly TimeSpan InviteLifetime = TimeSpan.FromDays(14);
+    /// <summary>A code mailed with a sign-in link lives as long as the link.</summary>
+    public static readonly TimeSpan SignInCodeLifetime = SignInLifetime;
+    /// <summary>A code mailed with a confirmation link is for the sign-up page just left open: an hour, not the link's 14 days.</summary>
+    public static readonly TimeSpan ConfirmCodeLifetime = TimeSpan.FromHours(1);
     /// <summary>An invitation link stays valid at least this long after the event's start.</summary>
     public static readonly TimeSpan InviteAfterStart = TimeSpan.FromDays(7);
 
@@ -85,6 +93,44 @@ public sealed class LinkTokenService(AppDbContext db, TimeProvider clock)
     }
 
     /// <summary>
+    /// Issues a six-digit <see cref="LinkPurpose.OrganizerCode"/> of <paramref name="subjectId"/>, single use, valid for
+    /// <paramref name="lifetime"/>; returns the code (for the mail only). Older codes stay valid until they expire (two mails asked
+    /// for in a row both work). Stored as the hash of subject and code, so a code only works for its own account. The guessing of
+    /// codes is limited by the caller (<see cref="AccountRateLimiter.TryTakeCodeAttempt"/>).
+    /// </summary>
+    public async Task<string> IssueCodeAsync(Guid subjectId, TimeSpan lifetime, CancellationToken ct)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(lifetime, TimeSpan.Zero);
+        var now = clock.GetUtcNow();
+        string code;
+        byte[] hash;
+        var attempts = 0;
+        do
+        {
+            code = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6", System.Globalization.CultureInfo.InvariantCulture);
+            hash = CodeHash(subjectId, code);
+        }
+        while (await db.LinkTokens.AnyAsync(t => t.TokenHash == hash, ct) && ++attempts < 10); // the same code of the same account again
+        db.LinkTokens.Add(new LinkTokenEntity
+        {
+            Id = Guid.CreateVersion7(now), Purpose = nameof(LinkPurpose.OrganizerCode), SubjectId = subjectId, TokenHash = hash,
+            CreatedAt = now, ExpiresAt = now + lifetime,
+        });
+        await db.SaveChangesAsync(ct);
+        return code;
+    }
+
+    /// <summary>Redeems a code of <paramref name="subjectId"/> (single use); anything but six digits is <see cref="LinkStatus.Unknown"/>.</summary>
+    public Task<LinkResult> RedeemCodeAsync(Guid subjectId, string? code, CancellationToken ct)
+    {
+        code = (code ?? "").Replace(" ", "", StringComparison.Ordinal).Trim();
+        if (code.Length != 6 || !code.All(char.IsAsciiDigit)) return Task.FromResult(LinkResult.Unknown);
+        return RedeemHashAsync(LinkPurpose.OrganizerCode, CodeHash(subjectId, code), singleUse: true, ct);
+    }
+
+    private static byte[] CodeHash(Guid subjectId, string code) => Hash($"code:{subjectId:N}:{code}");
+
+    /// <summary>
     /// Checks a token for <paramref name="purpose"/>. Single-use tokens are marked used atomically (of concurrent
     /// redemptions exactly one gets <see cref="LinkStatus.Ok"/>, the others <see cref="LinkStatus.Used"/>); other
     /// tokens stay valid until they expire or are superseded (the first use is recorded).
@@ -93,7 +139,11 @@ public sealed class LinkTokenService(AppDbContext db, TimeProvider clock)
     public async Task<LinkResult> RedeemAsync(LinkPurpose purpose, string rawToken, bool singleUse, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(rawToken) || rawToken.Length > MaxTokenLength) return LinkResult.Unknown;
-        var hash = Hash(rawToken);
+        return await RedeemHashAsync(purpose, Hash(rawToken), singleUse, ct);
+    }
+
+    private async Task<LinkResult> RedeemHashAsync(LinkPurpose purpose, byte[] hash, bool singleUse, CancellationToken ct)
+    {
         var name = purpose.ToString();
         var token = await db.LinkTokens.AsNoTracking().SingleOrDefaultAsync(t => t.TokenHash == hash, ct);
         if (token is null || token.Purpose != name) return LinkResult.Unknown;

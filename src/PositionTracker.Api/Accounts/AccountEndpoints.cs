@@ -25,6 +25,10 @@ namespace PositionTracker.Api.Accounts;
 /// <c>link_expired|link_used|link_invalid</c>, 429 <c>rate_limited</c>.</item>
 /// <item><c>POST /api/account/signin/redeem {token}</c> → sets the session cookie (and confirms the email), 200 with
 /// the profile; the same errors.</item>
+/// <item><c>POST /api/account/code {email, code}</c> → the six-digit code from the confirmation or sign-in mail, typed on the
+/// page where it was asked for: sets the session cookie (and confirms the email), 200 with the profile; 400 <c>code_invalid</c>
+/// for a wrong, used or expired code and for an unknown address alike, 429 <c>rate_limited</c> beyond the attempts per address
+/// (<see cref="AccountOptions.CodeAttemptsPerEmailPerHour"/>) or per IP.</item>
 /// <item><c>POST /api/account/signout</c> → 204; clears the cookie and ends every session of the account.</item>
 /// <item><c>GET /api/account/me</c> → 200 <c>{name, email, language, emailConfirmed, emailMode}</c>, 401
 /// <c>unauthorized</c> without a session.</item>
@@ -50,6 +54,8 @@ public static class AccountEndpoints
     public sealed record SignInRequest(string? Email);
 
     public sealed record TokenRequest(string? Token);
+
+    public sealed record CodeRequest(string? Email, string? Code);
 
     public sealed record AcceptedResponse(string Status);
 
@@ -89,6 +95,7 @@ public static class AccountEndpoints
         group.MapPost("/signin", SignInAsync);
         group.MapPost("/confirm", ConfirmAsync);
         group.MapPost("/signin/redeem", RedeemAsync);
+        group.MapPost("/code", RedeemCodeAsync);
         group.MapPost("/signout", SignOutAsync);
         group.MapGet("/me", Me).RequireAuthorization(CookieAuth.OrganizerSessionPolicy);
         group.MapGet("/session", Session);
@@ -190,6 +197,30 @@ public static class AccountEndpoints
             return AccountErrors.Unavailable();
         }
         if (status != LinkStatus.Ok) return LinkError(status);
+        await CookieAuth.SignInAsync(context, organizer!);
+        return Results.Ok(Profile(organizer!, mode));
+    }
+
+    private static async Task<IResult> RedeemCodeAsync(HttpContext context, OrganizerService organizers, AccountRateLimiter limiter,
+        IEmailMode mode, IOptions<JsonOptions> json, ILoggerFactory loggers)
+    {
+        var (body, error) = await ReadAsync<CodeRequest>(context, json);
+        if (error is not null) return error;
+        if (!EmailAddress.TryParse(body!.Email, out _, out var normalized)) return AccountErrors.InvalidEmail();
+        if (!limiter.TryTakeRedeem(context.Connection.RemoteIpAddress) || !limiter.TryTakeCodeAttempt(normalized))
+            return AccountErrors.RateLimited();
+        LinkStatus status;
+        OrganizerEntity? organizer;
+        try
+        {
+            (status, organizer) = await organizers.RedeemCodeAsync(normalized, body.Code, context.RequestAborted);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !context.RequestAborted.IsCancellationRequested)
+        {
+            loggers.CreateLogger(LogCategory).LogError("Sign-in code redemption failed ({ExceptionType}); answered 503.", ex.GetType().Name);
+            return AccountErrors.Unavailable();
+        }
+        if (status != LinkStatus.Ok) return AccountErrors.CodeInvalid();
         await CookieAuth.SignInAsync(context, organizer!);
         return Results.Ok(Profile(organizer!, mode));
     }

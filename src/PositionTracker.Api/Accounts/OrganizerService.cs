@@ -117,6 +117,23 @@ public sealed class OrganizerService(
         return organizer is null ? (LinkStatus.Unknown, null) : (LinkStatus.Ok, organizer);
     }
 
+    /// <summary>
+    /// Redeems a code typed on the sign-up or sign-in page; like a sign-in link it proves access to the mailbox, so it confirms
+    /// an unconfirmed email and returns the organizer to start a session for. An unknown address is <see cref="LinkStatus.Unknown"/>.
+    /// </summary>
+    public async Task<(LinkStatus Status, OrganizerEntity? Organizer)> RedeemCodeAsync(string normalized, string? code, CancellationToken ct)
+    {
+        var id = await db.Organizers.AsNoTracking().Where(o => o.EmailNormalized == normalized).Select(o => (Guid?)o.Id).SingleOrDefaultAsync(ct);
+        if (id is null) return (LinkStatus.Unknown, null);
+        var result = await links.RedeemCodeAsync(id.Value, code, ct);
+        if (!result.IsOk) return (result.Status, null);
+        var now = clock.GetUtcNow();
+        await db.Organizers.Where(o => o.Id == id && o.EmailConfirmedAt == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(o => o.EmailConfirmedAt, now), ct);
+        var organizer = await db.Organizers.AsNoTracking().SingleOrDefaultAsync(o => o.Id == id, ct);
+        return organizer is null ? (LinkStatus.Unknown, null) : (LinkStatus.Ok, organizer);
+    }
+
     /// <summary>Ends every session of the organizer: sessions carry the old security stamp.</summary>
     public Task SignOutEverywhereAsync(Guid organizerId, CancellationToken ct) =>
         db.Organizers.Where(o => o.Id == organizerId)
@@ -131,13 +148,15 @@ public sealed class OrganizerService(
     private async Task QueueConfirmationAsync(OrganizerEntity organizer, CancellationToken ct)
     {
         var token = await links.IssueAsync(LinkPurpose.OrganizerEmailConfirm, organizer.Id, LinkTokenService.EmailConfirmLifetime, ct);
-        Enqueue(organizer, EmailTemplates.ConfirmOrganizerEmail(organizer, Url(options.Value.ConfirmPath, token)));
+        var code = await links.IssueCodeAsync(organizer.Id, LinkTokenService.ConfirmCodeLifetime, ct);
+        Enqueue(organizer, EmailTemplates.ConfirmOrganizerEmail(organizer, Url(options.Value.ConfirmPath, token), code));
     }
 
     private async Task QueueSignInAsync(OrganizerEntity organizer, CancellationToken ct)
     {
         var token = await links.IssueAsync(LinkPurpose.OrganizerSignIn, organizer.Id, LinkTokenService.SignInLifetime, ct);
-        Enqueue(organizer, EmailTemplates.SignIn(organizer, Url(options.Value.SignInPath, token)));
+        var code = await links.IssueCodeAsync(organizer.Id, LinkTokenService.SignInCodeLifetime, ct);
+        Enqueue(organizer, EmailTemplates.SignIn(organizer, Url(options.Value.SignInPath, token), code));
     }
 
     private string Url(string path, string token) => EmailLinks.Build(email.Value.PublicBaseUrl, path, token);
