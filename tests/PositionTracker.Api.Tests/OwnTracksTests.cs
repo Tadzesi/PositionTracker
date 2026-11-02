@@ -372,6 +372,69 @@ public sealed class OwnTracksTests(PostgresFixture postgres) : IClassFixture<Pos
     }
 
     [Fact]
+    public async Task An_undeliverable_address_settles_the_notice_and_says_so_in_the_log()
+    {
+        var logs = new LogCapture();
+        await using var host = Host(services: s => s.AddSingleton<ILoggerProvider>(logs));
+        var (ev, pid, token) = await LiveRiderAsync(host);
+        await FinishAsync(host, ev);
+        await using (var db = ParticipantLinkTests.Db(host))
+            await db.Participants.Where(p => p.Id == pid).ExecuteUpdateAsync(s => s.SetProperty(p => p.Email, "not-an-address"));
+        using var client = host.CreateClient();
+        var t = host.Clock.GetUtcNow();
+
+        await PostAsync(client, "1", token, Location(host));
+        host.Clock.SetUtcNow(t.AddMinutes(10));
+        var response = await PostAsync(client, "1", token, Location(host));
+
+        Assert.Equal(StopAnswer, await response.Content.ReadAsStringAsync());
+        await using (var db = ParticipantLinkTests.Db(host))
+        {
+            Assert.Equal(t.AddMinutes(10), (await db.Participants.SingleAsync(x => x.Id == pid)).StopNoticeQueuedAt);
+            Assert.Empty(await db.Outbox.Where(o => o.Purpose == EmailPurpose.TrackingStop).ToListAsync());
+        }
+        Assert.Contains("\"tracking still on\" email was not queued", logs.Text());
+        Assert.DoesNotContain("not-an-address", logs.Text());
+    }
+
+    [Fact]
+    public async Task An_event_without_a_runtime_is_looked_up_at_most_every_30_seconds()
+    {
+        await using var host = Host();
+        var ev = await ParticipantLinkTests.SeedEventAsync(host, EventState.Ready);
+        var pid = await ParticipantLinkTests.SeedParticipantAsync(host, ev, ParticipantStatus.Invited, "Rider");
+        var link = await ParticipantLinkTests.IssueLinkAsync(host, pid);
+        var web = ParticipantLinkTests.Client(host);
+        await ParticipantLinkTests.PostAsync(web, link, "/confirm", new { });
+        var token = await ParticipantLinkTests.ConsentAsync(web, link, false);
+        using var client = host.CreateClient();
+        var t = host.Clock.GetUtcNow();
+
+        Assert.Equal("[]", await (await PostAsync(client, "1", token, Location(host))).Content.ReadAsStringAsync());
+        await using (var db = ParticipantLinkTests.Db(host))
+            await db.Events.Where(e => e.Id == ev).ExecuteUpdateAsync(s => s.SetProperty(e => e.State, EventState.Finished));
+        host.Clock.SetUtcNow(t.AddSeconds(29));
+        Assert.Equal("[]", await (await PostAsync(client, "1", token, Location(host))).Content.ReadAsStringAsync()); // still the cached answer
+        host.Clock.SetUtcNow(t.AddSeconds(31));
+        Assert.Equal(StopAnswer, await (await PostAsync(client, "1", token, Location(host))).Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public void The_memo_forgets_entries_older_than_a_day()
+    {
+        var t0 = new DateTimeOffset(2026, 11, 8, 12, 0, 0, TimeSpan.Zero);
+        var memo = new TrackingStopMemo();
+        memo.Set("old", new TrackingStopMemo.Entry(t0, true), t0);
+        memo.Set("recent", new TrackingStopMemo.Entry(t0.AddHours(2), true), t0.AddHours(2));
+
+        memo.Set("new", new TrackingStopMemo.Entry(t0.AddHours(25), false), t0.AddHours(25));
+
+        Assert.Null(memo.Get("old"));
+        Assert.NotNull(memo.Get("recent"));
+        Assert.NotNull(memo.Get("new"));
+    }
+
+    [Fact]
     public async Task The_stop_command_is_returned_even_when_the_notice_fails_for_another_reason()
     {
         await using var host = Host(services: s => s.AddScoped<ITrackingStopNotifier, BrokenNotifier>());

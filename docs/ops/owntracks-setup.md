@@ -39,7 +39,8 @@ consent). Same `401` for every authentication failure. Body ≤ 16 KB (`413`). L
 elevation come from the course matching); everything else, malformed bodies, and messages for events that are not live yet
 → `200 []`. For a **finished** event every authenticated message is answered `200` with
 `[{"_type":"cmd","action":"setConfiguration","configuration":{"_type":"configuration","monitoring":-1}}]` (the phone switches to
-quiet mode) and nothing of it is applied; "finished" comes from the registry, or from the stored event state once the runtime left the memory. Budget 600 fixes/minute per token; above it `429` + `Retry-After`, nothing of the request is applied.
+quiet mode) and nothing of it is applied (a phone configured before 2026-11-02 has `cmd: false`, ignores it and is emailed after
+10 minutes; setting it up again from the participant page fixes that); "finished" comes from the registry, or from the stored event state once the runtime left the memory. Budget 600 fixes/minute per token; above it `429` + `Retry-After`, nothing of the request is applied.
 Tuning derived from the sport: move mode, interval 5 s (cycling) / 10 s (running), displacement 10 m, inaccurate > 50 m not sent.
 The page `POST /api/p/{link}/owntracks-config {deviceToken}` returns `{deepLink, otrcJson, qrPayload}` (the token must be the current one;
 nothing new is issued).

@@ -175,6 +175,8 @@ public sealed class OperationsService(AppDbContext db, EventRegistry registry, A
         p.Email = anonymous;
         p.EmailNormalized = anonymous;
         p.ShowNameToSpectators = false;
+        p.TrackingAfterFinishAt = null;
+        p.StopNoticeQueuedAt = null;
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
 

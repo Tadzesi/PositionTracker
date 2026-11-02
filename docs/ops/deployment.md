@@ -52,6 +52,8 @@ Before the first real event:
    confirm the next request gets the stop command and the phone sends nothing more (OwnTracks shows Quiet). Then put it back to Move,
    wait 10+ minutes of sending if the command was ignored, and check the "tracking still on" email and that its stop link (opened on the
    phone) switches OwnTracks to Quiet. Record the result in `docs/ops/owntracks-setup.md` (move the item out of UNVERIFIED).
+   Phones configured before 2026-11-02 have `cmd: false` and ignore the stop command (they get the email after 10 minutes instead):
+   every participant of an event that is already set up must open the setup step on the participant page again before the start.
 6. [ ] Restart the app during the rehearsal: the views come back identical and the phones keep sending.
 7. [ ] Organizer briefing: SOS is by phone, DNF is marked by the organizer, spectators see delayed positions, the organizer issues the
    official results, data is deleted after 30 days.

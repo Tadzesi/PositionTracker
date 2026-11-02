@@ -22,7 +22,7 @@ public interface ITrackingStopNotifier
 
 /// <inheritdoc cref="ITrackingStopNotifier"/>
 public sealed class TrackingStopNotifier(AppDbContext db, TrackingStopMemo memo, TimeProvider clock,
-    IOptions<PersistenceOptions> persistence, IOptions<EmailOptions> email) : ITrackingStopNotifier
+    IOptions<PersistenceOptions> persistence, IOptions<EmailOptions> email, ILogger<TrackingStopNotifier> logger) : ITrackingStopNotifier
 {
     /// <summary>The public page with the stop link (the web route <c>/stop-tracking</c>).</summary>
     public const string StopTrackingPath = "/stop-tracking";
@@ -44,26 +44,36 @@ public sealed class TrackingStopNotifier(AppDbContext db, TrackingStopMemo memo,
         if (state?.TrackingAfterFinishAt is not { } seenAt) return;
         if (state.StopNoticeQueuedAt is not null)
         {
-            memo.Set(key, new TrackingStopMemo.Entry(seenAt, true));
+            memo.Set(key, new TrackingStopMemo.Entry(seenAt, true), now);
             return;
         }
         if (now - seenAt < NoticeGrace)
         {
-            memo.Set(key, new TrackingStopMemo.Entry(seenAt, false));
+            memo.Set(key, new TrackingStopMemo.Entry(seenAt, false), now);
             return;
         }
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var claimed = await db.Participants.Where(p => p.Id == pid && p.StopNoticeQueuedAt == null)
             .ExecuteUpdateAsync(s => s.SetProperty(p => p.StopNoticeQueuedAt, now), ct);
-        if (claimed == 1 && await MessageAsync(pid, ct) is { } message)
+        if (claimed == 1)
         {
-            // tied to the participant, so deleting the participant's data deletes the notice too
-            db.Outbox.Add(EmailOutbox.Create(message, pid, now));
-            await db.SaveChangesAsync(ct);
+            if (await MessageAsync(pid, ct) is { } message)
+            {
+                // tied to the participant, so deleting the participant's data deletes the notice too
+                db.Outbox.Add(EmailOutbox.Create(message, pid, now));
+                await db.SaveChangesAsync(ct);
+            }
+            else
+            {
+                // settled anyway: retrying would fail the same way on every request of the phone
+                logger.LogWarning(
+                    "Event {EventId}, participant {ParticipantId}: the \"tracking still on\" email was not queued (no deliverable address, no organizer or no public base URL).",
+                    eventId, participantId);
+            }
         }
         await tx.CommitAsync(ct);
-        memo.Set(key, new TrackingStopMemo.Entry(seenAt, true));
+        memo.Set(key, new TrackingStopMemo.Entry(seenAt, true), now);
     }
 
     private async Task<EmailMessage?> MessageAsync(Guid participantId, CancellationToken ct)
@@ -100,15 +110,28 @@ public sealed class TrackingStopNotifier(AppDbContext db, TrackingStopMemo memo,
 /// <summary>
 /// What <see cref="TrackingStopNotifier"/> already knows per event and participant, so a phone that keeps sending every
 /// few seconds costs no database round trip: the first request time and whether the notice is settled. Process memory
-/// only; after a restart the database answers again.
+/// only; after a restart, or once an entry is older than <see cref="Retention"/>, the database answers again.
 /// </summary>
 public sealed class TrackingStopMemo
 {
     public sealed record Entry(DateTimeOffset SeenAt, bool Done);
 
+    /// <summary>Entries whose first request is older than this are dropped (checked at most once an hour, on <see cref="Set"/>).</summary>
+    public static readonly TimeSpan Retention = TimeSpan.FromDays(1);
+
+    private static readonly TimeSpan PruneInterval = TimeSpan.FromHours(1);
+
     private readonly ConcurrentDictionary<string, Entry> _entries = new(StringComparer.Ordinal);
+    private long _lastPruneTicks;
 
     public Entry? Get(string key) => _entries.GetValueOrDefault(key);
 
-    public void Set(string key, Entry entry) => _entries[key] = entry;
+    public void Set(string key, Entry entry, DateTimeOffset now)
+    {
+        _entries[key] = entry;
+        var last = Interlocked.Read(ref _lastPruneTicks);
+        if (now.UtcTicks - last < PruneInterval.Ticks || Interlocked.CompareExchange(ref _lastPruneTicks, now.UtcTicks, last) != last) return;
+        foreach (var (k, e) in _entries)
+            if (now - e.SeenAt > Retention) _entries.TryRemove(k, out _);
+    }
 }

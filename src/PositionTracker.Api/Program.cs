@@ -32,6 +32,7 @@ builder.Services.AddEventManagement();
 builder.Services.AddRegistration();
 builder.Services.AddParticipantLinks();
 builder.Services.AddSingleton<TrackingStopMemo>();
+builder.Services.AddSingleton<EventFinishedCache>();
 builder.Services.AddScoped<ITrackingStopNotifier, TrackingStopNotifier>();
 builder.Services.AddOperations();
 builder.Services.AddOptions<OrganizerOptions>()

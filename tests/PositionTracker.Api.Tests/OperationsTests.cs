@@ -130,11 +130,17 @@ public sealed class OperationsTests(PostgresFixture postgres) : IClassFixture<Po
             await Task.Delay(25);
         }
 
+        await using (var db = Db(host))
+            await db.Participants.Where(x => x.Id == pid).ExecuteUpdateAsync(s => s
+                .SetProperty(x => x.TrackingAfterFinishAt, host.Clock.GetUtcNow()).SetProperty(x => x.StopNoticeQueuedAt, host.Clock.GetUtcNow()));
+
         await AssertNoContentAsync(await org.DeleteAsync($"/api/events/{ev}/participants/{pid:D}/data"));
 
         await using (var db = Db(host))
         {
             var p = await db.Participants.SingleAsync();
+            Assert.Null(p.TrackingAfterFinishAt);
+            Assert.Null(p.StopNoticeQueuedAt);
             Assert.Equal("#1", p.Name);
             Assert.Null(p.Nickname);
             Assert.DoesNotContain("rider1@example.com", p.Email + p.EmailNormalized);
