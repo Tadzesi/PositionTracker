@@ -238,8 +238,70 @@ public sealed class OwnTracksTests(PostgresFixture postgres) : IClassFixture<Pos
         Assert.Equal(HttpStatusCode.OK, (await PostAsync(client, "1", token, Location(host))).StatusCode);
     }
 
+    private const string StopAnswer =
+        """[{"_type":"cmd","action":"setConfiguration","configuration":{"_type":"configuration","monitoring":-1}}]""";
+
     [Fact]
-    public async Task A_finished_or_not_live_event_answers_200_and_ignores_the_message()
+    public async Task A_live_event_still_answers_an_empty_array()
+    {
+        await using var host = Host();
+        var (_, _, token) = await LiveRiderAsync(host);
+        using var client = host.CreateClient();
+
+        var response = await PostAsync(client, "1", token, Location(host));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("[]", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_finished_event_answers_every_message_with_the_stop_command()
+    {
+        await using var host = Host();
+        var (ev, _, token) = await LiveRiderAsync(host);
+        await FinishAsync(host, ev);
+        using var client = host.CreateClient();
+
+        foreach (var body in new[] { Location(host), """{"_type":"lwt","tst":1790000000}""" })
+        {
+            var response = await PostAsync(client, "1", token, body);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(StopAnswer, await response.Content.ReadAsStringAsync());
+        }
+        await using var db = ParticipantLinkTests.Db(host);
+        Assert.Empty(await db.Fixes.ToListAsync());
+    }
+
+    [Fact]
+    public async Task A_finished_event_without_a_runtime_still_answers_the_stop_command()
+    {
+        await using var host = Host();
+        var ev = await ParticipantLinkTests.SeedEventAsync(host, EventState.Ready);
+        var pid = await ParticipantLinkTests.SeedParticipantAsync(host, ev, ParticipantStatus.Invited, "Rider");
+        var link = await ParticipantLinkTests.IssueLinkAsync(host, pid);
+        var web = ParticipantLinkTests.Client(host);
+        await ParticipantLinkTests.PostAsync(web, link, "/confirm", new { });
+        var token = await ParticipantLinkTests.ConsentAsync(web, link, false);
+        await using (var db = ParticipantLinkTests.Db(host))
+            await db.Events.Where(e => e.Id == ev).ExecuteUpdateAsync(s => s.SetProperty(e => e.State, EventState.Finished));
+        Assert.Null(host.Registry.Get(ev.ToString("D")));
+        using var client = host.CreateClient();
+
+        var response = await PostAsync(client, "1", token, Location(host));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(StopAnswer, await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>Marks a live event finished the way <c>EventService</c> does: the database row and the registry flag.</summary>
+    private static async Task FinishAsync(ApiFactory host, Guid ev)
+    {
+        await using (var db = ParticipantLinkTests.Db(host))
+            await db.Events.Where(e => e.Id == ev).ExecuteUpdateAsync(s => s
+                .SetProperty(e => e.State, EventState.Finished).SetProperty(e => e.EndedAt, host.Clock.GetUtcNow()));
+        host.Registry.SetFinished(ev.ToString("D"), true);
+    }
+
+    [Fact]
+    public async Task A_not_live_event_answers_200_with_an_empty_array()
     {
         await using var host = Host();
         var ev = await ParticipantLinkTests.SeedEventAsync(host, EventState.Ready);

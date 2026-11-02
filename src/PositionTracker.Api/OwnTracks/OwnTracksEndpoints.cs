@@ -1,11 +1,14 @@
 using System.Text;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using PositionTracker.Api.Accounts;
 using PositionTracker.Api.Auth;
 using PositionTracker.Api.Endpoints;
 using PositionTracker.Api.Events;
 using PositionTracker.Api.Persistence;
+using PositionTracker.Data;
+using PositionTracker.Data.Entities;
 
 namespace PositionTracker.Api.OwnTracks;
 
@@ -15,7 +18,9 @@ namespace PositionTracker.Api.OwnTracks;
 /// revoked token, wrong user name) is the same 401 with <c>WWW-Authenticate: Basic</c>. The body is one OwnTracks JSON
 /// message (at most 16 KB, else 413). Answers 200 <c>[]</c> (the booklet's expected body) for a location that was
 /// handled and for everything that is ignored on purpose: other message types, malformed or invalid messages, and
-/// messages for an event that is not live yet or already finished (the phone must not retry those forever). A batch over
+/// messages for an event that is not live yet (the phone must not retry those forever). For a finished event every
+/// authenticated message is answered 200 with <see cref="OwnTracksConfigBuilder.StopCommand"/> (switch to quiet mode)
+/// and nothing of it is applied. A batch over
 /// the fix budget is 429 with <c>Retry-After</c> and nothing of it is applied; 503 + <c>Retry-After: 1</c> when the
 /// position store is busy. Nothing of the credentials is logged.
 /// </summary>
@@ -51,6 +56,15 @@ public static class OwnTracksEndpoints
         }
 
         if (context.Request.ContentLength > MaxBodyBytes) return TooLarge();
+        try
+        {
+            if (await IsFinishedAsync(context, registry, caller.EventId)) return Stop();
+        }
+        catch (Exception ex) when (EventService.IsDatabaseFailure(ex) && !context.RequestAborted.IsCancellationRequested)
+        {
+            context.Response.Headers.RetryAfter = "1";
+            return EventErrors.Result(EventErrors.Unavailable);
+        }
         JsonDocument? document;
         try
         {
@@ -72,6 +86,23 @@ public static class OwnTracksEndpoints
                 batch, fixLimiter, history, _ => Ignored());
         }
     }
+
+    /// <summary>
+    /// Whether the event is finished: the registry flag, or, when the runtime already left the memory, the stored event state.
+    /// An event that is not live yet is not finished (its phones must keep sending test positions).
+    /// </summary>
+    private static async Task<bool> IsFinishedAsync(HttpContext context, EventRegistry registry, string eventId)
+    {
+        if (registry.IsFinished(eventId)) return true;
+        if (registry.Get(eventId) is not null || !Guid.TryParse(eventId, out var id)) return false;
+        var services = context.RequestServices;
+        if (!services.GetRequiredService<IOptions<PersistenceOptions>>().Value.Enabled) return false;
+        return await services.GetRequiredService<AppDbContext>().Events.AsNoTracking()
+            .AnyAsync(e => e.Id == id && e.State == EventState.Finished, context.RequestAborted);
+    }
+
+    /// <summary>The answer for a finished event: the command that switches the phone to quiet mode.</summary>
+    private static IResult Stop() => Results.Json(OwnTracksConfigBuilder.StopCommand());
 
     /// <summary>The user name must be the participant's bib; for an event without a runtime (not live) the token alone decides.</summary>
     private static bool UsernameMatches(Core.Runtime.EventRuntime? runtime, string participantId, string username, bool noRuntime)
