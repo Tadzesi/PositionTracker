@@ -42,7 +42,7 @@
 **Interfaces:**
 - Produces: `LinkTokenService.InviteAfterStart : TimeSpan` (7 days); `static DateTimeOffset LinkTokenService.InviteExpiry(DateTimeOffset now, DateTimeOffset eventStart)`. Every invitation issued by `QueueInvitationAsync` (create, resend, reissue, remind, address change, and Task 2's renew) uses it.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```csharp
 // AccountUnitTests
@@ -66,23 +66,23 @@ public void Invite_expiry_is_the_later_of_fourteen_days_and_a_week_after_the_sta
 // a revoked (superseded) token of the participant keeps its old ExpiresAt.
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `dotnet test tests/PositionTracker.Api.Tests --filter "FullyQualifiedName~Invite_expiry|FullyQualifiedName~distant_event|FullyQualifiedName~Moving_the_start"`
 Expected: FAIL (`InviteExpiry` not defined).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 - `LinkTokenService`: add `InviteAfterStart` and `InviteExpiry` (`max` of the two instants).
 - `QueueInvitationAsync`: `var now = clock.GetUtcNow(); links.IssueAsync(LinkPurpose.ParticipantInvite, p.Id, LinkTokenService.InviteExpiry(now, ev.StartTime) - now, ct)`.
 - `EventService.UpdateAsync`: after a successful save with `startChanged`, one `ExecuteUpdateAsync` on `db.LinkTokens` where `Purpose == nameof(LinkPurpose.ParticipantInvite)`, `RevokedAt == null`, `SubjectId` in the event's participant ids and `ExpiresAt < start + InviteAfterStart` → set `ExpiresAt = start + InviteAfterStart`.
 
-- [ ] **Step 4: Run the tests, then the whole API suite**
+- [x] **Step 4: Run the tests, then the whole API suite**
 
 Run: `dotnet test tests/PositionTracker.Api.Tests`
 Expected: PASS (existing `InviteLifetime + 1 min` expiry tests still pass: their events start at T0 + 1 d, so 14 days still wins).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/PositionTracker.Api tests/PositionTracker.Api.Tests
@@ -105,7 +105,7 @@ git commit -m "feat(registration): invitation links stay valid until a week afte
 
 Decision: the renewal is keyed on the **old link**, not on a typed email — the participant clicks one button, the new link goes only to the stored address, so holding an old link gives nothing new. A participant who lost every email still asks the organizer (YAGNI).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```csharp
 [Fact] public async Task An_expired_link_renews_itself_by_mailing_a_new_link_to_the_participant()
@@ -134,23 +134,23 @@ it('an expired participant link offers to mail a new one', async () => {
 });
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `dotnet test tests/PositionTracker.Api.Tests --filter "FullyQualifiedName~ParticipantLinkTests"` and `cd web && npx vitest run src/app.test.tsx -t "mail a new one"`
 Expected: FAIL (404 route / button missing).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 - `RenewLinkAsync`: `links.RedeemAsync(LinkPurpose.ParticipantInvite, linkToken, singleUse: false, ct)`; `Unknown` → `ParticipantErrors.LinkInvalid`; `Ok`, `Expired`, `Superseded` → use `SubjectId`. In a transaction: lock the participant's event row (same `FOR UPDATE` pattern as `LockEventAsync`), `Finished` → `ParticipantErrors.EventFinished`; then the existing `WithBudgetAsync(ev.OrganizerId, p.EmailNormalized, …)` around `QueueInvitationAsync` + save + commit (over the budget → `ParticipantErrors.RateLimited`). `EmailFailed` becomes `Invited`, as in `ResendAsync`.
 - Route in `ParticipantLinkEndpoints` like `/decline` (no body), answered with status 202.
 - Web `LinkProblem` (needs `token`): for `link_expired` and `link_superseded` show the button "Pošlite mi nový odkaz e-mailom" / "Email me a new link" (`btn primary`), after 202 the ok banner "Nový odkaz sme poslali na váš e-mail." / "We have sent a new link to your email address.", errors through `ErrorBanner`. Keep the existing hint texts below the button.
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `dotnet test tests/PositionTracker.Api.Tests --filter "FullyQualifiedName~ParticipantLinkTests"` and `cd web && npm test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/PositionTracker.Api tests/PositionTracker.Api.Tests web/src
@@ -170,7 +170,7 @@ git commit -m "feat(participants): an expired or superseded link can mail a new 
 **Interfaces:**
 - Produces: `LinkMe.PhoneSetUp : bool` (JSON `me.phoneSetUp`) — true when the participant has a non-revoked row in `DeviceTokens`. Task 4 adds further fields to the same records; keep the property order `…, Locked, PhoneSetUp`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```csharp
 [Fact] public async Task The_view_says_whether_the_phone_is_set_up_and_a_reissued_token_clears_it()
@@ -190,22 +190,22 @@ it('a returning participant with a set-up phone sees the state and sets the phon
 });
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `dotnet test tests/PositionTracker.Api.Tests --filter "FullyQualifiedName~phone_is_set_up"` and `cd web && npx vitest run src/app.test.tsx -t "returning participant"`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 - `GetAsync`: `await db.DeviceTokens.AnyAsync(t => t.ParticipantId == p.Id && t.RevokedAt == null, ct)` into `LinkMe`.
 - `Flow`: when `me.status === 'Confirmed' && me.phoneSetUp && !deviceToken && !redo` render a card "Ste prihlásený a telefón je nastavený." / "You are registered and your phone is set up." with the button "Nastaviť telefón znova" / "Set up the phone again" (`btn`), which sets `redo` and shows `Step2` with the note "Nové nastavenie nahradí to predchádzajúce – telefón potom treba nastaviť znova." / "A new setup replaces the previous setup – the phone then has to be set up again." `Step1` (profile, decline) and `ConnectionCard` stay visible.
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `dotnet test tests/PositionTracker.Api.Tests --filter "FullyQualifiedName~ParticipantLinkTests"` and `cd web && npm test`
 Expected: PASS (update the fixtures of the existing participant-page tests with `phoneSetUp: false` where the setup steps are expected).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/PositionTracker.Api tests/PositionTracker.Api.Tests web/src
@@ -227,7 +227,7 @@ git commit -m "feat(participants): a returning participant sees the phone is set
 - Consumes: `LinkMe` with `PhoneSetUp` (Task 3).
 - Produces: `LinkEvent.Id : string` (runtime id, `RuntimeFactory.RuntimeId(ev.Id)`, JSON `event.id`), `LinkMe.Id : string` (`Id(p.Id)`, the participant's runtime id, JSON `me.id`). Spectator URL: `${location.origin}${BASE}/e/${event.id}?follow=${me.id}` (the existing `follow` parameter of `Spectator.tsx`).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```csharp
 // extend Get_shows_the_event_and_the_participant_without_email_or_tokens:
@@ -248,23 +248,23 @@ it('the organizer sees the spectator link once the event is ready', async () => 
 });
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `dotnet test tests/PositionTracker.Api.Tests --filter "FullyQualifiedName~Get_shows_the_event"` and `cd web && npx vitest run src/app.test.tsx -t "spectator link"`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 - Records and `GetAsync` as in Interfaces.
 - `SpectatorLink` card (only for `Confirmed`, not after the finish): heading "Odkaz pre divákov" / "Link for spectators", text "Pošlite ho rodine – uvidia vás na mape od štartu." / "Send it to your family – they will see you on the map from the start.", the URL as a link and the button "Zdieľať" / "Share" (`navigator.share` with a clipboard fallback, the pattern of `Spectator.tsx:161`).
 - `EventLayout.tsx:150`: condition `event.state !== 'draft'` instead of `=== 'live'`.
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `dotnet test tests/PositionTracker.Api.Tests --filter "FullyQualifiedName~ParticipantLinkTests"` and `cd web && npm test`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/PositionTracker.Api tests/PositionTracker.Api.Tests web/src
@@ -285,7 +285,7 @@ git commit -m "feat(web): spectator link for the participant and for the organiz
 **Interfaces:**
 - Produces: `GET /api/events/{eventId}/info` (anonymous) → 200 `{name, location, startTime, sport, state}` (`state` lower case: `ready|live|finished`) for an event in the database that is not Draft; 404 for Draft, unknown, non-canonical id or without a database. `Cache-Control: no-cache`. Web: `interface PublicEventInfo { name: string; location: string; startTime: string; sport: Sport; state: 'ready' | 'live' | 'finished' }`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```csharp
 // PublicEventInfoTests: Postgres host configured like ParticipantLinkTests.Host; seed with ParticipantLinkTests.SeedEventAsync
@@ -307,22 +307,22 @@ it('before the start the spectator page shows the event, the start time and a co
 });
 ```
 
-- [ ] **Step 2: Run them to see them fail**
+- [x] **Step 2: Run them to see them fail**
 
 Run: `dotnet test tests/PositionTracker.Api.Tests --filter "FullyQualifiedName~PublicEventInfoTests"` and `cd web && npx vitest run src/app.test.tsx -t "before the start the spectator page"`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 - Handler with `IDbContextFactory<AppDbContext>` and `IOptions<PersistenceOptions>` (pattern of `OperationsEndpoints.OwnsEventAsync`), `EventService.TryParseId`, `AsNoTracking`, only the five fields.
-- `Spectator.tsx`: when `course` fails, load `/info` once (`useLoad`); `ready` → card with the name (h1), location, `formatDateTime(startTime)` and "Štart o X d Y h" / "Starts in X d Y h" (minutes under one hour, recomputed every minute), plus "Mapa sa zobrazí automaticky po štarte." / "The map appears automatically after the start."; the course poll keeps running, so the page switches to the map when the event goes live. `/info` 404 or a finished event without a runtime → the existing "not running" card.
+- `Spectator.tsx`: when `course` fails, load `/info` once (`useLoad`); `ready` → card with the name (h1), location, `formatDateTime(startTime)` and "Štart za X d Y h" / "Starts in X d Y h" (minutes under one hour, recomputed every minute), plus "Mapa sa zobrazí automaticky po štarte." / "The map appears automatically after the start."; the course poll keeps running, so the page switches to the map when the event goes live. `/info` 404 or a finished event without a runtime → the existing "not running" card.
 
-- [ ] **Step 4: Run the tests and the builds**
+- [x] **Step 4: Run the tests and the builds**
 
 Run: `dotnet test` and `cd web && npm test && npm run build`
 Expected: PASS, build without errors. Check the new card in light and dark mode in the browser (`/e/{id}` of a Ready event).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/PositionTracker.Api tests/PositionTracker.Api.Tests web/src
