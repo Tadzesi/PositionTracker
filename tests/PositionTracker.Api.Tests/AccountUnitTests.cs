@@ -146,5 +146,13 @@ public sealed class AccountUnitTests
             Status(AccountEndpoints.MapReadError(Results.Problem("slow", statusCode: StatusCodes.Status408RequestTimeout))));
     }
 
+    [Fact]
+    public void Invite_expiry_is_the_later_of_fourteen_days_and_a_week_after_the_start()
+    {
+        var now = DateTimeOffset.Parse("2026-11-01T00:00:00Z");
+        Assert.Equal(now.AddDays(14), LinkTokenService.InviteExpiry(now, now.AddDays(2)));
+        Assert.Equal(now.AddDays(37), LinkTokenService.InviteExpiry(now, now.AddDays(30)));
+    }
+
     private static int? Status(IResult result) => (result as IStatusCodeHttpResult)?.StatusCode;
 }

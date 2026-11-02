@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using PositionTracker.Api.Accounts;
 using PositionTracker.Api.Endpoints;
 using PositionTracker.Api.Operations;
 using PositionTracker.Api.Persistence;
@@ -137,6 +138,16 @@ public sealed class EventService(
         ev.Sport = sport;
         ev.Version = Guid.NewGuid();
         var saved = await SaveAndViewAsync(ev, ct);
+        // A later start extends the live invitation links (never shortens them).
+        if (saved.Error is null && startChanged)
+        {
+            var until = start + LinkTokenService.InviteAfterStart;
+            var purpose = nameof(LinkPurpose.ParticipantInvite);
+            var participantIds = db.Participants.Where(x => x.EventId == ev.Id).Select(x => x.Id);
+            await db.LinkTokens
+                .Where(t => t.Purpose == purpose && t.RevokedAt == null && t.ExpiresAt < until && participantIds.Contains(t.SubjectId))
+                .ExecuteUpdateAsync(s => s.SetProperty(t => t.ExpiresAt, until), ct);
+        }
         // A running (or finished) event shows the new name to spectators at once.
         if (saved.Error is null) registry.Get(RuntimeFactory.RuntimeId(ev.Id))?.Rename(name);
         return saved;

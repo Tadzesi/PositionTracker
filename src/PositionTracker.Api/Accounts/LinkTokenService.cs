@@ -35,6 +35,16 @@ public sealed class LinkTokenService(AppDbContext db, TimeProvider clock)
     public static readonly TimeSpan EmailConfirmLifetime = TimeSpan.FromDays(14);
     public static readonly TimeSpan SignInLifetime = TimeSpan.FromMinutes(15);
     public static readonly TimeSpan InviteLifetime = TimeSpan.FromDays(14);
+    /// <summary>An invitation link stays valid at least this long after the event's start.</summary>
+    public static readonly TimeSpan InviteAfterStart = TimeSpan.FromDays(7);
+
+    /// <summary>Expiry of an invitation issued at <paramref name="now"/>: the later of the lifetime and start + <see cref="InviteAfterStart"/>.</summary>
+    public static DateTimeOffset InviteExpiry(DateTimeOffset now, DateTimeOffset eventStart)
+    {
+        var byLifetime = now + InviteLifetime;
+        var byStart = eventStart + InviteAfterStart;
+        return byStart > byLifetime ? byStart : byLifetime;
+    }
 
     /// <summary>Test seam: runs between the read and the conditional update of <see cref="RedeemAsync"/> (token id).</summary>
     internal Func<Guid, Task>? BeforeMarkUsed { get; set; }

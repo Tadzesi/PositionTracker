@@ -387,7 +387,8 @@ public sealed class RegistrationService(
     private async Task QueueInvitationAsync(ParticipantEntity p, EventEntity ev, OrganizerEntity organizer, CancellationToken ct)
     {
         await WithdrawUnsentInvitationsAsync(p.Id, ct);
-        var token = await links.IssueAsync(LinkPurpose.ParticipantInvite, p.Id, LinkTokenService.InviteLifetime, ct);
+        var now = clock.GetUtcNow();
+        var token = await links.IssueAsync(LinkPurpose.ParticipantInvite, p.Id, LinkTokenService.InviteExpiry(now, ev.StartTime) - now, ct);
         var url = EmailLinks.Build(email.Value.PublicBaseUrl, options.Value.InvitePath, token);
         var message = EmailTemplates.Invitation(p, ev, organizer, url, p.Language);
         message = message with

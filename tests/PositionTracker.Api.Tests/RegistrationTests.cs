@@ -298,6 +298,64 @@ public sealed class RegistrationTests(PostgresFixture postgres) : IClassFixture<
         await AssertErrorAsync(await org.GetAsync($"{Participants(ev)}?status=gone"), HttpStatusCode.BadRequest, "validation_failed", "status");
     }
 
+    [Fact]
+    public async Task An_invitation_for_a_distant_event_expires_a_week_after_the_start()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "org@example.org");
+        var ev = await SeedEventAsync(host, org.OrganizerId, EventState.Ready);
+        var start = host.Clock.GetUtcNow().AddDays(30);
+        await SetStartAsync(host, ev, start);
+
+        var pid = await ParticipantIdAsync(await CreateAsync(org, ev, "far@example.org"));
+
+        string link;
+        await using (var db = Db(host))
+        {
+            Assert.Equal(start + LinkTokenService.InviteAfterStart, (await db.LinkTokens.SingleAsync(t => t.SubjectId == pid)).ExpiresAt);
+            link = InviteToken(await db.Outbox.SingleAsync(m => m.ParticipantId == pid));
+        }
+        host.Clock.Advance(TimeSpan.FromDays(15));
+        Assert.Equal(HttpStatusCode.OK, (await Client(host).GetAsync($"/api/p/{link}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Moving_the_start_later_extends_the_invitation_links_and_moving_it_earlier_keeps_them()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "org@example.org");
+        var ev = await SeedEventAsync(host, org.OrganizerId, EventState.Ready);
+        var now = host.Clock.GetUtcNow();
+        await SetStartAsync(host, ev, now.AddDays(20));
+        var pid = await ParticipantIdAsync(await CreateAsync(org, ev, "move@example.org"));
+        Assert.Equal(HttpStatusCode.Accepted, (await org.PostAsync($"{Participants(ev)}/{pid}/resend", new { })).StatusCode); // supersedes the first token
+
+        Task<HttpResponseMessage> Move(DateTimeOffset start) => org.PutAsync($"/api/events/{ev}",
+            new { name = "Jarná časovka", location = "Žilina", startTime = start.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'", CultureInfo.InvariantCulture), sport = "cycling" });
+
+        List<LinkTokenEntity> tokens;
+        await using (var db = Db(host)) tokens = await db.LinkTokens.Where(t => t.SubjectId == pid).ToListAsync();
+        var revoked = tokens.Single(t => t.RevokedAt != null);
+        var revokedExpiry = revoked.ExpiresAt;
+
+        Assert.Equal(HttpStatusCode.OK, (await Move(now.AddDays(40))).StatusCode);
+        await using (var db = Db(host))
+        {
+            Assert.Equal(now.AddDays(47), (await db.LinkTokens.SingleAsync(t => t.SubjectId == pid && t.RevokedAt == null)).ExpiresAt);
+            Assert.Equal(revokedExpiry, (await db.LinkTokens.SingleAsync(t => t.Id == revoked.Id)).ExpiresAt);
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await Move(now.AddDays(25))).StatusCode);
+        await using (var db = Db(host))
+            Assert.Equal(now.AddDays(47), (await db.LinkTokens.SingleAsync(t => t.SubjectId == pid && t.RevokedAt == null)).ExpiresAt);
+    }
+
+    private static async Task SetStartAsync(ApiFactory host, Guid eventId, DateTimeOffset start)
+    {
+        await using var db = Db(host);
+        await db.Events.Where(e => e.Id == eventId).ExecuteUpdateAsync(s => s.SetProperty(e => e.StartTime, start));
+    }
+
     // ----- edit -----
 
     [Fact]
