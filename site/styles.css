@@ -171,8 +171,8 @@ details p{margin-top:10px}
 .final .lead{color:#C7D5F2;margin:24px 0 30px}
 footer{background:#06142F;color:#9DB0D6;padding:34px 0;font-size:.9rem}
 footer a{color:#C9D6F0}
-footer .wrap{display:flex;gap:20px;flex-wrap:wrap;justify-content:space-between}
-.foot-privacy{white-space:nowrap}.foot-data{flex-basis:100%;font-size:.85rem;line-height:1.55;opacity:.85}.foot-data p{margin:0;max-width:100ch}
+footer .wrap{display:flex;gap:12px 20px;flex-wrap:wrap;justify-content:space-between;align-items:baseline}
+.foot-privacy{white-space:nowrap}.foot-data{flex-basis:100%;margin-top:6px;padding-top:16px;border-top:1px solid #ffffff1a;font-size:.85rem;line-height:1.6;color:#8FA3C8}.foot-data p{margin:0;max-width:none}
 @media (max-width:600px){.foot-privacy{white-space:normal}.foot-privacy a{white-space:nowrap}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 
