@@ -29,6 +29,10 @@ public sealed class ParticipantEntity
     public bool IsMinor { get; set; }
     public bool ShowNameToSpectators { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    /// <summary>The first OwnTracks request that arrived after the event was finished (the phone was answered with the stop command).</summary>
+    public DateTimeOffset? TrackingAfterFinishAt { get; set; }
+    /// <summary>When the "tracking still on" email was queued (at most once per participant).</summary>
+    public DateTimeOffset? StopNoticeQueuedAt { get; set; }
 }
 
 /// <summary>A recorded consent step (location broadcasting, name display) with the text version shown.</summary>

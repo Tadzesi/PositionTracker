@@ -31,6 +31,8 @@ builder.Services.AddAdmin();
 builder.Services.AddEventManagement();
 builder.Services.AddRegistration();
 builder.Services.AddParticipantLinks();
+builder.Services.AddSingleton<TrackingStopMemo>();
+builder.Services.AddScoped<ITrackingStopNotifier, TrackingStopNotifier>();
 builder.Services.AddOperations();
 builder.Services.AddOptions<OrganizerOptions>()
     .BindConfiguration(OrganizerOptions.Section)

@@ -58,7 +58,11 @@ public static class OwnTracksEndpoints
         if (context.Request.ContentLength > MaxBodyBytes) return TooLarge();
         try
         {
-            if (await IsFinishedAsync(context, registry, caller.EventId)) return Stop();
+            if (await IsFinishedAsync(context, registry, caller.EventId))
+            {
+                await NoteAfterFinishAsync(context, caller.EventId, caller.ParticipantId);
+                return Stop();
+            }
         }
         catch (Exception ex) when (EventService.IsDatabaseFailure(ex) && !context.RequestAborted.IsCancellationRequested)
         {
@@ -99,6 +103,24 @@ public static class OwnTracksEndpoints
         if (!services.GetRequiredService<IOptions<PersistenceOptions>>().Value.Enabled) return false;
         return await services.GetRequiredService<AppDbContext>().Events.AsNoTracking()
             .AnyAsync(e => e.Id == id && e.State == EventState.Finished, context.RequestAborted);
+    }
+
+    /// <summary>
+    /// Records the request after the finish (and emails the participant if the phone keeps sending, see
+    /// <see cref="ITrackingStopNotifier"/>). Best effort: a database failure is logged and the stop command is answered anyway.
+    /// </summary>
+    private static async Task NoteAfterFinishAsync(HttpContext context, string eventId, string participantId)
+    {
+        try
+        {
+            await context.RequestServices.GetRequiredService<ITrackingStopNotifier>().NoteAsync(eventId, participantId, context.RequestAborted);
+        }
+        catch (Exception ex) when (EventService.IsDatabaseFailure(ex) && !context.RequestAborted.IsCancellationRequested)
+        {
+            context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("PositionTracker.OwnTracks").LogWarning(
+                "Event {EventId}, participant {ParticipantId}: the request after the finish could not be recorded ({ExceptionType}).",
+                eventId, participantId, ex.GetType().Name);
+        }
     }
 
     /// <summary>The answer for a finished event: the command that switches the phone to quiet mode.</summary>

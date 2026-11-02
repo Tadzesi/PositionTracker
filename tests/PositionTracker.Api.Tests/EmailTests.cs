@@ -32,6 +32,29 @@ public sealed class EmailTests(PostgresFixture postgres) : IClassFixture<Postgre
     // ----- templates -----
 
     [Theory]
+    [InlineData("sk", "Vypnite sledovanie polohy – Jarný okruh", "Vypnúť sledovanie", "sa skončilo", "Quiet (Tichý)")]
+    [InlineData("en", "Please switch off location tracking – Jarný okruh", "Switch off tracking", "has finished", "Quiet mode")]
+    public void The_tracking_still_on_email_is_bilingual_and_links_the_stop_page(
+        string language, string subject, string button, string intro, string manual)
+    {
+        const string stopUrl = "https://tracker.example.org/stop-tracking?lang=sk";
+        var message = EmailTemplates.TrackingStillOn(Participant("Anna Nováková"), Event(), Organizer(), stopUrl, language);
+
+        Assert.Equal(language, message.Language);
+        Assert.Equal(EmailPurpose.TrackingStop, message.Purpose);
+        Assert.Equal("anna@example.org", message.ToAddress);
+        Assert.Equal(subject, message.Subject);
+        Assert.Equal("organizer@example.org", message.ReplyToAddress);
+        foreach (var body in new[] { message.HtmlBody, message.TextBody })
+        {
+            Assert.Contains(button, body);
+            Assert.Contains(intro, body);
+            Assert.Contains(manual, body);
+            Assert.Contains(stopUrl, body);
+        }
+    }
+
+    [Theory]
     [InlineData("sk", "Pozvánka na", "Potvrdiť účasť", "Šport", "cyklistika", "14 dní", "v mene organizátora", "7. 11. 2026")]
     [InlineData("en", "Invitation to", "Confirm participation", "Sport", "cycling", "14 days", "on behalf of the organizer", "7 November 2026")]
     public void Invitation_renders_in_the_language_with_link_and_event_data(

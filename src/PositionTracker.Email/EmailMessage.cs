@@ -25,6 +25,7 @@ public static class EmailPurpose
     public const string OrganizerEmailConfirmation = "organizerEmailConfirmation";
     public const string SignIn = "signIn";
     public const string DeliverabilityTest = "deliverabilityTest";
+    public const string TrackingStop = "trackingStop";
     public const string Other = "other";
 }
 

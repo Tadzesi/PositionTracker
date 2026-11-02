@@ -71,11 +71,7 @@ public static class EmailTemplates
                     "The link is valid for 14 days.",
                     "If you do not want to take part, you can decline on the page behind the link or simply ignore this email.",
                 ],
-            Footer = sk
-                ? $"Túto správu poslal systém {ProductName} v mene organizátora {organizerName}. Nejde o reklamnú ani marketingovú správu. " +
-                  "Ak si neželáte dostávať ďalšie správy k tomuto podujatiu, odpovedzte na tento e-mail – odpoveď dostane organizátor."
-                : $"This message was sent by {ProductName} on behalf of the organizer {organizerName}. It is not advertising or marketing. " +
-                  "If you do not want any further messages about this event, reply to this email – your reply goes to the organizer.",
+            Footer = InvitationFooter(sk, organizerName),
         };
         var subject = EmailText.SingleLine((sk ? "Pozvánka na " : "Invitation to ") + eventName, EmailText.MaxSubjectLength);
         return Render(p.Email, name, subject, sk, content, EmailPurpose.Invitation) with
@@ -84,6 +80,51 @@ public static class EmailTemplates
             ReplyToName = organizerName,
         };
     }
+
+    /// <summary>
+    /// "Tracking still on": the event is finished but the participant's phone still sends its location (the stop command
+    /// did not work). Links the public stop page; sent on behalf of the organizer (replies go to the organizer).
+    /// </summary>
+    public static EmailMessage TrackingStillOn(ParticipantEntity p, EventEntity e, OrganizerEntity organizer, string stopUrl, string language)
+    {
+        ArgumentNullException.ThrowIfNull(p);
+        ArgumentNullException.ThrowIfNull(e);
+        ArgumentNullException.ThrowIfNull(organizer);
+        RequireHttpUrl(stopUrl);
+        var sk = IsSlovak(language);
+        var name = EmailText.SingleLine(p.Name, EmailText.MaxNameLength);
+        var organizerName = EmailText.SingleLine(organizer.Name, EmailText.MaxNameLength);
+        var eventName = EmailText.SingleLine(e.Name, EmailText.MaxValueLength);
+        var content = new Content
+        {
+            Greeting = sk ? $"Dobrý deň, {name}," : $"Hello {name},",
+            Intro = sk
+                ? $"Podujatie {eventName} sa skončilo, ale váš telefón stále posiela polohu. Polohu už neukladáme ani nezobrazujeme."
+                : $"The event {eventName} has finished, but your phone is still sending its location. We no longer store or show it.",
+            BeforeButton = sk
+                ? "Sledovanie vypnete jedným klepnutím na telefóne, kde máte OwnTracks:"
+                : "Switch tracking off with one tap on the phone with OwnTracks:",
+            Button = sk ? "Vypnúť sledovanie" : "Switch off tracking",
+            Url = stopUrl,
+            After = sk
+                ? ["Alebo v aplikácii OwnTracks prepnite režim na Quiet (Tichý), prípadne aplikáciu odinštalujte."]
+                : ["Or switch OwnTracks to Quiet mode, or uninstall the app."],
+            Footer = InvitationFooter(sk, organizerName),
+        };
+        var subject = EmailText.SingleLine((sk ? "Vypnite sledovanie polohy – " : "Please switch off location tracking – ") + eventName,
+            EmailText.MaxSubjectLength);
+        return Render(p.Email, name, subject, sk, content, EmailPurpose.TrackingStop) with
+        {
+            ReplyToAddress = EmailText.IsPlainAddress(organizer.Email) ? organizer.Email : null,
+            ReplyToName = organizerName,
+        };
+    }
+
+    private static string InvitationFooter(bool sk, string organizerName) => sk
+        ? $"Túto správu poslal systém {ProductName} v mene organizátora {organizerName}. Nejde o reklamnú ani marketingovú správu. " +
+          "Ak si neželáte dostávať ďalšie správy k tomuto podujatiu, odpovedzte na tento e-mail – odpoveď dostane organizátor."
+        : $"This message was sent by {ProductName} on behalf of the organizer {organizerName}. It is not advertising or marketing. " +
+          "If you do not want any further messages about this event, reply to this email – your reply goes to the organizer.";
 
     /// <summary>The organizer's one-time sign-in link (valid 15 minutes, single use).</summary>
     public static EmailMessage SignIn(OrganizerEntity o, string signInUrl)

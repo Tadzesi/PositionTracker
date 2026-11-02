@@ -14,6 +14,7 @@ using PositionTracker.Core;
 using PositionTracker.Core.Simulation;
 using PositionTracker.Data;
 using PositionTracker.Data.Entities;
+using PositionTracker.Email;
 
 namespace PositionTracker.Api.Tests;
 
@@ -289,6 +290,90 @@ public sealed class OwnTracksTests(PostgresFixture postgres) : IClassFixture<Pos
         var response = await PostAsync(client, "1", token, Location(host));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(StopAnswer, await response.Content.ReadAsStringAsync());
+    }
+
+    // ----- "tracking still on" notice -----
+
+    [Fact]
+    public async Task A_phone_that_stops_within_the_grace_period_gets_no_email()
+    {
+        await using var host = Host();
+        var (ev, pid, token) = await LiveRiderAsync(host);
+        await FinishAsync(host, ev);
+        using var client = host.CreateClient();
+        var t = host.Clock.GetUtcNow();
+
+        await PostAsync(client, "1", token, Location(host));
+        host.Clock.SetUtcNow(t.AddMinutes(9));
+        await PostAsync(client, "1", token, Location(host));
+
+        await using var db = ParticipantLinkTests.Db(host);
+        var p = await db.Participants.SingleAsync(x => x.Id == pid);
+        Assert.Equal(t, p.TrackingAfterFinishAt);
+        Assert.Null(p.StopNoticeQueuedAt);
+        Assert.Empty(await db.Outbox.Where(o => o.Purpose == EmailPurpose.TrackingStop).ToListAsync());
+    }
+
+    [Fact]
+    public async Task A_phone_still_sending_after_the_grace_period_gets_one_email()
+    {
+        await using var host = Host();
+        var (ev, pid, token) = await LiveRiderAsync(host);
+        await FinishAsync(host, ev);
+        using var client = host.CreateClient();
+        var t = host.Clock.GetUtcNow();
+
+        foreach (var minutes in new[] { 0, 10, 11, 60 })
+        {
+            host.Clock.SetUtcNow(t.AddMinutes(minutes));
+            var response = await PostAsync(client, "1", token, Location(host));
+            Assert.Equal(StopAnswer, await response.Content.ReadAsStringAsync());
+        }
+
+        await using var db = ParticipantLinkTests.Db(host);
+        var mail = Assert.Single(await db.Outbox.Where(o => o.Purpose == EmailPurpose.TrackingStop).ToListAsync());
+        Assert.Equal("rider1@example.com", mail.ToAddress);
+        Assert.Contains("https://tracker.example.org/stop-tracking?lang=sk", mail.TextBody);
+        Assert.Equal(t.AddMinutes(10), (await db.Participants.SingleAsync(x => x.Id == pid)).StopNoticeQueuedAt);
+    }
+
+    [Fact]
+    public async Task A_backlog_burst_writes_seen_once_and_sends_no_email()
+    {
+        await using var host = Host();
+        var (ev, pid, token) = await LiveRiderAsync(host);
+        await FinishAsync(host, ev);
+        using var client = host.CreateClient();
+        var t = host.Clock.GetUtcNow();
+
+        for (var i = 0; i < 20; i++)
+        {
+            host.Clock.SetUtcNow(t.AddSeconds(i));
+            await PostAsync(client, "1", token, Location(host));
+        }
+
+        await using var db = ParticipantLinkTests.Db(host);
+        Assert.Equal(t, (await db.Participants.SingleAsync(x => x.Id == pid)).TrackingAfterFinishAt);
+        Assert.Empty(await db.Outbox.Where(o => o.Purpose == EmailPurpose.TrackingStop).ToListAsync());
+    }
+
+    [Fact]
+    public async Task The_stop_command_is_returned_even_when_the_notice_fails()
+    {
+        await using var host = Host(services: s => s.AddScoped<ITrackingStopNotifier, FailingNotifier>());
+        var (ev, _, token) = await LiveRiderAsync(host);
+        await FinishAsync(host, ev);
+        using var client = host.CreateClient();
+
+        var response = await PostAsync(client, "1", token, Location(host));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(StopAnswer, await response.Content.ReadAsStringAsync());
+    }
+
+    private sealed class FailingNotifier : ITrackingStopNotifier
+    {
+        public Task NoteAsync(string eventId, string participantId, CancellationToken ct) =>
+            throw new Npgsql.NpgsqlException("connection refused");
     }
 
     /// <summary>Marks a live event finished the way <c>EventService</c> does: the database row and the registry flag.</summary>

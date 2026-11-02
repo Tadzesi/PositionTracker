@@ -632,6 +632,12 @@ namespace PositionTracker.Data.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
 
+                    b.Property<DateTimeOffset?>("StopNoticeQueuedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("TrackingAfterFinishAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid?>("WaveId")
                         .HasColumnType("uuid");
 
