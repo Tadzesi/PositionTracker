@@ -187,6 +187,33 @@ describe('web app', () => {
     expect(screen.getByText('290–340 m')).toBeInTheDocument();
   });
 
+  it('saving categories drops a row left empty and confirms the save in the section', async () => {
+    const saved = manage({ categories: [{ id: 'c1', name: 'Muži', gender: 'male', minAge: null, maxAge: null }, { id: 'c2', name: 'Ženy', gender: 'female', minAge: null, maxAge: null }] });
+    const calls = mockFetch({ 'GET /api/account/session': { body: ME }, 'GET /api/events/e1/manage': { body: manage() }, 'GET /api/events/e1/course-preview': { body: PREVIEW },
+      'PUT /api/events/e1/categories': { body: saved } });
+    renderAt('/org/events/e1');
+    const add = await screen.findByRole('button', { name: 'Add category' });
+    await userEvent.click(add); await userEvent.click(add); await userEvent.click(add);
+    const names = screen.getAllByPlaceholderText('Name');
+    await userEvent.type(names[names.length - 3], 'Muži');
+    await userEvent.type(names[names.length - 2], 'Ženy');
+    await userEvent.click(screen.getByRole('button', { name: 'Save categories' }));
+    expect(await screen.findByText('Saved.')).toBeInTheDocument();
+    const put = calls.find((c) => c.method === 'PUT' && c.url.endsWith('/categories'))!;
+    expect(JSON.parse(put.body!).map((c: { name: string }) => c.name)).toEqual(['Muži', 'Ženy']);
+  });
+  it('a refused category save shows the reason next to the categories', async () => {
+    mockFetch({ 'GET /api/account/session': { body: ME }, 'GET /api/events/e1/manage': { body: manage() }, 'GET /api/events/e1/course-preview': { body: PREVIEW },
+      'PUT /api/events/e1/categories': { status: 400, body: { code: 'validation_failed', field: '[0].minAge', message: { sk: 'Vek', en: 'Ages must be between 0 and 120' } } } });
+    renderAt('/org/events/e1');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add category' }));
+    await userEvent.type(screen.getAllByPlaceholderText('Name').at(-1)!, 'Deti');
+    await userEvent.click(screen.getByRole('button', { name: 'Save categories' }));
+    const message = await screen.findByText('Ages must be between 0 and 120');
+    expect(message.closest('form')).toBe(screen.getByRole('button', { name: 'Save categories' }).closest('form'));
+    expect(screen.queryByText('Saved.')).toBeNull();
+  });
+
   it('the organizer sees the spectator link once the event is ready, not in draft', async () => {
     mockFetch({ 'GET /api/account/session': { body: ME }, 'GET /api/events/e1/manage': { body: manage({ state: 'ready' }) }, 'GET /api/events/e1/course-preview': { body: PREVIEW } });
     renderAt('/org/events/e1');

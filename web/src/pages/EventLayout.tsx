@@ -150,9 +150,9 @@ export function Setup() {
         {event.state !== 'draft' && <p className="mute">{t('Verejný odkaz pre divákov:', 'Public link for spectators:')} <a href={`${BASE}/e/${event.eventId}`}>{`${location.origin}${BASE}/e/${event.eventId}`}</a></p>}
       </div>
       <CourseSection disabled={!confirmed || locked} />
-      <Categories disabled={!confirmed || locked} run={run} />
-      <Waves disabled={!confirmed || locked} run={run} />
-      <Deadline disabled={!confirmed || event.state === 'finished'} run={run} />
+      <Categories disabled={!confirmed || locked} />
+      <Waves disabled={!confirmed || locked} />
+      <Deadline disabled={!confirmed || event.state === 'finished'} />
     </div>
   );
 }
@@ -206,15 +206,47 @@ function EditEvent({ confirmed }: { confirmed: boolean }) {
   );
 }
 
-type Run = (fn: () => Promise<ManageView>) => Promise<void>;
+/**
+ * Saving one section of the setup page: the error and the confirmation are shown in the section itself (the page-level banner is
+ * out of sight on a phone, so a refused save looked like a saved one).
+ */
+function useSectionSave() {
+  const { setEvent } = useManage();
+  const [error, setError] = useState<unknown>(null);
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const save = async (fn: () => Promise<ManageView>): Promise<ManageView | null> => {
+    setBusy(true); setError(null); setSaved(false);
+    try { const view = await fn(); setEvent(view); setSaved(true); return view; } catch (x) { setError(x); return null; } finally { setBusy(false); }
+  };
+  return { save, error, saved, busy, edited: () => setSaved(false) };
+}
 
-function Categories({ disabled, run }: { disabled: boolean; run: Run }) {
+function SectionStatus({ error, saved }: { error: unknown; saved: boolean }) {
+  const { t } = useI18n();
+  return (
+    <>
+      <ErrorBanner error={error} />
+      {saved && <div className="banner ok" role="status">{t('Uložené.', 'Saved.')}</div>}
+    </>
+  );
+}
+
+function Categories({ disabled }: { disabled: boolean }) {
   const { event } = useManage();
   const { t } = useI18n();
-  const [rows, setRows] = useState<Pick<CategoryView, 'name' | 'gender' | 'minAge' | 'maxAge'>[]>(event.categories);
+  const section = useSectionSave();
+  const [rows, setRowsRaw] = useState<Pick<CategoryView, 'name' | 'gender' | 'minAge' | 'maxAge'>[]>(event.categories);
+  const setRows = (next: typeof rows) => { setRowsRaw(next); section.edited(); };
   const num = (v: string) => (v === '' ? null : Number(v));
+  // a row left completely empty (an "Add category" not filled in) is not a category: it is dropped instead of refusing the save
+  const filled = rows.filter((r) => r.name.trim() !== '' || r.gender || r.minAge !== null || r.maxAge !== null);
   return (
-    <form className="card stack" onSubmit={(e) => { e.preventDefault(); run(() => put<ManageView>(`/api/events/${event.eventId}/categories`, rows)); }}>
+    <form className="card stack" onSubmit={async (e) => {
+      e.preventDefault();
+      const view = await section.save(() => put<ManageView>(`/api/events/${event.eventId}/categories`, filled));
+      if (view) setRowsRaw(view.categories);
+    }}>
       <h2>{t('Kategórie', 'Categories')}</h2>
       {rows.map((r, i) => (
         <div className="row" key={i}>
@@ -228,20 +260,27 @@ function Categories({ disabled, run }: { disabled: boolean; run: Run }) {
         </div>))}
       <div className="row">
         <button type="button" className="btn small" disabled={disabled} onClick={() => setRows([...rows, { name: '', gender: null, minAge: null, maxAge: null }])}><span>{t('Pridať kategóriu', 'Add category')}</span></button>
-        <button className="btn" disabled={disabled}><span>{t('Uložiť kategórie', 'Save categories')}</span></button>
+        <button className="btn" disabled={disabled || section.busy}><span>{t('Uložiť kategórie', 'Save categories')}</span></button>
       </div>
+      <SectionStatus error={section.error} saved={section.saved} />
     </form>
   );
 }
 
-function Waves({ disabled, run }: { disabled: boolean; run: Run }) {
+function Waves({ disabled }: { disabled: boolean }) {
   const { event } = useManage();
   const { t } = useI18n();
-  const [rows, setRows] = useState<{ name: string; start: string }[]>(event.waves.map((w: WaveView) => ({ name: w.name, start: utcToLocalInput(w.startTime) })));
+  const section = useSectionSave();
+  const toRows = (waves: WaveView[]) => waves.map((w) => ({ name: w.name, start: utcToLocalInput(w.startTime) }));
+  const [rows, setRowsRaw] = useState<{ name: string; start: string }[]>(toRows(event.waves));
+  const setRows = (next: typeof rows) => { setRowsRaw(next); section.edited(); };
   return (
-    <form className="card stack" onSubmit={(e) => {
+    <form className="card stack" onSubmit={async (e) => {
       e.preventDefault();
-      run(() => put<ManageView>(`/api/events/${event.eventId}/waves`, rows.map((r) => ({ name: r.name, startTime: localInputToUtc(r.start) ?? r.start }))));
+      // a wave without a name is an "Add wave" not filled in: dropped instead of refusing the save
+      const view = await section.save(() => put<ManageView>(`/api/events/${event.eventId}/waves`,
+        rows.filter((r) => r.name.trim() !== '').map((r) => ({ name: r.name, startTime: localInputToUtc(r.start) ?? r.start }))));
+      if (view) setRowsRaw(toRows(view.waves));
     }}>
       <h2>{t('Štartové vlny', 'Start waves')}</h2>
       <p className="help">{t('Vlny použite, keď pretekári nevyštartujú naraz (napr. elita o 10:00, ostatní o 10:05). Každá vlna má názov a čas štartu, ktorý nesmie byť skôr ako štart podujatia ani viac ako 24 hodín po ňom. Pretekára do vlny zaradíte na stránke Účastníci. Vlny sú voliteľné; bez nich štartujú všetci v čas štartu podujatia. Čas, tempo, odhad príchodu aj poradie sa počítajú od štartu vlny pretekára, odstup na mape je v čistom čase.',
@@ -254,26 +293,30 @@ function Waves({ disabled, run }: { disabled: boolean; run: Run }) {
         </div>))}
       <div className="row">
         <button type="button" className="btn small" disabled={disabled} onClick={() => setRows([...rows, { name: '', start: utcToLocalInput(event.startTime) }])}><span>{t('Pridať vlnu', 'Add wave')}</span></button>
-        <button className="btn" disabled={disabled}><span>{t('Uložiť vlny', 'Save waves')}</span></button>
+        <button className="btn" disabled={disabled || section.busy}><span>{t('Uložiť vlny', 'Save waves')}</span></button>
       </div>
+      <SectionStatus error={section.error} saved={section.saved} />
     </form>
   );
 }
 
-function Deadline({ disabled, run }: { disabled: boolean; run: Run }) {
+function Deadline({ disabled }: { disabled: boolean }) {
   const { event } = useManage();
   const { t } = useI18n();
-  const [value, setValue] = useState(event.confirmationDeadline ? utcToLocalInput(event.confirmationDeadline) : '');
+  const section = useSectionSave();
+  const [value, setValueRaw] = useState(event.confirmationDeadline ? utcToLocalInput(event.confirmationDeadline) : '');
+  const setValue = (v: string) => { setValueRaw(v); section.edited(); };
   return (
     <form className="card stack" onSubmit={(e) => {
       e.preventDefault();
-      run(() => put<ManageView>(`/api/events/${event.eventId}/confirmation-deadline`, { confirmationDeadline: localInputToUtc(value) }));
+      void section.save(() => put<ManageView>(`/api/events/${event.eventId}/confirmation-deadline`, { confirmationDeadline: localInputToUtc(value) }));
     }}>
       <h2>{t('Termín potvrdenia účasti', 'Confirmation deadline')}</h2>
       <Field label={t('Do (prázdne = bez termínu)', 'Until (empty = none)')} name="confirmationDeadline">
         <DateTimeField id="confirmationDeadline" value={value} disabled={disabled} onChange={setValue} />
       </Field>
-      <button className="btn" disabled={disabled}><span>{t('Uložiť termín', 'Save deadline')}</span></button>
+      <button className="btn" disabled={disabled || section.busy}><span>{t('Uložiť termín', 'Save deadline')}</span></button>
+      <SectionStatus error={section.error} saved={section.saved} />
     </form>
   );
 }
