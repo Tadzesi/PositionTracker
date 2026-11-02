@@ -39,10 +39,11 @@ public sealed class ParticipantService(AppDbContext db, LinkTokenService links, 
         var p = await db.Participants.AsNoTracking().Include(x => x.Category).SingleOrDefaultAsync(x => x.Id == participantId, ct);
         var ev = p is null ? null : await db.Events.AsNoTracking().SingleOrDefaultAsync(e => e.Id == p.EventId, ct);
         if (p is null || ev is null) return ParticipantErrors.LinkInvalid;
+        var phoneSetUp = await db.DeviceTokens.AnyAsync(t => t.ParticipantId == p.Id && t.RevokedAt == null, ct);
         return new EventResult<LinkView>(new LinkView(
             new LinkEvent(ev.Name, ev.Location, UtcIso(ev.StartTime), ev.Sport.ToString().ToLowerInvariant(), ev.State == EventState.Finished),
             new LinkMe(p.Name, p.Bib, p.Category?.Name, p.Gender, p.Nickname, p.Status.ToString(),
-                new LinkLocked(Started(ev))),
+                new LinkLocked(Started(ev)), phoneSetUp),
             p.Language, LinkHealth.Of(RuntimeOf(ev), Id(p.Id))), null);
     }
 
@@ -306,7 +307,7 @@ public sealed record LinkEvent(string Name, string Location, string StartTime, s
 
 public sealed record LinkLocked(bool Gender);
 
-public sealed record LinkMe(string Name, string Bib, string? Category, string Gender, string? Nickname, string Status, LinkLocked Locked);
+public sealed record LinkMe(string Name, string Bib, string? Category, string Gender, string? Nickname, string Status, LinkLocked Locked, bool PhoneSetUp);
 
 public sealed record LinkLightAnswer(LinkHealth? Link);
 

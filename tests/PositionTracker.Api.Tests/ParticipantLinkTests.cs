@@ -583,6 +583,33 @@ public sealed class ParticipantLinkTests(PostgresFixture postgres) : IClassFixtu
 
     private static Task<HttpResponseMessage> GetAsync(HttpClient client, string link) => client.GetAsync($"/api/p/{link}");
 
+    [Fact]
+    public async Task The_view_says_whether_the_phone_is_set_up_and_a_reissued_token_clears_it()
+    {
+        await using var host = Host();
+        var org = await SessionAsync(host, "org@example.org");
+        var ev = await SeedEventAsync(host, EventState.Ready, org.OrganizerId);
+        var pid = await SeedParticipantAsync(host, ev, ParticipantStatus.Confirmed, "Rider");
+        var link = await IssueLinkAsync(host, pid);
+        var client = Client(host);
+
+        Assert.False(await PhoneSetUpAsync(client, link));
+        await ConsentAsync(client, link, false);
+        Assert.True(await PhoneSetUpAsync(client, link));
+
+        host.Clock.Advance(TimeSpan.FromMinutes(1));
+        Assert.Equal(HttpStatusCode.OK, (await org.PostAsync($"/api/events/{ev}/participants/{pid}/reissue-token", new { })).StatusCode);
+        Assert.False(await PhoneSetUpAsync(client, await CurrentLinkAsync(host, pid)));
+    }
+
+    private static async Task<bool> PhoneSetUpAsync(HttpClient client, string link)
+    {
+        var response = await GetAsync(client, link);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var json = await JsonAsync(response);
+        return json.RootElement.GetProperty("me").GetProperty("phoneSetUp").GetBoolean();
+    }
+
     // ----- renew -----
 
     private static readonly Regex InviteLink = new(@"https://tracker\.example\.org/p\?token=([A-Za-z0-9%_\-]+)");

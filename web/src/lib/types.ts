@@ -74,7 +74,7 @@ export interface ResultsView {
 
 export interface LinkView {
   event: { name: string; location: string; startTime: string; sport: Sport; finished: boolean };
-  me: { name: string; bib: string; category: string | null; gender: string; nickname: string | null; status: string; locked: { gender: boolean } };
+  me: { name: string; bib: string; category: string | null; gender: string; nickname: string | null; status: string; locked: { gender: boolean }; phoneSetUp: boolean };
   language: string; link?: LinkHealth | null;
 }
 

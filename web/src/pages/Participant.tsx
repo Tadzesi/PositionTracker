@@ -57,8 +57,10 @@ function LinkProblem({ error, token }: { error: unknown; token?: string }) {
 function Flow({ token, view, reload }: { token: string; view: LinkView; reload: () => void }) {
   const { t, lang } = useI18n();
   const [deviceToken, setDeviceToken] = useState<string | null>(null);
+  const [redo, setRedo] = useState(false);
   const me = view.me;
   const statusLabel = ({ Invited: t('Čaká na potvrdenie', 'Awaiting confirmation'), Confirmed: t('Potvrdené', 'Confirmed'), Declined: t('Odmietnuté', 'Declined'), EmailFailed: t('Čaká na potvrdenie', 'Awaiting confirmation') } as Record<string, string>)[me.status] ?? me.status;
+  const phoneIsSetUp = me.status === 'Confirmed' && me.phoneSetUp && !deviceToken && !redo;
   return (
     <div className="stack narrow">
       <div className="card">
@@ -70,7 +72,12 @@ function Flow({ token, view, reload }: { token: string; view: LinkView; reload: 
         <>
           <Step1 token={token} view={view} reload={reload} />
           {me.status === 'Confirmed' && <ConnectionCard token={token} initial={view.link ?? null} />}
-          {me.status === 'Confirmed' && <Step2 token={token} onToken={setDeviceToken} />}
+          {phoneIsSetUp && (
+            <div className="card stack">
+              <p className="big">{t('Ste prihlásený a telefón je nastavený.', 'You are registered and your phone is set up.')}</p>
+              <div className="row"><button className="btn" onClick={() => setRedo(true)}><span>{t('Nastaviť telefón znova', 'Set up the phone again')}</span></button></div>
+            </div>)}
+          {me.status === 'Confirmed' && !phoneIsSetUp && <Step2 token={token} onToken={setDeviceToken} replaces={redo} />}
           {deviceToken && <Step3 token={token} deviceToken={deviceToken} />}
           <Share />
         </>)}
@@ -139,7 +146,7 @@ function Step1({ token, view, reload }: { token: string; view: LinkView; reload:
   );
 }
 
-function Step2({ token, onToken }: { token: string; onToken: (t: string) => void }) {
+function Step2({ token, onToken, replaces = false }: { token: string; onToken: (t: string) => void; replaces?: boolean }) {
   const { t, err } = useI18n();
   const [location, setLocation] = useState(false);
   const [showName, setShowName] = useState(false);
@@ -156,6 +163,7 @@ function Step2({ token, onToken }: { token: string; onToken: (t: string) => void
   return (
     <div className="card stack">
       <h2>2 · {t('Súhlas so sledovaním', 'Consent to tracking')}</h2>
+      {replaces && <div className="banner">{t('Nové nastavenie nahradí to predchádzajúce – telefón potom treba nastaviť znova.', 'A new setup replaces the previous setup – the phone then has to be set up again.')}</div>}
       <ul className="mute">
         <li>{t('Organizátor vidí vašu polohu presne a hneď.', 'The organizer sees your position exactly and immediately.')}</li>
         <li>{t('Diváci ju vidia oneskorene a len počas pretekov.', 'Spectators see it delayed, and only during the race.')}</li>

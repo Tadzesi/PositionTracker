@@ -272,7 +272,7 @@ describe('web app', () => {
   });
 
   it('the participant page shows the invitation state and a link problem for an expired link', async () => {
-    mockFetch({ 'GET /api/p/good': { body: { event: { name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling' }, me: { name: 'Jana', bib: '7', category: null, gender: 'female', nickname: null, status: 'Invited', locked: { gender: false } }, language: 'en' } },
+    mockFetch({ 'GET /api/p/good': { body: { event: { name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling' }, me: { name: 'Jana', bib: '7', category: null, gender: 'female', nickname: null, status: 'Invited', locked: { gender: false }, phoneSetUp: false }, language: 'en' } },
       'GET /api/p/old': { status: 400, body: { code: 'link_expired', message: { sk: 'Platnosť vypršala', en: 'This link has expired' } } } });
     const first = renderAt('/p?token=good');
     expect(await screen.findByText('Time trial')).toBeInTheDocument();
@@ -292,7 +292,7 @@ describe('web app', () => {
   });
   it('a confirmed participant sees whether the data leave the phone, and what to fix', async () => {
     const link = { level: 'warning', lastBatchAgoSeconds: 2, lastPositionAgoSeconds: 2, accuracyM: 4, clockAheadSeconds: 71, batteryPct: 80, problems: ['clock'], earlyOnly: false };
-    mockFetch({ 'GET /api/p/ok': { body: { event: { name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling' }, me: { name: 'Jana', bib: '7', category: null, gender: 'female', nickname: null, status: 'Confirmed', locked: { gender: false } }, language: 'en', link } },
+    mockFetch({ 'GET /api/p/ok': { body: { event: { name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling' }, me: { name: 'Jana', bib: '7', category: null, gender: 'female', nickname: null, status: 'Confirmed', locked: { gender: false }, phoneSetUp: false }, language: 'en', link } },
       'GET /api/p/ok/link': { body: { link } } });
     renderAt('/p?token=ok');
     expect(await screen.findByText('Data are coming, but with a problem')).toBeInTheDocument();
@@ -312,7 +312,7 @@ describe('web app', () => {
   });
 
   it('after the finish the participant page shows how to switch tracking off instead of the setup steps', async () => {
-    const calls = mockFetch({ 'GET /api/p/done': { body: { event: { name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling', finished: true }, me: { name: 'Jana', bib: '7', category: null, gender: 'female', nickname: null, status: 'Confirmed', locked: { gender: true } }, language: 'en', link: null } } });
+    const calls = mockFetch({ 'GET /api/p/done': { body: { event: { name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling', finished: true }, me: { name: 'Jana', bib: '7', category: null, gender: 'female', nickname: null, status: 'Confirmed', locked: { gender: true }, phoneSetUp: false }, language: 'en', link: null } } });
     renderAt('/p?token=done');
     expect(await screen.findByRole('heading', { name: 'Switch off location tracking' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Switch off tracking in OwnTracks' })).toHaveAttribute('href', STOP_DEEP_LINK);
@@ -320,9 +320,21 @@ describe('web app', () => {
     expect(calls.some((c) => c.url.includes('/owntracks-config') || c.url.endsWith('/link'))).toBe(false);
   });
 
+  it('a returning participant with a set-up phone sees the state and sets the phone up again only on request', async () => {
+    const link = { level: 'good', lastBatchAgoSeconds: 2, lastPositionAgoSeconds: 2, accuracyM: 4, clockAheadSeconds: null, batteryPct: 80, problems: [], earlyOnly: false };
+    mockFetch({ 'GET /api/p/back': { body: { event: { name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling' }, me: { name: 'Jana', bib: '7', category: null, gender: 'female', nickname: null, status: 'Confirmed', locked: { gender: false }, phoneSetUp: true }, language: 'en', link } },
+      'GET /api/p/back/link': { body: { link } } });
+    renderAt('/p?token=back');
+    expect(await screen.findByText('You are registered and your phone is set up.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Agree and continue' })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Set up the phone again' }));
+    expect(screen.getByText(/replaces the previous setup/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Agree and continue' })).toBeInTheDocument();
+  });
+
   it('a silent phone is told what to check', async () => {
     const link = { level: 'silent', lastBatchAgoSeconds: 130, lastPositionAgoSeconds: 130, accuracyM: null, clockAheadSeconds: null, batteryPct: 13, problems: [], earlyOnly: false };
-    mockFetch({ 'GET /api/p/quiet': { body: { event: { name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling' }, me: { name: 'Jana', bib: '7', category: null, gender: 'female', nickname: null, status: 'Confirmed', locked: { gender: false } }, language: 'en', link } },
+    mockFetch({ 'GET /api/p/quiet': { body: { event: { name: 'Time trial', location: 'Žilina', startTime: '2026-11-08T10:00:00Z', sport: 'cycling' }, me: { name: 'Jana', bib: '7', category: null, gender: 'female', nickname: null, status: 'Confirmed', locked: { gender: false }, phoneSetUp: false }, language: 'en', link } },
       'GET /api/p/quiet/link': { body: { link } } });
     renderAt('/p?token=quiet');
     expect(await screen.findByText('The server has received nothing from you for 2 min.')).toBeInTheDocument();
