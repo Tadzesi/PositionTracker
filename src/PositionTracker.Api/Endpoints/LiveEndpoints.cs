@@ -7,6 +7,7 @@ using PositionTracker.Api.Live;
 using PositionTracker.Api.Operations;
 using PositionTracker.Api.Persistence;
 using PositionTracker.Data;
+using PositionTracker.Data.Entities;
 using PositionTracker.Core.Runtime;
 
 namespace PositionTracker.Api.Endpoints;
@@ -16,7 +17,9 @@ namespace PositionTracker.Api.Endpoints;
 /// <c>GET /api/events/{eventId}/live</c> (organizer, header <c>X-Api-Key</c>, or an organizer session for its own events; 401 without either, checked
 /// before the event lookup) returns the current full <see cref="LiveView"/>;
 /// <c>GET /api/events/{eventId}/public</c> (anonymous) returns the delayed <see cref="SpectatorView"/>, empty
-/// until a view is at least the spectator delay old. Unknown events are 404.
+/// until a view is at least the spectator delay old. Unknown events are 404;
+/// <c>GET /api/events/{eventId}/info</c> (anonymous) returns the header of a published event (name, location, start, sport, state)
+/// also before it has a runtime; a Draft, unknown or malformed event is 404.
 /// </summary>
 public static class LiveEndpoints
 {
@@ -26,6 +29,7 @@ public static class LiveEndpoints
         group.MapGet("/live", GetLive);
         group.MapGet("/public", GetPublic);
         group.MapGet("/course", GetCourse);
+        group.MapGet("/info", GetInfo);
         return app;
     }
 
@@ -77,6 +81,27 @@ public static class LiveEndpoints
                 spectatorDelaySeconds = (int)runtime.Settings.SpectatorDelay.TotalSeconds,
             },
             laps = course.Laps, lapLengthM = course.LapLengthM, closed = course.IsClosed, points, profile, checkpoints = course.Checkpoints,
+        });
+    }
+
+    /// <summary>
+    /// The public header of an event that is not a Draft: <c>{name,location,startTime,sport,state}</c> with <c>state</c> one of
+    /// <c>ready|live|finished</c>. Nothing about the organizer or the participants.
+    /// </summary>
+    private static async Task<IResult> GetInfo(string eventId, HttpContext context, IDbContextFactory<AppDbContext> contexts,
+        IOptions<PersistenceOptions> persistence)
+    {
+        if (!persistence.Value.Enabled || !EventService.TryParseId(eventId, out var id)) return Results.NotFound();
+        await using var db = await contexts.CreateDbContextAsync(context.RequestAborted);
+        var found = await db.Events.AsNoTracking().Where(e => e.Id == id && e.State != EventState.Draft)
+            .Select(e => new { e.Name, e.Location, e.StartTime, e.Sport, e.State }).FirstOrDefaultAsync(context.RequestAborted);
+        if (found is null) return Results.NotFound();
+        context.Response.Headers.CacheControl = "no-cache";
+        return Results.Ok(new
+        {
+            name = found.Name, location = found.Location,
+            startTime = found.StartTime.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture),
+            sport = found.Sport.ToString().ToLowerInvariant(), state = found.State.ToString().ToLowerInvariant(),
         });
     }
 

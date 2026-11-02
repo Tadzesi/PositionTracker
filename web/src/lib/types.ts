@@ -55,6 +55,7 @@ export interface LiveView { at: string; eventId: string; participants: LiveParti
 export type SpectatorParticipant = Pick<LiveParticipant,
   'participantId' | 'bib' | 'displayName' | 'category' | 'rank' | 'lap' | 'totalDistanceM' | 'lat' | 'lon' | 'speedMps' | 'paceSecPerKm' | 'state' | 'gapToLeader' | 'gapToAhead' | 'eta' | 'segments'>;
 export interface SpectatorView { at: string; eventId: string; participants: SpectatorParticipant[] }
+export interface PublicEventInfo { name: string; location: string; startTime: string; sport: Sport; state: 'ready' | 'live' | 'finished' }
 export interface PublicCourse {
   event: { name: string; sport: Sport; startTime: string; spectatorDelaySeconds: number };
   laps: number; lapLengthM: number; closed: boolean; points: [number, number][]; profile?: [number, number][] | null; checkpoints: Checkpoint[];

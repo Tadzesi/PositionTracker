@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { get } from '../lib/api';
-import { formatDuration, formatGap, formatKm, formatSpeed, formatTime, parseSpan } from '../lib/format';
+import { formatDateTime, formatDuration, formatGap, formatKm, formatSpeed, formatTime, parseSpan } from '../lib/format';
 import { useI18n } from '../lib/i18n';
-import { usePoll } from '../lib/hooks';
-import type { PublicCourse, SpectatorParticipant, SpectatorView } from '../lib/types';
+import { useLoad, usePoll } from '../lib/hooks';
+import type { PublicCourse, PublicEventInfo, SpectatorParticipant, SpectatorView } from '../lib/types';
 import MapView, { pointAt, type MapMarker } from '../components/MapView';
 import LiveProfile, { type LiveProfileRider } from '../components/LiveProfile';
 import { lapDistance } from '../lib/profileCluster';
@@ -24,6 +24,8 @@ export default function Spectator() {
   const stateLabel = useStateLabel();
   // the course does not change while the event runs: it is fetched until it arrives (the event may not be live yet), then no more
   const course = usePoll(() => get<PublicCourse>(`/api/events/${id}/course`), 15000, [id], { stopWhen: () => true });
+  // before the go-live the course answers 404: the public header says what the page is about meanwhile
+  const info = useLoad(async () => (course.error ? await get<PublicEventInfo>(`/api/events/${id}/info`).catch(() => null) : null), [id, !!course.error && !course.data]);
   const view = usePoll(() => get<SpectatorView>(`/api/events/${id}/public`), 3000, [id]);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
@@ -80,6 +82,8 @@ export default function Spectator() {
     })) : [];
 
   if (course.error && !course.data) {
+    if (info.data && info.data.state === 'ready') return <BeforeStart info={info.data} />;
+    if (info.loading) return <Loading />;
     return (
       <div className="card narrow stack">
         <h2>{t('Podujatie ešte nebeží', 'The event is not running yet')}</h2>
@@ -147,6 +151,27 @@ export default function Spectator() {
           {view.data && <p className="dim">{t('Údaje z', 'Data from')} {formatTime(view.data.at, lang)}</p>}
         </div>
       </div>
+    </div>
+  );
+}
+
+function BeforeStart({ info }: { info: PublicEventInfo }) {
+  const { t, lang } = useI18n();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 60000); return () => clearInterval(timer); }, []);
+  const minutes = Math.max(0, Math.floor((new Date(info.startTime).getTime() - now) / 60000));
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const countdown = minutes === 0 ? null
+    : days > 0 ? t(`Štart za ${days} d ${hours} h`, `Starts in ${days} d ${hours} h`)
+    : hours > 0 ? t(`Štart za ${hours} h ${minutes % 60} min`, `Starts in ${hours} h ${minutes % 60} min`)
+    : t(`Štart za ${minutes} min`, `Starts in ${minutes} min`);
+  return (
+    <div className="card narrow stack">
+      <h1>{info.name}</h1>
+      <p className="mute">{info.location} · {formatDateTime(info.startTime, lang)}</p>
+      {countdown && <div className="big">{countdown}</div>}
+      <p className="mute">{t('Mapa sa zobrazí automaticky po štarte.', 'The map appears automatically after the start.')}</p>
     </div>
   );
 }

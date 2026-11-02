@@ -26,6 +26,19 @@ const renderAt = (path: string, lang: 'sk' | 'en' = 'en') => render(
 afterEach(() => vi.unstubAllGlobals());
 
 describe('web app', () => {
+  it('before the start the spectator page shows the event, the start time and a countdown, then switches to the map', async () => {
+    const startTime = new Date(Date.now() + ((2 * 24 + 3) * 60 + 30) * 60000).toISOString();
+    mockFetch({
+      'GET /api/events/e1/course': { status: 404, body: { code: 'not_found' } },
+      'GET /api/events/e1/public': { status: 404, body: { code: 'not_found' } },
+      'GET /api/events/e1/info': { body: { state: 'ready', name: 'Time trial', location: 'Zilina', startTime, sport: 'cycling' } },
+    });
+    renderAt('/e/e1');
+    expect(await screen.findByRole('heading', { name: 'Time trial' })).toBeInTheDocument();
+    expect(screen.getByText(/Starts in 2 d 3 h/)).toBeInTheDocument();
+    expect(screen.getByText(/Zilina/)).toBeInTheDocument();
+  });
+
   it('shows the landing page in the chosen language with sign-up and sign-in', async () => {
     mockFetch({});
     renderAt('/', 'sk');
