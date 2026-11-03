@@ -10,7 +10,11 @@
   const groups = {};
 
   // ------------------------------------------------------------------ formatting
-  const num = (v, d) => (v == null || !isFinite(v)) ? '–' : v.toLocaleString('sk-SK', { maximumFractionDigits: d, minimumFractionDigits: 0 });
+  // number format and the few words drawn on the canvas follow the page language (<html lang>, the report's PTC_T translations)
+  const EN = root.lang === 'en';
+  const LOCALE = EN ? 'en-US' : 'sk-SK';
+  const tr = (s) => (window.PTC_T ? window.PTC_T(s) : s);
+  const num = (v, d) => (v == null || !isFinite(v)) ? '–' : v.toLocaleString(LOCALE, { maximumFractionDigits: d, minimumFractionDigits: 0 });
   function auto(v) {
     if (v == null || !isFinite(v)) return '–';
     const a = Math.abs(v);
@@ -23,7 +27,7 @@
     if (a >= 0.01) return num(v, 3);
     if (a >= 0.001) return num(v, 4);
     if (a >= 0.0001) return num(v, 5);
-    return v.toExponential(1).replace('.', ',');
+    return EN ? v.toExponential(1) : v.toExponential(1).replace('.', ',');
   }
   function clock(s) {
     if (s == null || !isFinite(s)) return '–';
@@ -77,7 +81,7 @@
       this.ov = document.createElement('canvas'); this.ov.className = 'ptc-ov'; this.box.appendChild(this.ov);
       this.tip = document.createElement('div'); this.tip.className = 'ptc-tip'; this.box.appendChild(this.tip);
       this.cv.setAttribute('role', 'img');
-      this.cv.setAttribute('aria-label', o.aria || o.title || 'graf');
+      this.cv.setAttribute('aria-label', o.aria || o.title || tr('graf'));
       this.hidden = new Set();
       this.pad = Object.assign({ l: 56, r: 14, t: 10, b: 30 }, o.pad || {});
       if (o.group) (groups[o.group] = groups[o.group] || []).push(this);
@@ -282,7 +286,7 @@
         g.font = '600 10.5px ' + cv('--font-ui'); g.textAlign = an.align || 'center'; g.textBaseline = 'bottom'; g.fillText(an.text, X + (an.dx || 0), Y - 6 + (an.dy || 0));
       });
       g.restore();
-      if (this.zoom) { g.font = '10px ' + cv('--font-ui'); g.fillStyle = cv('--c-muted'); g.textAlign = 'right'; g.textBaseline = 'top'; g.fillText('zoom · dvojklik = späť', w - r - 2, t + 2); }
+      if (this.zoom) { g.font = '10px ' + cv('--font-ui'); g.fillStyle = cv('--c-muted'); g.textAlign = 'right'; g.textBaseline = 'top'; g.fillText(tr('zoom · dvojklik = späť'), w - r - 2, t + 2); }
       this.ctx(this.ov);
     }
     /** min/max envelope per pixel column: [[px, value], ...] in x order */

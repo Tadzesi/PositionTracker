@@ -1,15 +1,16 @@
 <!doctype html>
-<html lang="sk">
+<html lang="{{lang}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NUC pod záťažou · PositionTracker · lab463</title>
-<meta name="description" content="Záťažový a výkonnostný test aplikácie PositionTracker na Intel NUC s Celeron N4505: 40 kanálov na 10 Hz, spektrá, Bodeho diagram, skoková a impulzná odozva.">
+<title>{{title}}</title>
+<meta name="description" content="{{description}}">
+[[HEAD]]
 <meta name="robots" content="index,follow">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230A1F44'/%3E%3Cpath d='M5 20h4l3-9 4 14 3-10 2 5h6' stroke='%23FF4B2B' stroke-width='2.6' fill='none' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E">
 <script>try{var t=localStorage.getItem('pt-site-theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
 <style>
-@font-face{font-family:'Archivo';font-style:normal;font-weight:400 900;font-stretch:62% 125%;font-display:swap;src:url(../fonts/archivo-roman.woff2) format('woff2')}
+@font-face{font-family:'Archivo';font-style:normal;font-weight:400 900;font-stretch:62% 125%;font-display:swap;src:url(/tracker/fonts/archivo-roman.woff2) format('woff2')}
 :root{
   --font-ui:'Archivo',system-ui,-apple-system,'Segoe UI',sans-serif;
   --font-num:ui-monospace,'Cascadia Mono','SF Mono',Consolas,monospace;
@@ -69,8 +70,9 @@ a{color:var(--coral-t)}
 .top .sp{flex:1}
 .seg{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:2px}
 .seg button{all:unset;cursor:pointer;font-size:12.5px;padding:4px 10px;border-radius:7px;color:var(--ink2)}
-.seg button[aria-pressed="true"]{background:var(--navy);color:#fff}
-:root[data-theme="dark"] .seg button[aria-pressed="true"]{background:#2b4a85}
+.seg button[aria-pressed="true"],.seg a[aria-current="true"]{background:var(--navy);color:#fff}
+.seg a{cursor:pointer;font-size:12.5px;padding:4px 10px;border-radius:7px;color:var(--ink2);text-decoration:none}
+:root[data-theme="dark"] .seg button[aria-pressed="true"],:root[data-theme="dark"] .seg a[aria-current="true"]{background:#2b4a85}
 .wrap{max-width:1240px;margin:0 auto;padding:26px 28px 80px}
 /* hero */
 .hero{display:grid;grid-template-columns:1.25fr 1fr;gap:22px;align-items:end;margin:6px 0 22px}
@@ -164,37 +166,37 @@ code{font-family:var(--font-num);font-size:.92em;background:var(--panel2);paddin
 .chan span{font-family:var(--font-num);color:var(--muted)}
 footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)}
 @media (max-width:1100px){.kpis{grid-template-columns:repeat(3,1fr)}.hero{grid-template-columns:1fr}.chan{columns:2}}
-@media (max-width:860px){.top .live{display:none}.top .crumb{font-size:12px}.app{grid-template-columns:1fr}.side{position:static;height:auto}.nav{display:none}.grid2,.grid3,.findings{grid-template-columns:1fr}.wrap{padding:18px 14px 60px}h1{font-size:34px}.top{padding:8px 14px}.chan{columns:1}.kpis.cmp{grid-template-columns:1fr}}
+@media (max-width:860px){.top .live{display:none}.top .crumb{display:none}.app{grid-template-columns:1fr}.side{position:static;height:auto}.nav{display:none}.grid2,.grid3,.findings{grid-template-columns:1fr}.wrap{padding:18px 14px 60px}h1{font-size:34px}.top{padding:8px 14px}.chan{columns:1}.kpis.cmp{grid-template-columns:1fr}}
 @media print{.side,.top{display:none}.app{display:block}}
 </style>
 </head>
 <body>
 <div class="app">
 <aside class="side">
-  <a class="brand" href="../">
+  <a class="brand" href="/tracker/">
     <svg width="34" height="34" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#13305f"/><path d="M5 20h4l3-9 4 14 3-10 2 5h6" stroke="#FF4B2B" stroke-width="2.6" fill="none" stroke-linejoin="round" stroke-linecap="round"/></svg>
-    <span><b>NUC pod záťažou</b><small>PositionTracker · lab463</small></span>
+    <span><b>{{brand}}</b><small>PositionTracker · lab463</small></span>
   </a>
   <nav class="nav" id="nav">
-    <div class="grp">Prehľad</div>
-    <a href="#prehlad"><span class="k">00</span>Súhrn a zistenia</a>
-    <a href="#zmena"><span class="k">00b</span>Čo meranie zmenilo</a>
-    <a href="#zaznam"><span class="k">01</span>Záznam merania</a>
-    <a href="#zamok"><span class="k">02</span>Príčina: jeden zámok</a>
-    <div class="grp">Experimenty</div>
-    <a href="#pole"><span class="k">E1</span>Veľkosť poľa</a>
-    <a href="#skok"><span class="k">E2</span>Skoková odozva</a>
-    <a href="#kapacita"><span class="k">E3</span>Kapacita</a>
-    <a href="#bode"><span class="k">E4</span>Prenosová funkcia</a>
-    <a href="#impulz"><span class="k">E5</span>Impulz: hromadný štart</a>
-    <a href="#fanout"><span class="k">E6</span>Diváci (fan-out)</a>
-    <a href="#soak"><span class="k">E7</span>Pretek (soak)</a>
-    <div class="grp">Analýza</div>
-    <a href="#spektra"><span class="k">A1</span>Spektrá</a>
-    <a href="#latencia"><span class="k">A2</span>Latencia</a>
-    <a href="#jitter"><span class="k">A3</span>Jitter a susedia</a>
-    <a href="#gc"><span class="k">A4</span>Korelácie</a>
-    <a href="#metodika"><span class="k">M</span>Metodika</a>
+    <div class="grp">{{grpOverview}}</div>
+    <a href="#prehlad"><span class="k">00</span>{{nav00}}</a>
+    <a href="#zmena"><span class="k">00b</span>{{nav00b}}</a>
+    <a href="#zaznam"><span class="k">01</span>{{nav01}}</a>
+    <a href="#zamok"><span class="k">02</span>{{nav02}}</a>
+    <div class="grp">{{grpExperiments}}</div>
+    <a href="#pole"><span class="k">E1</span>{{navE1}}</a>
+    <a href="#skok"><span class="k">E2</span>{{navE2}}</a>
+    <a href="#kapacita"><span class="k">E3</span>{{navE3}}</a>
+    <a href="#bode"><span class="k">E4</span>{{navE4}}</a>
+    <a href="#impulz"><span class="k">E5</span>{{navE5}}</a>
+    <a href="#fanout"><span class="k">E6</span>{{navE6}}</a>
+    <a href="#soak"><span class="k">E7</span>{{navE7}}</a>
+    <div class="grp">{{grpAnalysis}}</div>
+    <a href="#spektra"><span class="k">A1</span>{{navA1}}</a>
+    <a href="#latencia"><span class="k">A2</span>{{navA2}}</a>
+    <a href="#jitter"><span class="k">A3</span>{{navA3}}</a>
+    <a href="#gc"><span class="k">A4</span>{{navA4}}</a>
+    <a href="#metodika"><span class="k">M</span>{{navM}}</a>
   </nav>
   <div class="meta" id="sidemeta"></div>
 </aside>
@@ -203,8 +205,9 @@ footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);font-si
     <span class="crumb">lab463 / tracker / <b>performance report</b></span>
     <span class="live"><i></i><span id="runid"></span></span>
     <span class="sp"></span>
-    <div class="seg" role="group" aria-label="Téma">
-      <button type="button" data-t="auto">Auto</button><button type="button" data-t="light">Svetlý</button><button type="button" data-t="dark">Tmavý</button>
+    <div class="seg" role="group" aria-label="{{language}}"><a data-lang="sk" href="/tracker/perf/sk/" hreflang="sk" lang="sk"[[CUR_SK]]>SK</a><a data-lang="en" href="/tracker/perf/en/" hreflang="en" lang="en"[[CUR_EN]]>EN</a></div>
+    <div class="seg" role="group" aria-label="{{theme}}">
+      <button type="button" data-t="auto">Auto</button><button type="button" data-t="light">{{light}}</button><button type="button" data-t="dark">{{dark}}</button>
     </div>
   </div>
   <div class="wrap">
@@ -212,8 +215,6 @@ footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);font-si
   </div>
 </main>
 </div>
-<script id="data" type="application/json">[[DATA]]</script>
-<script>[[CHARTS]]</script>
-<script>[[REPORT]]</script>
+[[SCRIPTS]]
 </body>
 </html>

@@ -9,7 +9,7 @@ A measurement campaign of PositionTracker on the Intel NUC (Celeron N4505), publ
 | `perf/stack/` | throwaway stack for the server (`~/pt-loadtest`): app image, own Postgres, timing nginx, dotnet-counters and pg_stat sidecars, `reset.sh` |
 | `perf/sampler/` | host DAQ: `sampler.py` (10 Hz, RAPL, temps, PSI, cgroups, DNS kill switch), `jitter.py` (1 kHz wake-up latency) |
 | `perf/analysis/analyze.py` | raw CSVs → report JSON (clock alignment, Welch PSD, spectrogram, lock-in transfer functions, phase-resolved latency, fits) |
-| `perf/report/` | page template, chart library, renderer, `build.py` → `site/perf/index.html` |
+| `perf/report/` | page template, chart library, renderer, texts `body.sk.html` / `body.en.html`, translations `i18n/`, `build.py` → `site/perf/` |
 | `perf/data/` | raw data and tokens (git-ignored) |
 
 ## Run
@@ -26,8 +26,9 @@ dotnet run -c Release --project tools/LoadLab -- run http://192.168.1.2:18080 pe
 scp -r tadzesi@192.168.1.2:pt-loadtest/data/* perf/data/run2-server/
 python perf/analysis/analyze.py perf/data/run2 perf/data/run2-server perf/data/report_run2.json
 python perf/analysis/analyze.py perf/data/run1 perf/data/run1-server perf/data/report_run1.json
-python perf/report/build.py perf/data/report_run2.json site/perf/index.html perf/data/report_run1.json
-# deploy: copy site/perf/index.html to ~/server/stacks/web/site/tracker/perf/ (or deploy the whole site from site/dist)
+python perf/report/build.py perf/data/report_run2.json site/perf perf/data/report_run1.json
+# deploy: copy site/perf/ (index.sk.html, index.en.html, assets/, *.gz) to ~/server/stacks/web/site/tracker/perf/; upload assets
+#   first, then the pages, then delete assets no page references. nginx: deploy/home-server/nginx-positiontracker.conf
 # 5. clean up the server
 ssh tadzesi@192.168.1.2 'cd ~/pt-loadtest && sudo pkill -f "^python3 sampler.py"; pkill -f "^python3 jitter.py"; docker compose down -v'
 ```
@@ -45,7 +46,7 @@ dotnet run -c Release --project tools/LoadLab -- seed site/assets/example-trat.g
 # server: git archive <commit> | build -> pt-lt-app:before (68fceb1) and pt-lt-app:after (78bdfbf), VITE_BASE=/tracker/app/
 Start-Process powershell -ArgumentList '-File perf/compare.ps1' -WindowStyle Hidden   # ~1.5 h, collects and tears down
 python perf/analysis/compare.py perf/data/cmp-before perf/data/cmp-before-server perf/data/cmp-after perf/data/cmp-after-server perf/data/compare.json
-python perf/report/build.py perf/data/report_run2.json site/perf/index.html perf/data/report_run1.json perf/data/compare.json
+python perf/report/build.py perf/data/report_run2.json site/perf perf/data/report_run1.json perf/data/compare.json
 ```
 
 The coldest mass start (1 000 phones the server has never seen) without and with the token warm-up:
@@ -53,5 +54,18 @@ The coldest mass start (1 000 phones the server has never seen) without and with
 ```sh
 Start-Process powershell -ArgumentList '-File','perf/compare.ps1','-Versions','after,warm','-Plan','CMP,C0,C3','-Tag','cold' -WindowStyle Hidden
 python perf/analysis/cold.py perf/data/cold-after perf/data/cold-after-server perf/data/cold-warm perf/data/cold-warm-server perf/data/cold.json
-python perf/report/build.py perf/data/report_run2.json site/perf/index.html perf/data/report_run1.json perf/data/compare.json perf/data/cold.json
+python perf/report/build.py perf/data/report_run2.json site/perf perf/data/report_run1.json perf/data/compare.json perf/data/cold.json
 ```
+
+## Languages and loading
+
+The report exists in Slovak and English. `build.py` writes one small page per language (`index.sk.html`, `index.en.html`) and
+shared, content-hashed assets: `app.<hash>.js` (charts + renderer), `core.<hash>.json` (summary, comparison, every value the text
+binds to) and `data.<hash>.json` (long time series), each with a `.gz` for nginx `gzip_static`. The first screen needs the page,
+the script and `core` (~70 kB gzip); `data` loads in parallel and charts are drawn when their section comes near the viewport.
+
+- `/tracker/perf/` serves Slovak when the `pt_lang` cookie (the page's SK | EN switch) says so or, without it, when the browser's
+  first language is Slovak; English otherwise. `/tracker/perf/sk/` and `/en/` are fixed addresses for sharing.
+- Texts: `body.sk.html` / `body.en.html` (same ids and bindings, checked by the build), page chrome in `i18n/page.json`, strings of
+  the renderer in `i18n/en.json` keyed by the Slovak text (`t('…')` in `report.js`). The build fails on a missing translation;
+  `PT_DRAFT=1` turns that into warnings while translating.

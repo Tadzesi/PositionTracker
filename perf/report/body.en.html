@@ -1,0 +1,279 @@
+<section id="prehlad" style="margin-top:0">
+  <div class="hero">
+    <div>
+      <div class="eyebrow">Load test · home server · <span data-v="kpi.duration_min" data-d="0"></span> minutes of recording</div>
+      <h1>What a <em>10-watt</em> server sounds like when a race gets going.</h1>
+      <p class="lede">PositionTracker follows runners live: phones send their position, the organizer and spectators watch the map. We measured the whole application on an Intel NUC as a system under test. We excited it with a step, stairs, an impulse and a chirp, and recorded 40 host channels at 10 Hz, plus the .NET runtime, PostgreSQL and every single request.</p>
+    </div>
+    <div class="spec"><dl>
+      <dt>Machine</dt><dd>Intel NUC11ATKC2</dd>
+      <dt>CPU</dt><dd>Celeron N4505 · 2C/2T · 0.8–2.9 GHz</dd>
+      <dt>TDP</dt><dd>6–10 W (Jasper Lake, 10 nm)</dd>
+      <dt>Memory / disk</dt><dd>15 GiB · NVMe 219 GB</dd>
+      <dt>Neighbours</dt><dd>37 containers (HA, DNS, websites…)</dd>
+      <dt>Application</dt><dd>.NET 10 · SignalR · PostgreSQL 17</dd>
+      <dt>Race</dt><dd>400 runners (1st run 1,500) · 5.7 km loop</dd>
+    </dl></div>
+  </div>
+  <div class="kpis">
+    <div class="kpi accent"><div class="l">Sustainable capacity, full field</div><div class="v"><span data-v="kpi.capacity"></span></div><div class="s">original version, 400 laps · after the fix ≥ 1,200 req/s (<a href="#zmena" style="color:inherit">00b</a>)</div></div>
+    <div class="kpi"><div class="l">Requests in total</div><div class="v"><span data-v="kpi.requests"></span></div><div class="s"><span data-v="kpi.requests_ok"></span> accepted (202)</div></div>
+    <div class="kpi"><div class="l">Phone → map, p50</div><div class="v"><span data-v="kpi.e2e_p50" data-d="2"></span><small>s</small></div><div class="s">p99 <span data-v="kpi.e2e_p99" data-d="2"></span> s</div></div>
+    <div class="kpi"><div class="l">Platform power</div><div class="v"><span data-v="kpi.psys_idle" data-d="1"></span><small>W</small></div><div class="s">idle · peak <span data-v="kpi.psys_max" data-d="1"></span> W</div></div>
+    <div class="kpi"><div class="l">Max. CPU temperature</div><div class="v"><span data-v="kpi.temp_max" data-d="0"></span><small>°C</small></div><div class="s">far from the chip's limit</div></div>
+    <div class="kpi"><div class="l">Measured points</div><div class="v"><span data-v="kpi.samples"></span></div><div class="s"><span data-v="kpi.channels"></span> channels</div></div>
+  </div>
+  <div class="findings" id="findings">
+    <div class="find"><span class="ic crit" aria-hidden="true">!</span><h3><span class="pill crit">critical</span> One lock blocks ingest ~⅔ of the time</h3><p><b>Fixed, see <a href="#zmena">00b</a>.</b> Building the live view for 400 runners takes ~1 s, and the runtime's global <code>lock</code> is held the whole time. Positions arriving meanwhile wait. Latency therefore has no bell shape but a sawtooth with slope −1. <a href="#zamok">→ 02</a></p></div>
+    <div class="find"><span class="ic crit" aria-hidden="true">!</span><h3><span class="pill crit">critical</span> Capacity ~290 active phones</h3><p><b>Held with 400 laps. After the fix, at 10 laps ≥ 6,000, see <a href="#zmena">00b</a>.</b> With 400 registered, error-free up to ~290 active (p99 1.3 s). With 1,500 registered only ~250. Above that the server collapses: 34–76 % of requests get a 503 or time out, while the application allows up to 2,000 participants. <a href="#pole">→ E1</a></p></div>
+    <div class="find"><span class="ic warn" aria-hidden="true">▲</span><h3><span class="pill warn">warning</span> Cascade into the DB pool</h3><p><b>Fixed by caching and preloading tokens, see <a href="#zmena">00b</a>.</b> Every request looks up its device token in the database. When the lock slows service down, connections are held longer, and up to ~700 requests waited in the Npgsql pool at the peak (~250 on average), although PostgreSQL used only 0.1–0.2 of a core. After the step down the queue kept draining for another ~21 s. <a href="#skok">→ E2</a></p></div>
+    <div class="find"><span class="ic info" aria-hidden="true">i</span><h3>A static system: ~1.5 ms CPU per request</h3><p>The chirp and lock-in demodulation in the 0.006–0.2 Hz band show a flat transfer (median 1.5 ms/req, median phase −2°). Ingesting a position is cheap; recomputing the view is what costs: ~2.5 ms CPU per runner on every broadcast. <a href="#bode">→ E4</a></p></div>
+    <div class="find"><span class="ic good" aria-hidden="true">✓</span><h3><span class="pill good">fine</span> The household noticed nothing</h3><p>The network-wide DNS answered at p50 ~0.9 ms and p99 ~4 ms both idle and in saturation, and the kill switch never fired. The CPU stayed below 65 °C (far from the chip's limit) and in saturation its clock held mostly at the maximum 2.9 GHz. <a href="#jitter">→ A3</a></p></div>
+    <div class="find"><span class="ic info" aria-hidden="true">i</span><h3>The spectrum gave the neighbours away</h3><p>Besides the harmonics of the 1.5 s broadcast cycle, the spectrum has a line at ~11.5 s (MQTT broker), and the recording shows a block of ~1.25 cores lasting 30–80 s every 300 s (a scheduled job over the system journal). The 1 Hz lines come from our own 1 s measurements: the observer effect. <a href="#spektra">→ A1</a></p></div>
+</div>
+</section>
+
+<section id="zmena">
+  <div class="sh"><span class="no">00b</span><h2>What the measurement changed</h2><span class="tag">original vs. fixed version · same HW, same plan, 1,500 registered, 10 laps</span></div>
+  <p class="intro">The measurement did not end with charts. Synchronous averaging and the spectrum showed where the application waits (section 02). Based on that we made five fixes in the code (listed below). Then we measured both versions with the same plan on the same machine. <span class="leg-b">Grey</span> is the original version, <span class="leg-a">blue</span> the fixed one.</p>
+  <div class="kpis cmp">
+    <div class="kpi accent"><div class="l">Load without errors (p99 &lt; 1.5 s)</div><div class="v"><span id="cmp-cap-b"></span><small>→</small> <span id="cmp-cap-a"></span></div><div class="s">phones every 5 s · <b id="cmp-cap-x"></b> · the fixed version could not be saturated</div></div>
+    <div class="kpi"><div class="l">p99 latency at 200 phones</div><div class="v"><span id="cmp-p99-b"></span><small>→</small> <span id="cmp-p99-a"></span></div><div class="s"><span id="cmp-p99-x"></span></div></div>
+    <div class="kpi"><div class="l">Application CPU at 200 phones</div><div class="v"><span id="cmp-cpu-b"></span><small>→</small> <span id="cmp-cpu-a"></span><small>cores</small></div><div class="s" id="cmp-cpu-x"></div></div>
+  </div>
+  <p class="take">On the same 10 W NUC the fixed version carries the load of <b>at least 6,000 phones</b> (1,200 req/s, p99 0.2 s, zero errors). The original one fell apart already at 2,000 (400 req/s, 56 % errors). The application allows 2,000 participants, so the headroom is now threefold.</p>
+
+  <div class="card fixes"><h3>Fixes in the code</h3><p class="sub">Five changes, each prompted by a specific chart from the measurement. The application's tests (Core, Data, Api) pass.</p>
+    <div class="findings">
+      <div class="find"><span class="ic good" aria-hidden="true">1</span><h3><span class="pill good">78bdfbf</span> ETA from a table, not by stepping along the course</h3><p>The arrival estimate walked the rest of the course in 100 m steps for every runner on every broadcast. It is now read from a precomputed table of one lap, so its cost does not depend on the course length. <code>EtaEstimator</code>. Building the view for 400 runners on 10 laps (benchmark on a PC): 53–70 ms → 8–11 ms.</p></div>
+      <div class="find"><span class="ic good" aria-hidden="true">2</span><h3><span class="pill good">78bdfbf</span> The live view is computed outside the lock</h3><p>Under the lock only the state is copied (positions, ranking, segments). The ETA, alarms and the view itself are built outside it, so position ingest waits only for the copy. <code>EventRuntime.Capture</code>. Ramp in the chart 100 ms → &lt; 50 ms, p99 at 200 phones 121 → 18 ms.</p></div>
+      <div class="find"><span class="ic good" aria-hidden="true">3</span><h3><span class="pill good">78bdfbf</span> Segment colours in one pass</h3><p>The colour of each section (fastest, personal best) walked all results of the segment, so the cost grew with the square of the number of results. They are now computed once per broadcast in a single pass. <code>SegmentBoard.Snapshot</code>. It shows only in long lap races; this measurement does not quantify it on its own.</p></div>
+      <div class="find"><span class="ic good" aria-hidden="true">4</span><h3><span class="pill good">78bdfbf</span> Device token cache</h3><p>The server remembers a verified token for 10 minutes, so a request no longer waits for a DB connection. Revoking or reissuing a token takes effect immediately. <code>DeviceTokenCache</code>. DB connection queue on the stairs 726 → 0, mass start with known tokens p99 960 → 49 ms.</p></div>
+      <div class="find"><span class="ic good" aria-hidden="true">5</span><h3><span class="pill good">acaa272</span> Tokens of live races loaded in advance</h3><p>A background service loads the tokens of every live race when it starts and after a server restart, and refreshes them every 5 minutes, so they never expire from the cache. <code>DeviceTokenWarmer</code>. Cold start of 1,000 phones: p99 3.86 s → 77 ms, DB queue 718 → 0.</p></div>
+      <div class="find"><span class="ic info" aria-hidden="true">i</span><h3>How we verified it</h3><p>We measured both versions with the same plan on the same machine, with a seed within the application's limit (10 laps). The first campaign had 400 laps, which inflated the ETA. New tests cover the ETA over several laps, segment colours, the cache and token preloading (against PostgreSQL).</p></div>
+    </div>
+  </div>
+
+
+  <div class="grid2">
+    <div class="card"><div id="cmp-sync"></div></div>
+    <div class="card"><h3>The lock's fingerprint is gone</h3>
+      <p class="take">Original version: a request that arrives while the live view is being built waits until the build ends. The median forms a ramp <b id="cmp-B-b"></b> long at the start of every 1.5 s cycle. The fixed version holds the lock only while it copies the state; the ramp dropped below the chart's resolution (<b id="cmp-B-a"></b>) and the median lies on the floor.</p>
+      <p style="font-size:13.5px;color:var(--ink2)">The same shows in the spectrum: the original version's latency has a line at the broadcast cycle (0.67 Hz) and its harmonics <b id="cmp-line-b"></b> above the noise, the fixed one <b id="cmp-line-a"></b>. What remains of the line is work that still runs on the cycle (serialising and sending the view), but it no longer blocks position ingest.</p>
+      <div id="cmp-psd"></div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card"><div id="cmp-cap"></div>
+      <p class="note">Above 1,490 phones (300 req/s) the same registered runners send more often than every 5 s. It is a load equivalent to more phones, not a larger registered field. The stairs end at the generator's maximum, not at the server's limit.</p></div>
+    <div class="card"><div id="cmp-imp-ok"></div><div id="cmp-imp-lat"></div>
+      <p class="take">Mass start of 1,000 phones within one second: p99 response <b id="cmp-ip99-b"></b> → <b id="cmp-ip99-a"></b> (<span id="cmp-ip99-x"></span>). The phones had been sending positions before the start, so the server knows their tokens.</p>
+      <p class="take">Cold start: 1,000 phones the server has never seen (for example right after a restart). Without token preloading, 1,000 verifications went to the database at once: p99 <b id="cmp-cold-b"></b>, DB connection queue <span id="cmp-colddb-b"></span>, <span id="cmp-colderr-b"></span> errors. The server now loads the tokens of live races in advance and refreshes them every 5 minutes: p99 <b id="cmp-cold-a"></b> (<span id="cmp-cold-x"></span>), queue <span id="cmp-colddb-a"></span>, errors <span id="cmp-colderr-a"></span>.</p>
+      <p class="note">Measured separately: idle and three starts of 1,000 phones each on the version with the token cache (<code>78bdfbf</code>) and with preloading (<code>acaa272</code>). The second start with preloading (p99 0.6 s) coincided with a scheduled job on the server that took 1.7 cores at the time.</p></div>
+  </div>
+
+  <div class="card"><h3>Why: four causes, four numbers</h3><div id="cmp-why"></div>
+    <p class="note">The first campaign (sections 01–E7) ran with 400 laps of the loop, which is above the application's limit (10). The ETA estimate, which walked the rest of the course in 100 m steps, was therefore ~40× more expensive than in a real race, and the lock was held for ~1 s. The original figures below apply to this extreme. The comparison in this section uses a realistic race setup. Builds: original <code>68fceb1</code>, fixed <code>78bdfbf</code>.</p></div>
+</section>
+
+<section id="zaznam">
+  <div class="sh"><span class="no">01</span><h2>Measurement record</h2><span class="tag">13 synchronised channels · 1 s · min/max envelope</span></div>
+  <p class="intro">A view like a multichannel recorder: all channels share the server's time axis. Drag to select a range and it zooms in all channels at once; a double-click returns to the whole run. Curves are drawn as a per-pixel min/max envelope, so no spike disappears even over the whole run.</p>
+  <div class="zoombar" id="zoombar"><span>Zoom:</span></div>
+  <div class="card strip" id="strip"></div>
+</section>
+
+<section id="zamok">
+  <div class="sh"><span class="no">02</span><h2>Root cause: one lock and a 1.5-second cycle</h2><span class="tag">synchronous averaging against the broadcast cycle</span></div>
+  <p class="intro">We placed every request by how much time had passed since the start of the last live-view build (the <code>at</code> timestamp is taken inside the runtime lock). It is the same technique as synchronous averaging against a once-per-revolution tacho pulse: everything tied to the broadcast cycle adds up, the rest averages out.</p>
+  <div class="grid2">
+    <div class="card"><div id="sync"></div></div>
+    <div class="card"><h3>What the chart shows</h3>
+      <p class="take">A request arriving <b>t</b> seconds after the build started waits <b>B − t</b>. The median lies on a line with slope −1 and drops to the ~3 ms floor at <b>B ≈ <span data-sync="E4 chirp"></span></b>. That is how long <code>EventRuntime.BuildLiveView</code> holds <code>lock (_lock)</code>.</p>
+      <p style="font-size:13.5px;color:var(--ink2)">Building the view for 400 runners (ranking, gaps, ETA, segments) takes about one second of the 1.5 s cycle on the Celeron. Meanwhile every <code>Ingest</code> waits for the same lock, so ~⅔ of the time the application does not accept positions. It is not a lack of CPU: in the idle phase with a full field only ~55 % of the CPU is busy, and still the median latency is 200 ms.</p>
+      <p style="font-size:13.5px;color:var(--ink2)">The same mechanism explains the gated ingest in the chirp (E4) and the broadcast lines in the spectrum (A1). Under load a second effect piles on: every request needs one DB connection (the device token lookup), so in saturation up to ~700 requests waited in the Npgsql pool at the peak.</p>
+      <p class="note"><b>Fixed</b> (<code>78bdfbf</code>, <code>acaa272</code>): under the lock only the state is copied, the ETA is read from a table and device tokens are kept in memory. The before/after result is in <a href="#zmena">00b</a>.</p></div>
+  </div>
+</section>
+
+<section id="pole">
+  <div class="sh"><span class="no">E1</span><h2>Field size: what one runner costs</h2><span class="tag">4 steps (400 registered: 98–390 active; 1,500 registered: 100–500) · each phone sends its position every 5 s</span></div>
+  <p class="intro">An analogue of order analysis: we do not change the request rate but the number of runners that have a position. Every 1.5 s the server builds the organizer's complete live view (ranking, gaps, ETA, segments) and sends it over SignalR.</p>
+  <div class="grid2">
+    <div class="card"><div id="field-cpu"></div></div>
+    <div class="card"><div id="field-bc"></div></div>
+    <div class="card"><div id="field-p99"></div></div>
+    <div class="card"><div id="field-kb"></div></div>
+  </div>
+  <div class="card"><h3>Table</h3><p class="sub">The first 30 s of each step are left out (transient).</p><div id="field-tbl"></div></div>
+  <p class="take">On this HW, next to 37 other services, <b>a race with 400 registered handles ~290 active phones</b> (p99 1.3 s, no errors); at 390 it is already 34 % errors. <b>A race with 1,500 registered handles ~250 active</b> and collapses at 500 (76 % errors, p50 8.8 s).</p>
+  <p class="take">Application CPU grows linearly with the number of <i>active</i> runners, almost equally in both races: by 1.5–1.8 ms of CPU per second for each runner. Per broadcast (1.5 s) that is ~2.2–2.7 ms of CPU per runner. A phone sends only 0.2 requests/s, so most of this work is not ingesting positions but recomputing the live view.</p>
+  <p class="note">The cost depends not only on the number of active phones but also on the number registered: the organizer gets the whole field in every message. With 1,500 registered a LiveUpdate is ~0.7 MB even before anyone runs. The server's idle load without the test is ~0.7 of a core (other services).</p>
+</section>
+
+<section id="skok">
+  <div class="sh"><span class="no">E2</span><h2>Step response</h2><span class="tag">0 → 78 req/s (the whole field every 5 s) with a full field, 6 min, then 0</span></div>
+  <p class="intro">A classic input step. We follow the CPU's rise, the behaviour of latency and the chip's thermal response. We fit the temperature with a first-order model and estimate its time constant.</p>
+  <div class="grid2">
+    <div class="card"><div id="step-cpu"></div></div>
+    <div class="card"><div id="step-lat"></div></div>
+    <div class="card"><div id="step-temp"></div></div>
+    <div class="card"><div id="step-freq"></div></div>
+  </div>
+  <div class="mini">
+    <div>Application CPU before the step<b><span data-v="step.app_metrics.base" data-d="2"></span> cores</b></div>
+    <div>Application CPU settled<b><span data-v="step.app_metrics.final" data-d="2"></span> cores</b></div>
+    <div>p99 settled<b><span data-v="step.lat_metrics.p99_steady" data-ms></span></b></div>
+    <div>503 during the step<b><span data-v="step.errors.n503"></span></b></div>
+    <div>Queue drain<b><span data-v="step.drain.after_s" data-d="0"></span> s</b></div>
+    <div>Thermal τ<b><span data-v="step.temp_fit.tau" data-d="0"></span> s</b></div>
+    <div>ΔT settled<b><span data-v="step.temp_fit.dT" data-d="1"></span> °C</b></div>
+  </div>
+  <p class="take">The step barely shows in application CPU: before the step the application already spends ~0.65 of a core just on broadcasting the full field. The 78 req/s step adds only ~0.1 of a core. The response is carried by latency and errors instead: during the step <b><span data-v="step.errors.n503"></span></b> requests got a 503 (a share of <span data-v="step.errors.rate" data-d="3"></span>), and the queue kept draining for <b><span data-v="step.drain.after_s" data-d="0"></span> s</b> after the load was switched off.</p>
+  <p class="note">The temperature behaves as a pure first-order system with τ ≈ 18 s and ΔT ≈ 3 °C. The coretemp sensor has a resolution of 1 °C, so the curve is stepped and the fit uses a 1 s mean.</p>
+</section>
+
+<section id="kapacita">
+  <div class="sh"><span class="no">E3</span><h2>Capacity: stairs into saturation</h2><span class="tag">90 s per stair · open loop · stop at p99 &gt; 1.5 s or errors &gt; 2 %</span></div>
+  <p class="intro">The generator sends requests at scheduled times regardless of the responses (open loop), so an overloaded server cannot hide its queues (no <i>coordinated omission</i>). Latency is measured on the server, in nginx, for every request.</p>
+  <div class="grid3">
+    <div class="card"><div id="cap-lat"></div></div>
+    <div class="card"><div id="cap-cpu"></div></div>
+    <div class="card"><div id="cap-mj"></div></div>
+  </div>
+  <div class="card"><h3>Stairs</h3><p class="sub">The first 15 s of each stair are the transient. A red row broke the criterion (p99 &gt; 1.5 s or errors &gt; 2 %).</p><div id="cap-tbl"></div></div>
+  <p class="take">Saturation came as early as the second stair. At 25 req/s p99 is 1.1 s with no errors; at 50 req/s there are 11 % errors (503 from the persistence queue) and p99 is 17 s. The sustainable capacity with 400 registered is therefore <b>~25 req/s</b>, which corresponds to ~125 phones sending a position every 5 s. The E1 points (grey) lie lower, e.g. 60 req/s with p99 1.3 s. At that time, however, not every runner had a position yet.</p>
+  <p class="note">The difference between E1 and E3 is the state of the field: E3 ran when all 390 runners already had a position. The live view is recomputed for the whole field (including runners who are not sending right now), so less time outside the lock is left for ingesting positions. The mean energy per request above idle power (including broadcasting the full field) is 70–90 mJ. The marginal energy of one request from the chirp (E4) is ~12 mJ.</p>
+</section>
+
+<section id="bode">
+  <div class="sh"><span class="no">E4</span><h2>Transfer function: chirp and Bode plot</h2><span class="tag">logarithmic sweep 1/400 → 1/4 Hz · 20 min</span></div>
+  <p class="intro">We modulated the load with a sine of rising frequency and identified the server as a system. The input is the request rate actually sent; the outputs are CPU, power and temperature. Since the instantaneous phase of the excitation φ(t) is known, we estimate the transfer with a tracking filter (lock-in, as in order tracking): at each of 40 frequencies we fit both input and output with sin φ and cos φ over a window of at least 4 periods. H = Y/U, the band is ±2σ of the amplitude estimate, and the fit's R² shows what share of the output's variance the excitation explains.</p>
+  <div class="card"><div id="bode-trace"></div><div id="bode-trace2"></div></div>
+  <div class="grid3">
+    <div class="card"><div id="bode-app-m"></div><div id="bode-app-p"></div><div id="bode-app-c"></div></div>
+    <div class="card"><div id="bode-psys-m"></div><div id="bode-psys-p"></div><div id="bode-psys-c"></div></div>
+    <div class="card"><div id="bode-temp-m"></div><div id="bode-temp-p"></div><div id="bode-temp-c"></div></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><div id="portrait"></div></div>
+    <div class="card"><h3>What follows from it</h3>
+      <p class="take">The application has a flat transfer of <b>~1.5 ms CPU per request</b> with a phase around 0° across the whole 0.006–0.2 Hz band. It is a static (memoryless) system: the CPU responds to load immediately. Platform power responds marginally with ~12 mJ per request (median, range 8–36 mJ). The mean above idle in E3 (70–90 mJ) is higher because it also includes broadcasting the full field.</p>
+      <p style="font-size:13.5px;color:var(--ink2)">R² is low because the response to the ±20 req/s excitation is buried in the broadcast's "noise" (±0.5 of a core at 0.67 Hz) and that of the other services. Individual points are therefore uncertain (median R² 0.004, phase from −40° to +80°). Only the summary over 40 frequencies is reliable: median 1.5 ms/req and phase −2°, much as in a low-SNR measurement with averaging.</p>
+      <p style="font-size:13.5px;color:var(--ink2)">Temperature: the step gives a first-order model (τ ≈ 18 s, f<sub>c</sub> ≈ 0.009 Hz, static gain ~0.04 °C/(req/s)). A chirp with ±20 req/s amplitude, however, changes the temperature by only tenths of a degree, below the sensor's quantisation step (1 °C). The measured ~0.014 °C/(req/s) is therefore three times below the model already under f<sub>c</sub> and does not fall above f<sub>c</sub>. With this excitation the temperature channel is at the limit of the instrument's resolution.</p>
+      <p class="note">Phase portrait on the left: the power → temperature trajectory during the chirp. Slow cycles open into a hysteresis loop (temperature lags behind power).</p></div>
+  </div>
+</section>
+
+<section id="impulz">
+  <div class="sh"><span class="no">E5</span><h2>Impulse: mass start</h2><span class="tag">the whole field (390 phones) within one second · 3 repetitions · averaging</span></div>
+  <p class="intro">The starter's gun: every phone sends its position in the same second. We repeated the impulse three times and averaged the responses, as in an impact hammer test.</p>
+  <div class="grid2">
+    <div class="card"><div id="imp-rate"></div></div>
+    <div class="card"><div id="imp-cpu"></div></div>
+  </div>
+  <div class="card"><h3>Individual impulses (latency as seen by the phone)</h3><div id="imp-tbl"></div></div>
+  <p class="take">The server survived the whole field (390 phones) within one second: it accepted 99 % of positions and only 1–3 requests got a 503. The queue, however, took <b>4.6–7.8 s</b> to drain, and the median latency jumped between 1.1 and 5.5 s depending on which phase of the broadcast cycle the impulse hit. The three repetitions therefore differ more than noise would suggest. Moreover, the responses do not arrive smoothly but in batches ~1.5 s apart: the queue drains only in the gaps between view builds, when the lock is free.</p>
+</section>
+
+<section id="fanout">
+  <div class="sh"><span class="no">E6</span><h2>Spectators: SignalR fan-out</h2><span class="tag">0 → N spectators · constant position ingest</span></div>
+  <p class="intro">Every spectator receives the public view of the race over a WebSocket. As the number of spectators rises we watch where the network, the CPU or the broadcast cycle breaks.</p>
+  <div class="grid3">
+    <div class="card"><div id="fan-bw"></div></div>
+    <div class="card"><div id="fan-cpu"></div></div>
+    <div class="card"><div id="fan-lag"></div></div>
+  </div>
+  <div class="card"><div id="fan-tbl"></div></div>
+  <p class="take">Spectators are almost free for the CPU: 100 spectators added ~0.05 of a core to the application, because SignalR serialises a message for a group only once. Bandwidth is what costs: the public view is ~220 kB and goes out 0.67× per second, so each spectator costs ~0.15 MB/s. <b>100 spectators ≈ 15 MB/s ≈ 120 Mbit/s</b>, which is more a limit of the home line and the Cloudflare tunnel than of the NUC.</p>
+  <p class="note">The ~31 s delay is the configured spectator delay (30 s) plus ~1 s delivery. The steps with 5, 35 and 75 spectators have higher total CPU and p99, but the application's CPU does not change: it is background from the server's other services. The sweep ended at the planned maximum (100); no limit was reached.</p>
+</section>
+
+<section id="soak">
+  <div class="sh"><span class="no">E7</span><h2>Race: 30 minutes in steady state</h2><span class="tag">25 req/s · 25 spectators · 30 min</span></div>
+  <p class="intro">30 minutes of a medium race at the limit of the capacity measured in E3: 25 req/s (125 phones every 5 s) and 25 spectators, with the whole field of 390 runners having a position.</p>
+  <div class="card"><div class="mini">
+    <div>Errors<b>0</b></div><div>Server p50<b>0.40 s</b></div><div>Server p99<b>2.0 s</b></div>
+    <div>Phone → organizer p50<b>1.81 s</b></div><div>p99<b>3.75 s</b></div>
+    <div>Server CPU<b>1.38 / 2</b></div><div>Power<b>10.6 W</b></div><div>Temperature<b>61 °C (max 65)</b></div>
+    <div>GC pauses in total<b>4.6 s</b></div>
+  </div>
+  <p class="take">The steady state is stable but without headroom: the longer run at the same 25 req/s gave p99 2.0 s, above the 1.5 s criterion of the 90-second stair. No errors, a linear trend in application memory of +8.5 MB over 30 min (≈2.7 %), no temperature drift. Latency, however, is set by the lock and the broadcast cycle: p99 2 s at 25 req/s is the price of the ~1 s during which the view is built. <a href="#zaznam" data-zoom="E7">Zoom to E7 in the record →</a></p></div>
+</section>
+
+<section id="spektra">
+  <div class="sh"><span class="no">A1</span><h2>Spectral analysis</h2><span class="tag">CPU sampled at 10 Hz · Nyquist 5 Hz</span></div>
+  <p class="intro">A server that "does nothing" has a rich spectrum: every periodic task (the broadcast cycle, neighbouring services, our own measurements) shows up in it as a line. The spectrogram of the whole run is the analogue of a Campbell diagram. With 400 runners the view build (~1 s) does not yet exceed the cycle, so the broadcast line stays at 0.667 Hz. With 1,500 runners in the first run the period stretched to as much as 1.7 s.</p>
+  <div class="card"><div id="psd"></div></div>
+  <div class="grid2">
+    <div class="card"><div id="sgram"></div></div>
+    <div class="card"><div id="psd-w"></div></div>
+  </div>
+  <p class="take">During the race <b>0.667 Hz</b> dominates (the 1.5 s broadcast cycle) with harmonics 2×, 3×, 5× and 6×. The sawtooth load (≈1 s of work, 0.5 s of rest) has rich higher harmonics, exactly like a rectangular signal with a ⅔ duty cycle.</p>
+  <p class="note">The spectrum also gave the neighbours away. The line at <b>~11.5 s</b> (0.088 Hz) with harmonics belongs to the MQTT broker, which at this rate loads one core for ~1 s (confirmed by a per-container CPU measurement after the test). The recording ("other services") also shows blocks exactly every <b>300 s</b>, alternately ~30 and ~80 s long at ~1.25 cores: a scheduled job on the host that searches the system journal (identified by a later process measurement). The 1 Hz lines at idle come from our own 1 s measurements.</p>
+</section>
+
+<section id="latencia">
+  <div class="sh"><span class="no">A2</span><h2>Latency</h2><span class="tag">server (nginx) · end-to-end (phone → organizer)</span></div>
+  <div class="card"><div id="heat"></div></div>
+  <div class="grid2">
+    <div class="card"><div id="e2e"></div><p class="note">10 probe phones send a position every 5 s. We measure the time from sending a position to its first appearance in the organizer's LiveUpdate. It therefore includes waiting for the next broadcast (sample and hold). The stepped CDF at idle arises because the 5 s probes and the 1.5 s cycle are in a 10 : 3 ratio, so the probes hit only 3 distinct phases of the cycle (a stroboscopic effect).</p></div>
+    <div class="card"><div id="wifi"></div><p class="note">The load generator ran on a PC connected over Wi-Fi. Primary latency is therefore measured on the server, and we report Wi-Fi as a separate channel of instrument noise.</p></div>
+  </div>
+  <p class="take">The heatmap has no bell but a <b>band from ~3 ms to ~1 s</b> of uniform density. That is the lock's signature: waiting is uniformly distributed between 0 and B. End-to-end: at idle with an empty field p50 0.80 s, almost exactly half of the 1.5 s cycle (pure sample and hold). During the race p50 1.8 s and p99 3.7 s = waiting for the lock + waiting for the next cycle + ~1 s build + delivery.</p>
+</section>
+
+<section id="jitter">
+  <div class="sh"><span class="no">A3</span><h2>Jitter and neighbours</h2><span class="tag">what the test did to the rest of the household</span></div>
+  <p class="intro">The same machine runs Home Assistant, the DNS for the whole network and public websites. A 1 kHz loop measures how late the scheduler wakes it up (much like <code>cyclictest</code>). A 2 Hz DNS probe also served as the test's kill switch (6 queries in a row over 250 ms → stop).</p>
+  <div class="grid2">
+    <div class="card"><div id="jit"></div><div id="jit-tbl"></div></div>
+    <div class="card"><div id="dns"></div><div id="dns-tbl"></div></div>
+  </div>
+  <p class="take">Scheduler jitter is the same in every regime: p99 ~0.75 ms, max 7–9 ms. The network-wide DNS answered at p50 0.4–0.9 ms and p99 up to 4.3 ms, not a single query was lost and the kill switch never fired. The test did not restrict the rest of the household.</p>
+  <p class="note">The application is limited by the lock, not by the CPU. Even in saturation it does not load both cores enough for the scheduler to suffer. Wi-Fi between the PC and the server: p50 1.45 ms, p99 21 ms, max 270 ms, 5 lost out of 64,567 pings. That is why the primary measurement is on the server.</p>
+</section>
+
+<section id="gc">
+  <div class="sh"><span class="no">A4</span><h2>Correlations: what drives latency</h2></div>
+  <div class="grid2">
+    <div class="card"><div id="xcorr"></div></div>
+    <div class="card"><h3>GC is not the culprit</h3>
+      <p class="take">During the 30-minute race all GC pauses together took <b>4.6 s</b> (0.25 % of the time) over 182 gen0 and 56 gen2 collections. The correlation of GC pauses with p99 is weak (r ≈ 0.13). The broadcast period correlates more strongly (r ≈ 0.29).</p>
+      <p style="font-size:13.5px;color:var(--ink2)">So latency is driven by synchronous work under the lock, not by memory management. At 1 s resolution, moreover, the correlation with the 1.5 s cycle is partly smeared (aliasing); the direct evidence is the phase-resolved chart in section 02.</p></div>
+  </div>
+</section>
+
+<section id="metodika">
+  <div class="sh"><span class="no">M</span><h2>Methodology and instruments</h2></div>
+  <div class="grid2">
+    <div class="card">
+      <h3>Setup</h3>
+      <p class="sub">A separate test stack (the same image as production, its own database, simulated e-mails) at <code>192.168.1.2:18080</code>, outside Cloudflare. Production data was not touched.</p>
+      <ul style="font-size:13.5px;margin:6px 0 0;padding-left:18px;color:var(--ink2)">
+        <li><b>Generator</b>: our own .NET 10 tool <code>LoadLab</code> on a Windows PC. A scheduler on a dedicated thread integrates the target rate R(t) (open loop) and measures latency from the scheduled send time.</li>
+        <li><b>Race</b>: 400 confirmed runners with their own tokens (1,500 in the 1st run), 10 of them probes. Positions lie on a real loop (5.7 km, Žilina) and speeds are 2.4–4.6 m/s.</li>
+        <li><b>Comparison (00b)</b>: 1,500 runners, 10 laps (the application's limit), the same plan against two application images (<code>68fceb1</code> and <code>78bdfbf</code>). The cold start separately against <code>78bdfbf</code> and <code>acaa272</code>. Every run had a fresh database.</li>
+        <li><b>Host</b>: a Python sampler on an absolute 10 Hz schedule. It reads cgroup v2, <code>/proc</code>, RAPL (package, core, psys), hwmon, PSI and diskstats.</li>
+        <li><b>.NET</b>: <code>dotnet-counters</code> in a sidecar container (shared PID namespace, diagnostic socket), 1 s.</li>
+        <li><b>PostgreSQL</b>: <code>pg_stat_database/wal/checkpointer</code> via <code>psql \watch 1</code>.</li>
+        <li><b>nginx</b>: a CSV log with <code>$request_time</code> and <code>$upstream_response_time</code> for every request, an <code>X-T</code> header with the server time.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Time synchronisation</h3>
+      <p class="sub">PC clock against the server: offset <b><span data-v="clock.offset_ms" data-d="0"></span> ms</b> and drift <b><span data-v="clock.ppm" data-d="1"></span> ppm</b> (≈19 ms per hour). A linear correction leaves a residual of <span data-v="clock.resid_ms" data-d="1"></span> ms. The estimate comes from the fastest responses in 10-minute windows (X-T header, middle of the RTT). All channels are on the server's time axis.</p>
+      <div id="clk"></div>
+      <p class="note">Limitations: the generator ran over Wi-Fi (client latency carries network noise, so the primary data comes from the server). During the test the server also served normal household traffic. The sampler, the jitter loop and the measuring sidecars ran on the same machine, and we did not quantify their consumption separately (their 1 s cycle is visible in the spectrum). Apart from the impulses, each experiment ran once; spread is reported within a stair.</p>
+    </div>
+  </div>
+  <div class="card"><h3>Host channels (10 Hz)</h3><div class="chan">
+    <div><b>CPU total (cgroup root)</b><span>µs</span></div><div><b>CPU per core busy/total</b><span>jiffies</span></div><div><b>Core clock 0/1</b><span>kHz</span></div>
+    <div><b>Temperature package, core 0/1</b><span>m°C</span></div><div><b>Temperature ACPI, NVMe</b><span>m°C</span></div><div><b>RAPL package / core / psys</b><span>µJ</span></div>
+    <div><b>PSI cpu/mem/io some, io full</b><span>µs</span></div><div><b>eno1 RX/TX</b><span>B</span></div><div><b>NVMe read/write, io_ms</b><span>sectors</span></div>
+    <div><b>Context switches, interrupts</b><span>count</span></div><div><b>Run queue, load1, MemAvailable</b><span>–</span></div><div><b>cgroup app/db/nginx: CPU, memory, throttling</b><span>µs, B</span></div>
+    <div><b>Sampler sample delay</b><span>µs</span></div><div><b>1 kHz loop jitter (histogram/s)</b><span>µs</span></div><div><b>DNS RTT 2 Hz</b><span>µs</span></div>
+  </div></div>
+</section>
+
+<footer>PositionTracker · lab463.com · Report generated by <code>perf/analysis/analyze.py</code>, <code>compare.py</code>, <code>cold.py</code> and <code>perf/report/build.py</code> from the raw measurements. Every number comes from the page's data files. <a href="/tracker/">← back to PositionTracker</a></footer>

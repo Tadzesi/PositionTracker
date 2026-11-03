@@ -1,0 +1,279 @@
+<section id="prehlad" style="margin-top:0">
+  <div class="hero">
+    <div>
+      <div class="eyebrow">Záťažový test · domáci server · <span data-v="kpi.duration_min" data-d="0"></span> minút záznamu</div>
+      <h1>Ako znie <em>10-wattový</em> server, keď ho rozbehne pretek.</h1>
+      <p class="lede">PositionTracker sleduje bežcov naživo: mobily posielajú polohu, organizátor a diváci vidia mapu. Celú aplikáciu sme meriali na Intel NUC ako meraciu sústavu. Budili sme ju skokom, schodmi, impulzom a chirpom a snímali 40 kanálov hostiteľa na 10 Hz, k tomu .NET runtime, PostgreSQL a každý jeden request.</p>
+    </div>
+    <div class="spec"><dl>
+      <dt>Stroj</dt><dd>Intel NUC11ATKC2</dd>
+      <dt>CPU</dt><dd>Celeron N4505 · 2C/2T · 0,8–2,9 GHz</dd>
+      <dt>TDP</dt><dd>6–10 W (Jasper Lake, 10 nm)</dd>
+      <dt>Pamäť / disk</dt><dd>15 GiB · NVMe 219 GB</dd>
+      <dt>Spolubývajúci</dt><dd>37 kontajnerov (HA, DNS, weby…)</dd>
+      <dt>Aplikácia</dt><dd>.NET 10 · SignalR · PostgreSQL 17</dd>
+      <dt>Pretek</dt><dd>400 bežcov (1. beh 1 500) · okruh 5,7 km</dd>
+    </dl></div>
+  </div>
+  <div class="kpis">
+    <div class="kpi accent"><div class="l">Udržateľná kapacita, plné pole</div><div class="v"><span data-v="kpi.capacity"></span></div><div class="s">pôvodná verzia, 400 kôl · po oprave ≥ 1 200 req/s (<a href="#zmena" style="color:inherit">00b</a>)</div></div>
+    <div class="kpi"><div class="l">Požiadavky spolu</div><div class="v"><span data-v="kpi.requests"></span></div><div class="s"><span data-v="kpi.requests_ok"></span> prijatých (202)</div></div>
+    <div class="kpi"><div class="l">Mobil → mapa, p50</div><div class="v"><span data-v="kpi.e2e_p50" data-d="2"></span><small>s</small></div><div class="s">p99 <span data-v="kpi.e2e_p99" data-d="2"></span> s</div></div>
+    <div class="kpi"><div class="l">Príkon platformy</div><div class="v"><span data-v="kpi.psys_idle" data-d="1"></span><small>W</small></div><div class="s">kľud · špička <span data-v="kpi.psys_max" data-d="1"></span> W</div></div>
+    <div class="kpi"><div class="l">Max. teplota CPU</div><div class="v"><span data-v="kpi.temp_max" data-d="0"></span><small>°C</small></div><div class="s">ďaleko od limitu čipu</div></div>
+    <div class="kpi"><div class="l">Namerané body</div><div class="v"><span data-v="kpi.samples"></span></div><div class="s"><span data-v="kpi.channels"></span> kanálov</div></div>
+  </div>
+  <div class="findings" id="findings">
+    <div class="find"><span class="ic crit" aria-hidden="true">!</span><h3><span class="pill crit">kritické</span> Jeden zámok drží ingest ~⅔ času</h3><p><b>Opravené, pozri <a href="#zmena">00b</a>.</b> Zostavenie živého pohľadu pre 400 bežcov trvá ~1 s a celý čas drží globálny <code>lock</code> runtime. Polohy, ktoré prídu medzitým, čakajú. Latencia preto nemá zvon, ale pílu so sklonom −1. <a href="#zamok">→ 02</a></p></div>
+    <div class="find"><span class="ic crit" aria-hidden="true">!</span><h3><span class="pill crit">kritické</span> Kapacita ~290 aktívnych mobilov</h3><p><b>Platilo pri 400 kolách. Po oprave na 10 kolách ≥ 6 000, pozri <a href="#zmena">00b</a>.</b> Pri 400 prihlásených bez chýb do ~290 aktívnych (p99 1,3 s). Pri 1 500 prihlásených len ~250. Nad tým sa server zrúti: 34–76 % požiadaviek dostane 503 alebo vyprší, aplikácia pritom povoľuje až 2 000 účastníkov. <a href="#pole">→ E1</a></p></div>
+    <div class="find"><span class="ic warn" aria-hidden="true">▲</span><h3><span class="pill warn">varovanie</span> Kaskáda do DB poolu</h3><p><b>Opravené cache a prednačítaním tokenov, pozri <a href="#zmena">00b</a>.</b> Každý request hľadá device token v databáze. Keď zámok spomalí obsluhu, pripojenia sa držia dlhšie a v poole Npgsql čakalo v špičke až ~700 požiadaviek (v priemere ~250), hoci PostgreSQL využíval len 0,1–0,2 jadra. Po skoku nadol fronta dobiehala ešte ~21 s. <a href="#skok">→ E2</a></p></div>
+    <div class="find"><span class="ic info" aria-hidden="true">i</span><h3>Statická sústava: ~1,5 ms CPU na request</h3><p>Chirp a lock-in demodulácia v pásme 0,006–0,2 Hz ukazujú plochý prenos (medián 1,5 ms/req, fáza v mediáne −2°). Samotný príjem polohy je lacný, drahý je prepočet pohľadu: ~2,5 ms CPU na bežca pri každom broadcaste. <a href="#bode">→ E4</a></p></div>
+    <div class="find"><span class="ic good" aria-hidden="true">✓</span><h3><span class="pill good">v poriadku</span> Domácnosť si nič nevšimla</h3><p>DNS celej siete odpovedal v kľude aj v saturácii s p50 ~0,9 ms a p99 ~4 ms, kill switch sa nespustil ani raz. CPU nevystúpilo nad 65 °C (ďaleko od limitu čipu) a takt sa pri saturácii držal prevažne na maximálnych 2,9 GHz. <a href="#jitter">→ A3</a></p></div>
+    <div class="find"><span class="ic info" aria-hidden="true">i</span><h3>Spektrum prezradilo susedov</h3><p>Okrem harmonických 1,5 s taktu broadcastu je v spektre čiara ~11,5 s (MQTT broker) a v zázname každých 300 s blok ~1,25 jadra na 30–80 s (plánovaná úloha nad systémovým žurnálom). Čiary 1 Hz pochádzajú z našich vlastných 1 s meraní: efekt pozorovateľa. <a href="#spektra">→ A1</a></p></div>
+</div>
+</section>
+
+<section id="zmena">
+  <div class="sh"><span class="no">00b</span><h2>Čo meranie zmenilo</h2><span class="tag">pôvodná vs. opravená verzia · rovnaký HW, rovnaký plán, 1 500 prihlásených, 10 kôl</span></div>
+  <p class="intro">Meranie neskončilo grafmi. Synchrónne priemerovanie a spektrum ukázali, kde aplikácia čaká (sekcia 02). Na základe toho sme spravili päť opráv v kóde (zoznam nižšie). Potom sme obe verzie zmerali rovnakým plánom na tom istom stroji. <span class="leg-b">Šedou</span> je pôvodná verzia, <span class="leg-a">modrou</span> opravená.</p>
+  <div class="kpis cmp">
+    <div class="kpi accent"><div class="l">Záťaž bez chýb (p99 &lt; 1,5 s)</div><div class="v"><span id="cmp-cap-b"></span><small>→</small> <span id="cmp-cap-a"></span></div><div class="s">mobilov po 5 s · <b id="cmp-cap-x"></b> · opravenú verziu sa nepodarilo saturovať</div></div>
+    <div class="kpi"><div class="l">p99 latencia pri 200 mobiloch</div><div class="v"><span id="cmp-p99-b"></span><small>→</small> <span id="cmp-p99-a"></span></div><div class="s"><span id="cmp-p99-x"></span></div></div>
+    <div class="kpi"><div class="l">CPU aplikácie pri 200 mobiloch</div><div class="v"><span id="cmp-cpu-b"></span><small>→</small> <span id="cmp-cpu-a"></span><small>jadra</small></div><div class="s" id="cmp-cpu-x"></div></div>
+  </div>
+  <p class="take">Na tom istom NUC za 10 W unesie opravená verzia záťaž <b>aspoň 6 000 mobilov</b> (1 200 req/s, p99 0,2 s, nula chýb). Pôvodná sa rozpadla už pri 2 000 (400 req/s, 56 % chýb). Aplikácia pritom povoľuje 2 000 účastníkov, takže rezerva je teraz trojnásobná.</p>
+
+  <div class="card fixes"><h3>Opravy v kóde</h3><p class="sub">Päť zmien, každú vyvolal konkrétny graf z merania. Testy aplikácie (Core, Data, Api) prechádzajú.</p>
+    <div class="findings">
+      <div class="find"><span class="ic good" aria-hidden="true">1</span><h3><span class="pill good">78bdfbf</span> ETA z tabuľky, nie krokovaním trate</h3><p>Odhad príchodu prechádzal zvyšok trate po 100 m pre každého bežca pri každom broadcaste. Teraz sa číta z vopred spočítanej tabuľky jedného kola, takže cena nezávisí od dĺžky trate. <code>EtaEstimator</code>. Zostavenie pohľadu pre 400 bežcov na 10 kolách (benchmark na PC): 53–70 ms → 8–11 ms.</p></div>
+      <div class="find"><span class="ic good" aria-hidden="true">2</span><h3><span class="pill good">78bdfbf</span> Živý pohľad sa počíta mimo zámku</h3><p>Pod zámkom sa už len skopíruje stav (polohy, poradie, segmenty). ETA, alarmy a samotné zostavenie pohľadu bežia mimo neho, takže príjem polohy čaká iba na kópiu. <code>EventRuntime.Capture</code>. Rampa v grafe 100 ms → &lt; 50 ms, p99 pri 200 mobiloch 121 → 18 ms.</p></div>
+      <div class="find"><span class="ic good" aria-hidden="true">3</span><h3><span class="pill good">78bdfbf</span> Farby segmentov v jednom prechode</h3><p>Farba každého úseku (najrýchlejší, osobný rekord) prechádzala všetky výsledky segmentu, takže náklady rástli s druhou mocninou počtu výsledkov. Teraz sa počítajú raz za broadcast jedným prechodom. <code>SegmentBoard.Snapshot</code>. Prejaví sa až pri dlhých okruhových pretekoch, toto meranie ho samostatne nevyčísľuje.</p></div>
+      <div class="find"><span class="ic good" aria-hidden="true">4</span><h3><span class="pill good">78bdfbf</span> Cache device tokenov</h3><p>Overený token si server pamätá 10 minút, takže request už nečaká na DB pripojenie. Zrušenie alebo nové vydanie tokenu platí okamžite. <code>DeviceTokenCache</code>. Fronta na DB pripojenie na schodoch 726 → 0, hromadný štart so známymi tokenmi p99 960 → 49 ms.</p></div>
+      <div class="find"><span class="ic good" aria-hidden="true">5</span><h3><span class="pill good">acaa272</span> Tokeny živých pretekov načítané vopred</h3><p>Služba na pozadí načíta tokeny každého živého preteku pri jeho spustení aj po reštarte servera a každých 5 minút ich obnovuje, takže z cache nikdy nevypršia. <code>DeviceTokenWarmer</code>. Studený štart 1 000 mobilov: p99 3,86 s → 77 ms, fronta na DB 718 → 0.</p></div>
+      <div class="find"><span class="ic info" aria-hidden="true">i</span><h3>Ako sme to overili</h3><p>Obe verzie sme zmerali rovnakým plánom na rovnakom stroji a so seedom v rámci limitu aplikácie (10 kôl). Prvá kampaň mala 400 kôl, a preto ETA nafúklo. Testy pribudli pre ETA cez viac kôl, farby segmentov, cache aj prednačítanie tokenov (proti PostgreSQL).</p></div>
+    </div>
+  </div>
+
+
+  <div class="grid2">
+    <div class="card"><div id="cmp-sync"></div></div>
+    <div class="card"><h3>Odtlačok zámku zmizol</h3>
+      <p class="take">Pôvodná verzia: request, ktorý príde počas zostavovania živého pohľadu, čaká, kým sa zostavovanie skončí. Medián tvorí rampu dlhú <b id="cmp-B-b"></b> na začiatku každého 1,5 s taktu. Opravená verzia drží zámok len na čas kópie stavu, rampa klesla pod rozlíšenie grafu (<b id="cmp-B-a"></b>) a medián leží na podlahe.</p>
+      <p style="font-size:13.5px;color:var(--ink2)">Rovnaký jav vidno aj v spektre: latencia pôvodnej verzie má na takte broadcastu (0,67 Hz) a jeho harmonických čiaru <b id="cmp-line-b"></b> nad šumom, opravená <b id="cmp-line-a"></b>. Zvyšok čiary je práca, ktorá v takte prebieha naďalej (serializácia a odoslanie pohľadu), ale už neblokuje príjem polôh.</p>
+      <div id="cmp-psd"></div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card"><div id="cmp-cap"></div>
+      <p class="note">Nad 1 490 mobilmi (300 req/s) posielajú tí istí prihlásení bežci častejšie ako raz za 5 s. Ide o záťaž zodpovedajúcu väčšiemu počtu mobilov, nie o väčšie prihlásené pole. Schody končia na maxime generátora, nie na limite servera.</p></div>
+    <div class="card"><div id="cmp-imp-ok"></div><div id="cmp-imp-lat"></div>
+      <p class="take">Hromadný štart 1 000 mobilov v jednej sekunde: p99 odozvy <b id="cmp-ip99-b"></b> → <b id="cmp-ip99-a"></b> (<span id="cmp-ip99-x"></span>). Mobily už pred štartom posielali polohu, takže server ich tokeny pozná.</p>
+      <p class="take">Studený štart: 1 000 mobilov, ktoré server ešte nevidel (napríklad hneď po reštarte). Bez prednačítania tokenov išlo 1 000 overení naraz do databázy: p99 <b id="cmp-cold-b"></b>, fronta na DB pripojenie <span id="cmp-colddb-b"></span>, <span id="cmp-colderr-b"></span> chyby. Server teraz tokeny živých pretekov načíta vopred a každých 5 minút ich obnovuje: p99 <b id="cmp-cold-a"></b> (<span id="cmp-cold-x"></span>), fronta <span id="cmp-colddb-a"></span>, chyby <span id="cmp-colderr-a"></span>.</p>
+      <p class="note">Merané samostatne: kľud a tri štarty po 1 000 mobiloch na verzii s cache tokenov (<code>78bdfbf</code>) a s prednačítaním (<code>acaa272</code>). Druhý štart s prednačítaním (p99 0,6 s) padol na beh plánovanej úlohy servera, ktorá vtedy zabrala 1,7 jadra.</p></div>
+  </div>
+
+  <div class="card"><h3>Prečo: štyri príčiny, štyri čísla</h3><div id="cmp-why"></div>
+    <p class="note">Prvá kampaň (sekcie 01–E7) bežala so 400 kolami okruhu, čo je nad limitom aplikácie (10). Odhad ETA, ktorý prechádzal zvyšok trate po 100 m, bol preto ~40× drahší ako v reálnom preteku a zámok držal ~1 s. Pôvodné čísla nižšie platia pre tento extrém. Porovnanie v tejto sekcii je na realistickom pretekovom nastavení. Builds: pôvodná <code>68fceb1</code>, opravená <code>78bdfbf</code>.</p></div>
+</section>
+
+<section id="zaznam">
+  <div class="sh"><span class="no">01</span><h2>Záznam merania</h2><span class="tag">13 synchronizovaných kanálov · 1 s · min/max obálka</span></div>
+  <p class="intro">Pohľad ako na viackanálový rekordér: všetky kanály zdieľajú časovú os servera. Ťahaním vyberiete úsek, ktorý sa priblíži vo všetkých kanáloch naraz, dvojklik vráti celý beh. Krivky sa kreslia ako min/max obálka po pixeloch, takže ani pri celom behu nezmizne žiadna špička.</p>
+  <div class="zoombar" id="zoombar"><span>Priblížiť:</span></div>
+  <div class="card strip" id="strip"></div>
+</section>
+
+<section id="zamok">
+  <div class="sh"><span class="no">02</span><h2>Príčina: jeden zámok a 1,5-sekundový takt</h2><span class="tag">synchrónne priemerovanie voči cyklu broadcastu</span></div>
+  <p class="intro">Každý request sme zaradili podľa toho, koľko času uplynulo od začiatku posledného zostavovania živého pohľadu (časová pečiatka <code>at</code> vzniká vo vnútri zámku runtime). Ide o rovnaký postup ako synchrónne priemerovanie voči otáčkovému impulzu: všetko, čo je viazané na takt broadcastu, sa sčíta, zvyšok sa vypriemeruje.</p>
+  <div class="grid2">
+    <div class="card"><div id="sync"></div></div>
+    <div class="card"><h3>Čo z grafu vyplýva</h3>
+      <p class="take">Request, ktorý príde <b>t</b> sekúnd po začiatku zostavovania, čaká <b>B − t</b>. Medián leží na priamke so sklonom −1 a padá na podlahu ~3 ms pri <b>B ≈ <span data-sync="E4 chirp"></span></b>. To je čas, počas ktorého <code>EventRuntime.BuildLiveView</code> drží <code>lock (_lock)</code>.</p>
+      <p style="font-size:13.5px;color:var(--ink2)">Zostavenie pohľadu pre 400 bežcov (poradie, odstupy, ETA, segmenty) trvá na Celerone približne sekundu z 1,5 s taktu. Počas toho čaká na rovnaký zámok každý <code>Ingest</code>, takže ~⅔ času aplikácia polohy neprijíma. Nejde o nedostatok CPU: v kľudovej fáze s plným poľom je obsadené len ~55 % CPU, a predsa má medián latencie 200 ms.</p>
+      <p style="font-size:13.5px;color:var(--ink2)">Rovnaký mechanizmus vysvetľuje hradlovanie príjmu v chirpe (E4) a čiary broadcastu v spektre (A1). Pod záťažou sa naň nabaľuje druhý efekt: na každý request treba jedno DB pripojenie (vyhľadanie device tokenu), takže pri saturácii čakalo v poole Npgsql v špičke až ~700 požiadaviek.</p>
+      <p class="note"><b>Opravené</b> (<code>78bdfbf</code>, <code>acaa272</code>): pod zámkom sa už len kopíruje stav, ETA sa číta z tabuľky a device tokeny sú v pamäti. Výsledok pred a po je v <a href="#zmena">00b</a>.</p></div>
+  </div>
+</section>
+
+<section id="pole">
+  <div class="sh"><span class="no">E1</span><h2>Veľkosť poľa: koľko stojí jeden bežec</h2><span class="tag">4 kroky (400 prihlásených: 98–390 aktívnych; 1 500 prihlásených: 100–500) · mobil posiela polohu každých 5 s</span></div>
+  <p class="intro">Obdoba rádovej analýzy: nemeníme rýchlosť požiadaviek, ale počet bežcov, ktorí majú polohu. Každých 1,5 s server pre organizátora zostavuje kompletný živý pohľad (poradie, odstupy, ETA, segmenty) a posiela ho cez SignalR.</p>
+  <div class="grid2">
+    <div class="card"><div id="field-cpu"></div></div>
+    <div class="card"><div id="field-bc"></div></div>
+    <div class="card"><div id="field-p99"></div></div>
+    <div class="card"><div id="field-kb"></div></div>
+  </div>
+  <div class="card"><h3>Tabuľka</h3><p class="sub">Prvých 30 s každého kroku je vynechaných (prechodový dej).</p><div id="field-tbl"></div></div>
+  <p class="take">Na tomto HW, popri 37 ďalších službách, zvládne <b>pretek so 400 prihlásenými ~290 aktívnych mobilov</b> (p99 1,3 s, bez chýb), pri 390 je to už 34 % chýb. <b>Pretek s 1 500 prihlásenými zvládne ~250 aktívnych</b>, pri 500 sa zrúti (76 % chýb, p50 8,8 s).</p>
+  <p class="take">CPU aplikácie rastie lineárne s počtom <i>aktívnych</i> bežcov a v oboch pretekoch takmer rovnako: o 1,5–1,8 ms CPU za sekundu na každého bežca. Na jeden broadcast (1,5 s) to vychádza ~2,2–2,7 ms CPU na bežca. Mobil pritom posiela iba 0,2 požiadavky/s, takže väčšina tejto práce nie je príjem polohy, ale prepočet živého pohľadu.</p>
+  <p class="note">Cena nezávisí len od počtu aktívnych mobilov, ale aj od počtu prihlásených: organizátor dostáva v každej správe celé pole. Pri 1 500 prihlásených má LiveUpdate ~0,7 MB aj vtedy, keď ešte nikto nebeží. Kľudová spotreba servera bez testu je ~0,7 jadra (ostatné služby).</p>
+</section>
+
+<section id="skok">
+  <div class="sh"><span class="no">E2</span><h2>Skoková odozva</h2><span class="tag">0 → 78 req/s (celé pole po 5 s) pri plnom poli, 6 min, potom 0</span></div>
+  <p class="intro">Klasický skok na vstupe. Sledujeme nábeh CPU, správanie latencie a tepelnú odozvu čipu. Teplotu prekladáme modelom prvého rádu a odhadujeme jeho časovú konštantu.</p>
+  <div class="grid2">
+    <div class="card"><div id="step-cpu"></div></div>
+    <div class="card"><div id="step-lat"></div></div>
+    <div class="card"><div id="step-temp"></div></div>
+    <div class="card"><div id="step-freq"></div></div>
+  </div>
+  <div class="mini">
+    <div>CPU aplikácie pred skokom<b><span data-v="step.app_metrics.base" data-d="2"></span> jadra</b></div>
+    <div>CPU aplikácie ustálené<b><span data-v="step.app_metrics.final" data-d="2"></span> jadra</b></div>
+    <div>p99 ustálené<b><span data-v="step.lat_metrics.p99_steady" data-ms></span></b></div>
+    <div>503 počas skoku<b><span data-v="step.errors.n503"></span></b></div>
+    <div>Dobeh fronty<b><span data-v="step.drain.after_s" data-d="0"></span> s</b></div>
+    <div>Tepelná τ<b><span data-v="step.temp_fit.tau" data-d="0"></span> s</b></div>
+    <div>ΔT ustálené<b><span data-v="step.temp_fit.dT" data-d="1"></span> °C</b></div>
+  </div>
+  <p class="take">CPU aplikácie pri skoku takmer nevidno: aplikácia už pred skokom spotrebuje ~0,65 jadra len na broadcast plného poľa. Skok o 78 req/s pridá iba ~0,1 jadra. Odozvu však nesie latencia a chyby: počas skoku dostalo 503 <b><span data-v="step.errors.n503"></span></b> požiadaviek (<span data-v="step.errors.rate" data-d="3"></span> podiel) a fronta dobiehala ešte <b><span data-v="step.drain.after_s" data-d="0"></span> s</b> po vypnutí záťaže.</p>
+  <p class="note">Teplota sa správa ako čistý systém prvého rádu s τ ≈ 18 s a ΔT ≈ 3 °C. Senzor coretemp má rozlíšenie 1 °C, preto je krivka schodovitá a fit sa robí na 1 s priemere.</p>
+</section>
+
+<section id="kapacita">
+  <div class="sh"><span class="no">E3</span><h2>Kapacita: schody do saturácie</h2><span class="tag">90 s na schod · open-loop · stop pri p99 &gt; 1,5 s alebo chybách &gt; 2 %</span></div>
+  <p class="intro">Generátor posiela požiadavky v plánovaných časoch bez ohľadu na odpovede (open loop), takže zahltený server nemôže skryť svoje fronty (žiadny <i>coordinated omission</i>). Latencia sa meria na serveri v nginx pre každý request.</p>
+  <div class="grid3">
+    <div class="card"><div id="cap-lat"></div></div>
+    <div class="card"><div id="cap-cpu"></div></div>
+    <div class="card"><div id="cap-mj"></div></div>
+  </div>
+  <div class="card"><h3>Schody</h3><p class="sub">Prvých 15 s každého schodu je prechodový dej. Červený riadok porušil kritérium (p99 &gt; 1,5 s alebo chyby &gt; 2 %).</p><div id="cap-tbl"></div></div>
+  <p class="take">Saturácia prišla už na druhom schode. Pri 25 req/s je p99 1,1 s bez chýb, pri 50 req/s je 11 % chýb (503 z fronty perzistencie) a p99 17 s. Udržateľná kapacita pri 400 prihlásených je teda <b>~25 req/s</b>, čo zodpovedá ~125 mobilom posielajúcim polohu každých 5 s. Body z E1 (sivé) ležia nižšie, napríklad 60 req/s s p99 1,3 s. Vtedy však ešte nemali polohu všetci bežci.</p>
+  <p class="note">Rozdiel E1 vs. E3 je stav poľa: E3 bežal, keď už malo polohu všetkých 390 bežcov. Živý pohľad sa prepočítava pre celé pole (aj pre bežcov, ktorí práve neposielajú), takže na príjem polôh ostáva menej času mimo zámku. Priemerná energia na request nad kľudovým príkonom (vrátane broadcastu plného poľa) je 70–90 mJ. Marginálna energia jedného requestu z chirpu (E4) je ~12 mJ.</p>
+</section>
+
+<section id="bode">
+  <div class="sh"><span class="no">E4</span><h2>Prenosová funkcia: chirp a Bodeho diagram</h2><span class="tag">logaritmický sweep 1/400 → 1/4 Hz · 20 min</span></div>
+  <p class="intro">Záťaž sme modulovali sínusom s rastúcou frekvenciou a server sme identifikovali ako sústavu. Vstupom je skutočne odoslaný tok požiadaviek, výstupmi sú CPU, príkon a teplota. Keďže okamžitú fázu budenia φ(t) poznáme, prenos odhadujeme sledovacím filtrom (lock-in, ako pri order trackingu): pri každej zo 40 frekvencií fitujeme vstup aj výstup funkciami sin φ a cos φ v okne aspoň 4 periód. H = Y/U, pásmo je ±2σ odhadu amplitúdy a R² fitu ukazuje, aký podiel rozptylu výstupu budenie vysvetľuje.</p>
+  <div class="card"><div id="bode-trace"></div><div id="bode-trace2"></div></div>
+  <div class="grid3">
+    <div class="card"><div id="bode-app-m"></div><div id="bode-app-p"></div><div id="bode-app-c"></div></div>
+    <div class="card"><div id="bode-psys-m"></div><div id="bode-psys-p"></div><div id="bode-psys-c"></div></div>
+    <div class="card"><div id="bode-temp-m"></div><div id="bode-temp-p"></div><div id="bode-temp-c"></div></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><div id="portrait"></div></div>
+    <div class="card"><h3>Čo z toho vyplýva</h3>
+      <p class="take">Aplikácia má plochý prenos <b>~1,5 ms CPU na request</b> s fázou okolo 0° v celom pásme 0,006–0,2 Hz. Je to statická (bezpamäťová) sústava: CPU reaguje na záťaž okamžite. Príkon platformy reaguje marginálne ~12 mJ na request (medián, rozsah 8–36 mJ). Priemer nad kľudom v E3 (70–90 mJ) je vyšší, lebo obsahuje aj broadcast plného poľa.</p>
+      <p style="font-size:13.5px;color:var(--ink2)">R² je nízke, lebo odozvu na budenie ±20 req/s prekrýva „šum“ broadcastu (±0,5 jadra pri 0,67 Hz) a ostatných služieb. Jednotlivé body sú preto neisté (R² v mediáne 0,004, fáza od −40° do +80°). Spoľahlivý je až súhrn cez 40 frekvencií: medián 1,5 ms/req a fáza −2°, podobne ako pri meraní s nízkym SNR a priemerovaním.</p>
+      <p style="font-size:13.5px;color:var(--ink2)">Teplota: zo skoku vychádza model 1. rádu (τ ≈ 18 s, f<sub>c</sub> ≈ 0,009 Hz, statické zosilnenie ~0,04 °C/(req/s)). Chirp s amplitúdou ±20 req/s však mení teplotu len o desatiny stupňa, čo je pod kvantizačným krokom senzora (1 °C). Namerané ~0,014 °C/(req/s) je preto už pod f<sub>c</sub> trikrát pod modelom a nad f<sub>c</sub> neklesá. Teplotný kanál je pri tomto budení na hranici rozlíšenia prístroja.</p>
+      <p class="note">Fázový portrét vľavo: trajektória príkon → teplota počas chirpu. Pomalé cykly sa otvárajú do hysteréznej slučky (teplota zaostáva za príkonom).</p></div>
+  </div>
+</section>
+
+<section id="impulz">
+  <div class="sh"><span class="no">E5</span><h2>Impulz: hromadný štart</h2><span class="tag">celé pole (390 mobilov) v jednej sekunde · 3 opakovania · priemerovanie</span></div>
+  <p class="intro">Výstrel štartéra: všetky mobily pošlu polohu v tej istej sekunde. Impulz sme zopakovali trikrát a odozvy sme spriemerovali, ako pri meraní rázovým kladivom.</p>
+  <div class="grid2">
+    <div class="card"><div id="imp-rate"></div></div>
+    <div class="card"><div id="imp-cpu"></div></div>
+  </div>
+  <div class="card"><h3>Jednotlivé impulzy (latencia z pohľadu mobilu)</h3><div id="imp-tbl"></div></div>
+  <p class="take">Celé pole (390 mobilov) v jednej sekunde server prežil: prijal 99 % polôh a 503 dostali iba 1–3 požiadavky. Fronta sa však vyprázdňovala <b>4,6–7,8 s</b> a medián latencie skákal medzi 1,1 a 5,5 s podľa toho, do ktorej fázy broadcast cyklu impulz trafil. Tri opakovania sa preto líšia viac, než by naznačoval šum. Odpovede navyše neprichádzajú plynulo, ale v dávkach s odstupom ~1,5 s: fronta sa vyprázdňuje iba v medzerách medzi zostavovaniami pohľadu, keď je zámok voľný.</p>
+</section>
+
+<section id="fanout">
+  <div class="sh"><span class="no">E6</span><h2>Diváci: fan-out SignalR</h2><span class="tag">0 → N divákov · konštantný príjem polôh</span></div>
+  <p class="intro">Každý divák dostáva verejný pohľad na pretek cez WebSocket. Pri zvyšovaní počtu divákov sledujeme, kde sa zlomí sieť, CPU alebo takt broadcastu.</p>
+  <div class="grid3">
+    <div class="card"><div id="fan-bw"></div></div>
+    <div class="card"><div id="fan-cpu"></div></div>
+    <div class="card"><div id="fan-lag"></div></div>
+  </div>
+  <div class="card"><div id="fan-tbl"></div></div>
+  <p class="take">Diváci sú pre CPU takmer zadarmo: 100 divákov pridalo aplikácii ~0,05 jadra, lebo SignalR serializuje správu pre skupinu iba raz. Drahé je pásmo: verejný pohľad má ~220 kB a chodí 0,67× za sekundu, takže každý divák stojí ~0,15 MB/s. <b>100 divákov ≈ 15 MB/s ≈ 120 Mbit/s</b>, čo je skôr limit domácej linky a Cloudflare tunela než NUC.</p>
+  <p class="note">Oneskorenie ~31 s je nastavené oneskorenie pre divákov (30 s) plus ~1 s doručenie. Kroky 5, 35 a 75 divákov majú vyššie celkové CPU aj p99, no CPU aplikácie sa nemení: ide o pozadie ostatných služieb servera. Sweep skončil na plánovanom maxime (100), limit sa nedosiahol.</p>
+</section>
+
+<section id="soak">
+  <div class="sh"><span class="no">E7</span><h2>Pretek: 30 minút v ustálenom stave</h2><span class="tag">25 req/s · 25 divákov · 30 min</span></div>
+  <p class="intro">30 minút stredného preteku na hranici kapacity zmeranej v E3: 25 req/s (125 mobilov po 5 s) a 25 divákov, celé pole 390 bežcov s polohou.</p>
+  <div class="card"><div class="mini">
+    <div>Chyby<b>0</b></div><div>p50 servera<b>0,40 s</b></div><div>p99 servera<b>2,0 s</b></div>
+    <div>Mobil → organizátor p50<b>1,81 s</b></div><div>p99<b>3,75 s</b></div>
+    <div>CPU servera<b>1,38 / 2</b></div><div>Príkon<b>10,6 W</b></div><div>Teplota<b>61 °C (max 65)</b></div>
+    <div>GC pauzy spolu<b>4,6 s</b></div>
+  </div>
+  <p class="take">Ustálený stav je stabilný, ale bez rezervy: dlhší beh pri tých istých 25 req/s dal p99 2,0 s, čo je nad kritériom 1,5 s z 90-sekundového schodu. Bez chýb, lineárny trend pamäte aplikácie +8,5 MB za 30 min (≈2,7 %), teplota bez driftu. Latenciu však určuje zámok a takt broadcastu: p99 2 s pri 25 req/s je cena za ~1 s, počas ktorej sa pohľad zostavuje. <a href="#zaznam" data-zoom="E7">Priblížiť E7 v zázname →</a></p></div>
+</section>
+
+<section id="spektra">
+  <div class="sh"><span class="no">A1</span><h2>Spektrálna analýza</h2><span class="tag">CPU vzorkované 10 Hz · Nyquist 5 Hz</span></div>
+  <p class="intro">Server, ktorý „nič nerobí“, má bohaté spektrum: každá periodická úloha (takt broadcastu, susedné služby, naše vlastné merania) sa v ňom ukáže ako čiara. Spektrogram celého behu je obdoba Campbellovho diagramu. Pri 400 bežcoch zostavenie pohľadu (~1 s) ešte nepresiahne takt, takže čiara broadcastu stojí na 0,667 Hz. Pri 1 500 bežcoch v prvom behu sa perióda predĺžila až na 1,7 s.</p>
+  <div class="card"><div id="psd"></div></div>
+  <div class="grid2">
+    <div class="card"><div id="sgram"></div></div>
+    <div class="card"><div id="psd-w"></div></div>
+  </div>
+  <p class="take">Počas preteku dominuje <b>0,667 Hz</b> (takt broadcastu 1,5 s) s harmonickými 2×, 3×, 5× a 6×. Pílovitý priebeh záťaže (≈1 s práce, 0,5 s pokoja) má bohaté vyššie harmonické, presne ako obdĺžnikový signál so striedou ⅔.</p>
+  <p class="note">Spektrum prezradilo aj susedov. Čiara <b>~11,5 s</b> (0,088 Hz) s harmonickými patrí MQTT brokeru, ktorý v tomto takte na ~1 s vyťaží jedno jadro (overené dodatočným meraním CPU po kontajneroch po teste). V zázname („ostatné služby“) sú navyše bloky presne každých <b>300 s</b>, trvajúce striedavo ~30 a ~80 s pri ~1,25 jadra: plánovaná úloha na hostiteľovi, ktorá prehľadáva systémový žurnál (identifikovaná dodatočným meraním procesov). Čiary 1 Hz v kľude pochádzajú z našich vlastných 1 s meraní.</p>
+</section>
+
+<section id="latencia">
+  <div class="sh"><span class="no">A2</span><h2>Latencia</h2><span class="tag">server (nginx) · end-to-end (mobil → organizátor)</span></div>
+  <div class="card"><div id="heat"></div></div>
+  <div class="grid2">
+    <div class="card"><div id="e2e"></div><p class="note">10 sondážnych mobilov posiela polohu každých 5 s. Meria sa čas od odoslania polohy po jej prvý výskyt v LiveUpdate u organizátora. Obsahuje teda čakanie na najbližší broadcast (vzorkovanie a držanie). Schodovitá CDF v kľude vzniká tak, že 5 s sond a 1,5 s takt sú v pomere 10 : 3, takže sondy trafia len 3 rôzne fázy cyklu (ide o stroboskopický efekt).</p></div>
+    <div class="card"><div id="wifi"></div><p class="note">Generátor záťaže bežal na PC pripojenom cez Wi-Fi. Primárna latencia sa preto meria na serveri a Wi-Fi uvádzame ako samostatný kanál šumu prístroja.</p></div>
+  </div>
+  <p class="take">Heatmapa nemá zvon, ale <b>pás od ~3 ms do ~1 s</b> s rovnomernou hustotou. To je podpis zámku: čakanie je rovnomerne rozdelené medzi 0 a B. End-to-end: v kľude s prázdnym poľom p50 0,80 s, čo je takmer presne polovica 1,5 s taktu (čisté vzorkovanie s držaním). Počas preteku p50 1,8 s a p99 3,7 s = čakanie na zámok + čakanie na ďalší takt + ~1 s zostavovanie + doručenie.</p>
+</section>
+
+<section id="jitter">
+  <div class="sh"><span class="no">A3</span><h2>Jitter a susedia</h2><span class="tag">čo test robil zvyšku domácnosti</span></div>
+  <p class="intro">Na tom istom stroji beží Home Assistant, DNS celej siete a verejné weby. Slučka na 1 kHz meria, o koľko neskôr ju plánovač zobudí (podobne ako <code>cyclictest</code>). DNS sonda na 2 Hz zároveň slúžila ako kill switch testu (6 dotazov po sebe nad 250 ms → stop).</p>
+  <div class="grid2">
+    <div class="card"><div id="jit"></div><div id="jit-tbl"></div></div>
+    <div class="card"><div id="dns"></div><div id="dns-tbl"></div></div>
+  </div>
+  <p class="take">Jitter plánovača je vo všetkých režimoch rovnaký: p99 ~0,75 ms, max 7–9 ms. DNS celej siete odpovedalo s p50 0,4–0,9 ms a p99 do 4,3 ms, nestratil sa ani jeden dotaz a kill switch sa nespustil. Test neobmedzil zvyšok domácnosti.</p>
+  <p class="note">Aplikácia je obmedzená zámkom, nie CPU. Ani pri saturácii nevyťaží obe jadrá natoľko, aby trpel plánovač. Wi-Fi medzi PC a serverom: p50 1,45 ms, p99 21 ms, max 270 ms, 5 stratených zo 64 567 pingov. Preto sa primárne meria na serveri.</p>
+</section>
+
+<section id="gc">
+  <div class="sh"><span class="no">A4</span><h2>Korelácie: čo ťahá latenciu</h2></div>
+  <div class="grid2">
+    <div class="card"><div id="xcorr"></div></div>
+    <div class="card"><h3>GC nie je vinník</h3>
+      <p class="take">Počas 30-minútového preteku trvali všetky GC pauzy spolu <b>4,6 s</b> (0,25 % času) pri 182 kolekciách gen0 a 56 gen2. Korelácia GC pauzy s p99 je slabá (r ≈ 0,13). Perióda broadcastu koreluje silnejšie (r ≈ 0,29).</p>
+      <p style="font-size:13.5px;color:var(--ink2)">Latenciu teda ťahá synchrónna práca pod zámkom, nie správa pamäte. Pri 1 s rozlíšení sa navyše korelácia s taktom 1,5 s čiastočne rozmaže (aliasing); priamy dôkaz je fázovo rozlíšený graf v sekcii 02.</p></div>
+  </div>
+</section>
+
+<section id="metodika">
+  <div class="sh"><span class="no">M</span><h2>Metodika a prístroje</h2></div>
+  <div class="grid2">
+    <div class="card">
+      <h3>Zostava</h3>
+      <p class="sub">Samostatný testovací stack (rovnaký image ako produkcia, vlastná databáza, simulované e-maily) na <code>192.168.1.2:18080</code>, mimo Cloudflare. Produkčné dáta neboli dotknuté.</p>
+      <ul style="font-size:13.5px;margin:6px 0 0;padding-left:18px;color:var(--ink2)">
+        <li><b>Generátor</b>: vlastný .NET 10 nástroj <code>LoadLab</code> na Windows PC. Plánovač na dedikovanom vlákne integruje cieľový tok R(t) (open loop) a latenciu meria od plánovaného času odoslania.</li>
+        <li><b>Pretek</b>: 400 potvrdených bežcov s vlastnými tokenmi (v 1. behu 1 500), 10 z nich sú sondy. Polohy ležia na reálnom okruhu (5,7 km, Žilina) a rýchlosti sú 2,4–4,6 m/s.</li>
+        <li><b>Porovnanie (00b)</b>: 1 500 bežcov, 10 kôl (limit aplikácie), rovnaký plán proti dvom obrazom aplikácie (<code>68fceb1</code> a <code>78bdfbf</code>). Studený štart zvlášť proti <code>78bdfbf</code> a <code>acaa272</code>. Každý beh mal čerstvú databázu.</li>
+        <li><b>Hostiteľ</b>: sampler v Pythone na absolútnom časovom pláne 10 Hz. Číta cgroup v2, <code>/proc</code>, RAPL (package, core, psys), hwmon, PSI a diskstats.</li>
+        <li><b>.NET</b>: <code>dotnet-counters</code> v sidecar kontajneri (zdieľaný PID namespace, diagnostický socket), 1 s.</li>
+        <li><b>PostgreSQL</b>: <code>pg_stat_database/wal/checkpointer</code> cez <code>psql \watch 1</code>.</li>
+        <li><b>nginx</b>: CSV log s <code>$request_time</code> a <code>$upstream_response_time</code> pre každý request, hlavička <code>X-T</code> so serverovým časom.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Časová synchronizácia</h3>
+      <p class="sub">Hodiny PC voči serveru: offset <b><span data-v="clock.offset_ms" data-d="0"></span> ms</b> a drift <b><span data-v="clock.ppm" data-d="1"></span> ppm</b> (≈19 ms za hodinu). Lineárna korekcia necháva reziduum <span data-v="clock.resid_ms" data-d="1"></span> ms. Odhad je z najrýchlejších odpovedí v 10-minútových oknách (hlavička X-T, stred RTT). Všetky kanály sú na časovej osi servera.</p>
+      <div id="clk"></div>
+      <p class="note">Obmedzenia: generátor bežal cez Wi-Fi (latenciu klienta zaťažuje šum siete, preto primárne údaje pochádzajú zo servera). Server počas testu obsluhoval aj bežnú domácu prevádzku. Sampler, jitter slučka a meracie sidecary bežali na tom istom stroji a ich spotrebu sme samostatne nekvantifikovali (ich 1 s takt je vidieť v spektre). Experimenty okrem impulzov bežali raz, rozptyl uvádzame v rámci schodu.</p>
+    </div>
+  </div>
+  <div class="card"><h3>Kanály hostiteľa (10 Hz)</h3><div class="chan">
+    <div><b>CPU spolu (cgroup root)</b><span>µs</span></div><div><b>CPU na jadro busy/total</b><span>jiffies</span></div><div><b>Takt jadra 0/1</b><span>kHz</span></div>
+    <div><b>Teplota package, jadro 0/1</b><span>m°C</span></div><div><b>Teplota ACPI, NVMe</b><span>m°C</span></div><div><b>RAPL package / core / psys</b><span>µJ</span></div>
+    <div><b>PSI cpu/mem/io some, io full</b><span>µs</span></div><div><b>eno1 RX/TX</b><span>B</span></div><div><b>NVMe čítanie/zápis, io_ms</b><span>sektory</span></div>
+    <div><b>Prepnutia kontextu, prerušenia</b><span>počet</span></div><div><b>Run queue, load1, MemAvailable</b><span>–</span></div><div><b>cgroup app/db/nginx: CPU, pamäť, throttling</b><span>µs, B</span></div>
+    <div><b>Oneskorenie vzorky samplera</b><span>µs</span></div><div><b>Jitter 1 kHz slučky (histogram/s)</b><span>µs</span></div><div><b>DNS RTT 2 Hz</b><span>µs</span></div>
+  </div></div>
+</section>
+
+<footer>PositionTracker · lab463.com · Report vygenerovaný skriptmi <code>perf/analysis/analyze.py</code>, <code>compare.py</code>, <code>cold.py</code> a <code>perf/report/build.py</code> zo surových meraní. Všetky čísla pochádzajú z dátových súborov stránky. <a href="/tracker/">← späť na PositionTracker</a></footer>

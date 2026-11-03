@@ -1,0 +1,106 @@
+{
+ "title": {
+  "sk": "NUC pod záťažou · PositionTracker · lab463",
+  "en": "NUC under load · PositionTracker · lab463"
+ },
+ "description": {
+  "sk": "Záťažový a výkonnostný test aplikácie PositionTracker na Intel NUC s Celeron N4505: 40 kanálov na 10 Hz, spektrá, Bodeho diagram, skoková a impulzná odozva.",
+  "en": "Load and performance test of PositionTracker on an Intel NUC with a Celeron N4505: 40 channels at 10 Hz, spectra, a Bode plot, step and impulse responses."
+ },
+ "brand": {
+  "sk": "NUC pod záťažou",
+  "en": "NUC under load"
+ },
+ "grpOverview": {
+  "sk": "Prehľad",
+  "en": "Overview"
+ },
+ "nav00": {
+  "sk": "Súhrn a zistenia",
+  "en": "Summary and findings"
+ },
+ "nav00b": {
+  "sk": "Čo meranie zmenilo",
+  "en": "What the measurement changed"
+ },
+ "nav01": {
+  "sk": "Záznam merania",
+  "en": "Measurement record"
+ },
+ "nav02": {
+  "sk": "Príčina: jeden zámok",
+  "en": "Root cause: one lock"
+ },
+ "grpExperiments": {
+  "sk": "Experimenty",
+  "en": "Experiments"
+ },
+ "navE1": {
+  "sk": "Veľkosť poľa",
+  "en": "Field size"
+ },
+ "navE2": {
+  "sk": "Skoková odozva",
+  "en": "Step response"
+ },
+ "navE3": {
+  "sk": "Kapacita",
+  "en": "Capacity"
+ },
+ "navE4": {
+  "sk": "Prenosová funkcia",
+  "en": "Transfer function"
+ },
+ "navE5": {
+  "sk": "Impulz: hromadný štart",
+  "en": "Impulse: mass start"
+ },
+ "navE6": {
+  "sk": "Diváci (fan-out)",
+  "en": "Spectators (fan-out)"
+ },
+ "navE7": {
+  "sk": "Pretek (soak)",
+  "en": "Race (soak)"
+ },
+ "grpAnalysis": {
+  "sk": "Analýza",
+  "en": "Analysis"
+ },
+ "navA1": {
+  "sk": "Spektrá",
+  "en": "Spectra"
+ },
+ "navA2": {
+  "sk": "Latencia",
+  "en": "Latency"
+ },
+ "navA3": {
+  "sk": "Jitter a susedia",
+  "en": "Jitter and neighbours"
+ },
+ "navA4": {
+  "sk": "Korelácie",
+  "en": "Correlations"
+ },
+ "navM": {
+  "sk": "Metodika",
+  "en": "Methodology"
+ },
+ "language": {
+  "sk": "Jazyk",
+  "en": "Language"
+ },
+ "theme": {
+  "sk": "Téma",
+  "en": "Theme"
+ },
+ "light": {
+  "sk": "Svetlý",
+  "en": "Light"
+ },
+ "dark": {
+  "sk": "Tmavý",
+  "en": "Dark"
+ }
+}

@@ -561,7 +561,7 @@ def identify(fr, df, fbc):
     cands += [(k * 1.0, f"1 s meranie {k}×" if k > 1 else "1 s meranie (sidecary)") for k in range(1, 6)]
     cands += [(k / 15, f"Prometheus 15 s {k}×" if k > 1 else "Prometheus scrape 15 s") for k in range(1, 6)]
     cands += [(k / 5, f"sondy 5 s {k}×" if k > 1 else "sondy / mobily 5 s") for k in range(1, 6)]
-    cands += [(k / 11.65, "MQTT broker 11,6 s" if k == 1 else f"MQTT broker {k}×") for k in range(1, 5)]  # identified per container
+    cands += [(k / 11.5, "MQTT broker ~11,5 s" if k == 1 else f"MQTT broker {k}×") for k in range(1, 5)]  # identified per container (~11.5 s)
     cands += [(1 / 300, "5 min (cron / checkpoint)"), (1 / 60, "1 min")]
     best = min(cands, key=lambda c: abs(c[0] - fr))
     return best[1] if abs(best[0] - fr) <= 2 * df else None
