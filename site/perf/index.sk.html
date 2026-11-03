@@ -203,7 +203,6 @@ footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);font-si
     <a href="#jitter"><span class="k">A3</span>Jitter a susedia</a>
     <a href="#gc"><span class="k">A4</span>Korelácie</a>
     <a href="#metodika"><span class="k">M</span>Metodika</a>
-    <a href="#autor"><span class="k">✎</span>Poznámka autora</a>
   </nav>
   <div class="meta" id="sidemeta"></div>
 </aside>
@@ -494,14 +493,6 @@ footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);font-si
     <div><b>Prepnutia kontextu, prerušenia</b><span>počet</span></div><div><b>Run queue, load1, MemAvailable</b><span>–</span></div><div><b>cgroup app/db/nginx: CPU, pamäť, throttling</b><span>µs, B</span></div>
     <div><b>Oneskorenie vzorky samplera</b><span>µs</span></div><div><b>Jitter 1 kHz slučky (histogram/s)</b><span>µs</span></div><div><b>DNS RTT 2 Hz</b><span>µs</span></div>
   </div></div>
-</section>
-
-<section id="autor">
-  <div class="sh"><span class="no">✎</span><h2>Poznámka autora: prečo spektrá a Bodeho diagram</h2><span class="tag">Martin Horný</span></div>
-  <div class="card">
-    <p class="intro">Pýtal si sa, prečo report vyzerá skôr ako diagnostika stroja než test webu. Lebo odtiaľ pochádzam. Niekoľko rokov som písal softvér na meranie vibrácií a elektrických parametrov: akcelerometre, vírivoprúdové a laserové snímače, snímače otáčok, prúdové kliešte. Spektrá, order tracking a Bodeho diagramy boli moja bežná práca.</p>
-    <p class="intro" style="margin-bottom:4px">A bolo to bez AI. Kto chcel písať taký softvér, musel rozumieť fyzike, signálom aj stroju, inak jeho kód veľmi presne počítal nesprávne veci. Tak som zmeral aj tento server. AI mi dnes pomohla s nástrojmi, ale čo merať a kedy výsledku neveriť, som musel vedieť sám.</p>
-  </div>
 </section>
 
 <footer>PositionTracker · lab463.com · Report vygenerovaný skriptmi <code>perf/analysis/analyze.py</code>, <code>compare.py</code>, <code>cold.py</code> a <code>perf/report/build.py</code> zo surových meraní. Všetky čísla pochádzajú z dátových súborov stránky. <a href="/tracker/">← späť na PositionTracker</a></footer>
