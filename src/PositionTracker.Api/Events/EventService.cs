@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using PositionTracker.Api.Accounts;
+using PositionTracker.Api.Auth;
 using PositionTracker.Api.Endpoints;
 using PositionTracker.Api.Operations;
 using PositionTracker.Api.Persistence;
@@ -33,7 +34,7 @@ namespace PositionTracker.Api.Events;
 /// </summary>
 public sealed class EventService(
     AppDbContext db, EventRegistry registry, RuntimeFactory factory, IEmailMode emailMode, TimeProvider clock,
-    ILogger<EventService> logger, EventServiceHooks? hooks = null)
+    ILogger<EventService> logger, EventServiceHooks? hooks = null, DeviceTokenCache? tokenCache = null)
 {
     public const int MaxNameLength = 120;
     public const int MaxGroupNameLength = 60;
@@ -412,6 +413,7 @@ public sealed class EventService(
         await db.Events.Where(e => e.Id == id).ExecuteDeleteAsync(ct); // the rest goes with the event (cascades)
         await tx.CommitAsync(ct);
 
+        tokenCache?.ForgetEvent(RuntimeFactory.RuntimeId(id)); // its device tokens went with it
         registry.Remove(RuntimeFactory.RuntimeId(id));
         logger.LogInformation("Event {EventId} ({State}) was deleted by its organizer.", RuntimeFactory.RuntimeId(id), ev.State);
         return null;

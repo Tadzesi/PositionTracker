@@ -137,4 +137,26 @@ public class SegmentBoardTests
         Assert.Equal(SegmentColour.Purple, board.ColourOf("b", 1, 0));
         Assert.Equal(SegmentColour.Green, board.ColourOf("c", 1, 0));
     }
+
+    [Fact]
+    public void A_snapshot_gives_every_result_the_colour_of_the_board()
+    {
+        var board = new SegmentBoard();
+        var rnd = new Random(7);
+        var times = new Dictionary<(string Id, int Lap, int Segment), TimeSpan>();
+        for (var n = 0; n < 600; n++)
+        {
+            var key = ($"p{rnd.Next(12)}", rnd.Next(1, 6), rnd.Next(4));
+            times[key] = S(60 + rnd.Next(40)); // equal times and replaced keys included
+            board.Record(key.Item1, key.Item2, key.Item3, times[key]);
+        }
+        times[("solo", 1, 9)] = S(50); // a segment only one participant has a result for
+        board.Record("solo", 1, 9, S(50));
+
+        var snapshot = board.Snapshot();
+
+        foreach (var ((id, lap, segment), time) in times)
+            Assert.Equal(board.ColourOf(id, lap, segment), snapshot.ColourOf(id, segment, time));
+        Assert.Throws<KeyNotFoundException>(() => snapshot.ColourOf("nobody", 0, S(1)));
+    }
 }

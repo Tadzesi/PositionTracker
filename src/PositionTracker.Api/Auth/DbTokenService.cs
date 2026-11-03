@@ -70,24 +70,37 @@ public sealed class DbTokenService(AppDbContext db, TimeProvider clock) : IToken
 /// <summary>
 /// The registered <see cref="ITokenService"/> (scoped): database events (canonical Guid ids) use
 /// <see cref="DbTokenService"/>, simulated events the in-memory <see cref="TokenService"/>, which never writes a row.
-/// Resolving tries memory first, then the database; revoking clears both.
-/// <para>The device ingest still resolves through the in-memory <see cref="TokenService"/> only; switching it to this
-/// service (database tokens surviving restarts) is Task 7.</para>
+/// Resolving tries memory first, then the <see cref="DeviceTokenCache"/>, then the database; issuing and revoking clear all.
 /// </summary>
-public sealed class DeviceTokens(TokenService memory, DbTokenService database) : ITokenService
+public sealed class DeviceTokens(TokenService memory, DbTokenService database, DeviceTokenCache cache, TimeProvider clock)
+    : ITokenService
 {
-    public Task<string> IssueAsync(string eventId, string participantId, CancellationToken ct) =>
-        DbTokenService.IsDatabaseId(eventId)
-            ? database.IssueAsync(eventId, participantId, ct)
-            : Task.FromResult(memory.Issue(eventId, participantId));
+    public async Task<string> IssueAsync(string eventId, string participantId, CancellationToken ct)
+    {
+        if (!DbTokenService.IsDatabaseId(eventId)) return memory.Issue(eventId, participantId);
+        cache.Forget(eventId, participantId); // issuing revokes the earlier tokens
+        return await database.IssueAsync(eventId, participantId, ct);
+    }
 
-    public async Task<(string EventId, string ParticipantId)?> ResolveAsync(string rawToken, CancellationToken ct) =>
-        memory.Resolve(rawToken) ?? await database.ResolveAsync(rawToken, ct);
+    public async Task<(string EventId, string ParticipantId)?> ResolveAsync(string rawToken, CancellationToken ct)
+    {
+        if (memory.Resolve(rawToken) is { } simulated) return simulated;
+        if (string.IsNullOrEmpty(rawToken)) return null;
+        var hash = TokenService.Hash(rawToken);
+        if (cache.Get(hash) is { } cached) return cached;
+        var readAt = clock.GetUtcNow();
+        var found = await database.ResolveAsync(rawToken, ct);
+        if (found is { } f) cache.Remember(hash, f.EventId, f.ParticipantId, readAt);
+        return found;
+    }
 
     public async Task RevokeAsync(string eventId, string participantId, CancellationToken ct)
     {
         memory.Revoke(eventId, participantId);
         if (DbTokenService.IsDatabaseId(eventId) && DbTokenService.IsDatabaseId(participantId))
+        {
+            cache.Forget(eventId, participantId);
             await database.RevokeAsync(eventId, participantId, ct);
+        }
     }
 }

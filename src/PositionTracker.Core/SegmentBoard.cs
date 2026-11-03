@@ -46,4 +46,58 @@ public sealed class SegmentBoard
         if (other is not null && time == best) return SegmentColour.Purple;
         return time == ownBest ? SegmentColour.Green : SegmentColour.Yellow;
     }
+
+    /// <summary>
+    /// The colours of the board as it is now, computed in one pass over all results; reading a colour from it costs a
+    /// lookup, where <see cref="ColourOf"/> walks every result of the segment. The returned object does not follow later
+    /// changes and is safe to read from any thread.
+    /// </summary>
+    public SegmentColours Snapshot()
+    {
+        var best = new Dictionary<int, (TimeSpan Best, bool Shared)>(_segments.Count);
+        var ownBest = new Dictionary<(string ParticipantId, int SegmentIndex), TimeSpan>(); // string equality is ordinal
+        foreach (var (segment, results) in _segments)
+        {
+            var segmentBest = TimeSpan.MaxValue;
+            string? first = null;
+            var shared = false;
+            foreach (var ((id, _), t) in results)
+            {
+                if (t < segmentBest) segmentBest = t;
+                if (first is null) first = id;
+                else if (!shared && id != first) shared = true;
+                var key = (id, segment);
+                if (!ownBest.TryGetValue(key, out var own) || t < own) ownBest[key] = t;
+            }
+            best[segment] = (segmentBest, shared);
+        }
+        return new SegmentColours(best, ownBest);
+    }
+}
+
+/// <summary>The colours of a <see cref="SegmentBoard"/> at one moment (<see cref="SegmentBoard.Snapshot"/>).</summary>
+public sealed class SegmentColours
+{
+    private readonly Dictionary<int, (TimeSpan Best, bool Shared)> _best;
+    private readonly Dictionary<(string ParticipantId, int SegmentIndex), TimeSpan> _ownBest;
+
+    internal SegmentColours(Dictionary<int, (TimeSpan Best, bool Shared)> best,
+        Dictionary<(string ParticipantId, int SegmentIndex), TimeSpan> ownBest)
+    {
+        _best = best;
+        _ownBest = ownBest;
+    }
+
+    /// <summary>
+    /// The colour of a result of <paramref name="time"/> recorded for the participant on the segment, by the same rules as
+    /// <see cref="SegmentBoard.ColourOf"/>; throws <see cref="KeyNotFoundException"/> when the participant has no result there.
+    /// </summary>
+    public SegmentColour ColourOf(string participantId, int segmentIndex, TimeSpan time)
+    {
+        ArgumentNullException.ThrowIfNull(participantId);
+        if (!_best.TryGetValue(segmentIndex, out var segment) || !_ownBest.TryGetValue((participantId, segmentIndex), out var own))
+            throw new KeyNotFoundException($"No result for '{participantId}' segment {segmentIndex}.");
+        if (segment.Shared && time == segment.Best) return SegmentColour.Purple;
+        return time == own ? SegmentColour.Green : SegmentColour.Yellow;
+    }
 }

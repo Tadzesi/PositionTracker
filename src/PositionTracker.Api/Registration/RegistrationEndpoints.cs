@@ -36,6 +36,7 @@ public static class RegistrationEndpoints
         services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<RegistrationOptions>, RegistrationOptionsValidator>();
         services.AddSingleton<InvitationLimiter>();
         services.AddScoped<DbTokenService>();
+        services.AddSingleton<DeviceTokenCache>();
         services.AddScoped<ITokenService, DeviceTokens>();
         services.AddScoped<RegistrationService>();
         return services;

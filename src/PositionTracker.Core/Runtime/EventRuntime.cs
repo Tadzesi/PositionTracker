@@ -2,7 +2,8 @@ namespace PositionTracker.Core.Runtime;
 
 /// <summary>
 /// In-memory state of one event: a tracker per participant, a shared segment board and the latest device
-/// status. Thread-safe: one lock guards all mutation and view building.
+/// status. Thread-safe: one lock guards all mutation and the copy of the state a view is built from; the view itself
+/// (ETAs, alarms) is built from that copy outside the lock.
 /// </summary>
 /// <remarks>
 /// Views are built from <see cref="ParticipantTracker.GetSnapshot"/> at the clock's current time, never from
@@ -238,7 +239,56 @@ public sealed class EventRuntime
     /// The organizer view at the current time, or at <paramref name="at"/> (a finished event is shown as it was at its finish,
     /// so the last signal, offline states and alarms stop there): every participant in rank order, unranked ones last.
     /// </summary>
+    /// <remarks>
+    /// Only the state is copied under the lock (<see cref="Capture"/>); the views, ETAs and alarms are built from that copy
+    /// outside it, so ingest waits for the copy, not for the whole view.
+    /// </remarks>
     public LiveView BuildLiveView(DateTimeOffset? at = null)
+    {
+        var (now, rows) = Capture(at);
+        var views = rows.Select(r => BuildView(r, now)).ToList();
+
+        int Count(params ParticipantState[] states) => views.Count(v => states.Contains(v.State));
+        return new LiveView(now, Settings.EventId, views,
+            Count(ParticipantState.Live, ParticipantState.Stopped, ParticipantState.OffCourse, ParticipantState.Sos),
+            Count(ParticipantState.Delayed),
+            Count(ParticipantState.Offline),
+            Count(ParticipantState.Dnf));
+    }
+
+    /// <summary>
+    /// The results at the current time: every participant in rank order (finishers by net time, then the others), with the
+    /// net time of a finisher counted from the participant's own start. The same ranking as the live view.
+    /// </summary>
+    public IReadOnlyList<ResultRow> BuildResults()
+    {
+        var (now, rows) = Capture(null);
+        return rows.Select(r =>
+        {
+            var s = r.Snapshot;
+            var info = r.Info;
+            var view = BuildView(r, now);
+            var start = info.StartTime ?? Settings.StartTime;
+            var finished = s.State == ParticipantState.Finished && s.FinishTime is not null;
+            var laps = Math.Clamp((int)Math.Floor(s.TotalDistanceM / Course.LapLengthM), 0, Course.Laps);
+            return new ResultRow(
+                info.Id, info.Bib, info.Name, info.Nickname, info.Category, info.IsMinor,
+                view.Rank, s.State, start, finished ? s.FinishTime : null, finished ? s.FinishTime!.Value - start : null,
+                finished ? r.Ranked.GapToLeader : null, s.TotalDistanceM, finished ? Course.Laps : laps, s.AvgSpeedMps, s.MaxSpeedMps,
+                s.MovingTime, s.StoppedTime, s.AscentM, s.DescentM, view.Segments, s.StartObservedM);
+        }).ToList();
+    }
+
+    /// <summary>One participant's state copied under the lock, in rank order; immutable, so views are built from it unlocked.</summary>
+    private sealed record Captured(
+        ParticipantInfo Info, ParticipantSnapshot Snapshot, RankedParticipant Ranked, DeviceStatus? Status,
+        DateTimeOffset? SosSince, DateTimeOffset? LowBatterySince, IReadOnlyList<SegmentResult> Segments);
+
+    /// <summary>
+    /// The clock reading and every participant's snapshot, rank and segment results, taken under the lock. Everything that
+    /// reads the mutable trackers, histories or the segment board happens here; nothing after it does.
+    /// </summary>
+    private (DateTimeOffset Now, List<Captured> Rows) Capture(DateTimeOffset? at)
     {
         lock (_lock)
         {
@@ -249,55 +299,26 @@ public sealed class EventRuntime
                     snapshots[e.Info.Id].LastRaceFixTime, snapshots[e.Info.Id].FinishTime, e.Tracker.History,
                     snapshots[e.Info.Id].State == ParticipantState.Dnf, e.Info.StartTime ?? Settings.StartTime))
                 .ToList());
-
-            var views = ranking
-                .Select(r => BuildView(_participants[r.ParticipantId], snapshots[r.ParticipantId], r, now))
-                .ToList();
-
-            int Count(params ParticipantState[] states) => views.Count(v => states.Contains(v.State));
-            return new LiveView(now, Settings.EventId, views,
-                Count(ParticipantState.Live, ParticipantState.Stopped, ParticipantState.OffCourse, ParticipantState.Sos),
-                Count(ParticipantState.Delayed),
-                Count(ParticipantState.Offline),
-                Count(ParticipantState.Dnf));
-        }
-    }
-
-    /// <summary>
-    /// The results at the current time: every participant in rank order (finishers by net time, then the others), with the
-    /// net time of a finisher counted from the participant's own start. The same ranking as the live view.
-    /// </summary>
-    public IReadOnlyList<ResultRow> BuildResults()
-    {
-        lock (_lock)
-        {
-            var now = _clock.GetUtcNow();
-            var snapshots = _participants.ToDictionary(p => p.Key, p => p.Value.Tracker.GetSnapshot(now), StringComparer.Ordinal);
-            var ranking = Ranking.Rank(_participants.Values
-                .Select(e => new RankInput(e.Info.Id, snapshots[e.Info.Id].TotalDistanceM,
-                    snapshots[e.Info.Id].LastRaceFixTime, snapshots[e.Info.Id].FinishTime, e.Tracker.History,
-                    snapshots[e.Info.Id].State == ParticipantState.Dnf, e.Info.StartTime ?? Settings.StartTime))
-                .ToList());
-            return ranking.Select(r =>
+            var colours = _board.Snapshot();
+            var rows = ranking.Select(r =>
             {
                 var entry = _participants[r.ParticipantId];
-                var s = snapshots[r.ParticipantId];
-                var view = BuildView(entry, s, r, now);
-                var start = entry.Info.StartTime ?? Settings.StartTime;
-                var finished = s.State == ParticipantState.Finished && s.FinishTime is not null;
-                var laps = Math.Clamp((int)Math.Floor(s.TotalDistanceM / Course.LapLengthM), 0, Course.Laps);
-                return new ResultRow(
-                    entry.Info.Id, entry.Info.Bib, entry.Info.Name, entry.Info.Nickname, entry.Info.Category, entry.Info.IsMinor,
-                    view.Rank, s.State, start, finished ? s.FinishTime : null, finished ? s.FinishTime!.Value - start : null,
-                    finished ? r.GapToLeader : null, s.TotalDistanceM, finished ? Course.Laps : laps, s.AvgSpeedMps, s.MaxSpeedMps,
-                    s.MovingTime, s.StoppedTime, s.AscentM, s.DescentM, view.Segments, s.StartObservedM);
+                var segments = entry.Completions
+                    .OrderBy(c => c.Key.Lap).ThenBy(c => c.Key.SegmentIndex)
+                    .Select(c => new SegmentResult(c.Key.Lap, c.Key.SegmentIndex, c.Value,
+                        colours.ColourOf(r.ParticipantId, c.Key.SegmentIndex, c.Value)))
+                    .ToList();
+                return new Captured(entry.Info, snapshots[r.ParticipantId], r, entry.Status, entry.SosSince,
+                    entry.LowBatterySince, segments);
             }).ToList();
+            return (now, rows);
         }
     }
 
-    private ParticipantView BuildView(Entry entry, ParticipantSnapshot s, RankedParticipant ranked, DateTimeOffset now)
+    private ParticipantView BuildView(Captured c, DateTimeOffset now)
     {
-        var id = entry.Info.Id;
+        var s = c.Snapshot;
+        var ranked = c.Ranked;
         var hasFix = s.LastRaceFixTime is not null; // warm-up fixes before the start do not rank
         // Lap and lap progress follow the total, not the lap counter, which can step back behind the start/finish
         // line while the total (a high-water mark) is already in the next lap.
@@ -306,30 +327,26 @@ public sealed class EventRuntime
         var eta = s.State is ParticipantState.Finished or ParticipantState.Dnf || s.FinishPending
             ? null
             : EtaEstimator.Estimate(Course, Settings.Sport, s, now);
-        var segments = entry.Completions
-            .OrderBy(c => c.Key.Lap).ThenBy(c => c.Key.SegmentIndex)
-            .Select(c => new SegmentResult(c.Key.Lap, c.Key.SegmentIndex, c.Value,
-                _board.ColourOf(id, c.Key.Lap, c.Key.SegmentIndex)))
-            .ToList();
 
         return new ParticipantView(
-            id, entry.Info.Bib, entry.Info.Name, entry.Info.Category,
+            c.Info.Id, c.Info.Bib, c.Info.Name, c.Info.Category,
             hasFix ? ranked.Rank : null, lap,
             s.TotalDistanceM, lapProgress, s.LastLat, s.LastLon,
             s.SpeedMps, s.AvgSpeedMps, s.PaceSecPerKm, s.AscentM, s.DescentM, s.GradePercent,
             s.State,
             hasFix ? ranked.GapToLeader : null, hasFix ? ranked.GapToAhead : null, eta,
-            segments,
-            entry.Status?.BatteryPct, s.LastAccuracyM, entry.Status?.QueueLength ?? 0,
+            c.Segments,
+            c.Status?.BatteryPct, s.LastAccuracyM, c.Status?.QueueLength ?? 0,
             s.LastFixTime is { } last ? (now > last ? now - last : TimeSpan.Zero) : null,
-            Alarms(entry, s, now),
+            Alarms(c, now),
             s.FinishLat, s.FinishLon, s.LapsInferred, s.LastRaceFixTime);
     }
 
-    private List<Alarm> Alarms(Entry entry, ParticipantSnapshot s, DateTimeOffset now)
+    private List<Alarm> Alarms(Captured c, DateTimeOffset now)
     {
+        var s = c.Snapshot;
         var alarms = new List<Alarm>();
-        if (entry.SosSince is { } sosSince) alarms.Add(new Alarm(AlarmKind.Sos, sosSince));
+        if (c.SosSince is { } sosSince) alarms.Add(new Alarm(AlarmKind.Sos, sosSince));
         switch (s.State)
         {
             case ParticipantState.Stopped:
@@ -342,8 +359,8 @@ public sealed class EventRuntime
                 alarms.Add(new Alarm(AlarmKind.Offline, s.LastFixTime + Settings.Tracker.OfflineAfter ?? now));
                 break;
         }
-        if (entry.Status?.BatteryPct < LowBatteryBelowPct)
-            alarms.Add(new Alarm(AlarmKind.LowBattery, entry.LowBatterySince ?? now));
+        if (c.Status?.BatteryPct < LowBatteryBelowPct)
+            alarms.Add(new Alarm(AlarmKind.LowBattery, c.LowBatterySince ?? now));
         if (s.LapsInferredAt is { } inferredAt) alarms.Add(new Alarm(AlarmKind.LapsInferred, inferredAt));
         return alarms;
     }

@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace PositionTracker.Core;
 
 public static class GradeModel
@@ -43,14 +45,7 @@ public static class EtaEstimator
         if (!double.IsFinite(speed) || speed < MinSpeedMps) return null;
 
         var flatSpeed = speed / WindowFactor(course, sport, snapshot);
-        var seconds = 0.0;
-        for (var d = from; d < target; d += StepM)
-        {
-            var len = Math.Min(StepM, target - d);
-            var lapDistance = (d + len / 2) % course.LapLengthM;
-            var factor = GradeModel.SpeedFactor(sport, course.GradePercentAt(lapDistance));
-            seconds += len / (flatSpeed * factor);
-        }
+        var seconds = FlatDistance(course, sport, from, target) / flatSpeed;
 
         var spread = Math.Max(seconds * SpreadFraction, MinSpread.TotalSeconds);
         return new EtaEstimate(
@@ -72,13 +67,57 @@ public static class EtaEstimator
         var to = snapshot.TotalDistanceM;
         if (!(to - from >= StepM)) return GradeModel.SpeedFactor(sport, snapshot.GradePercent);
 
-        double length = 0, weighted = 0;
-        for (var d = from; d < to; d += StepM)
+        return (to - from) / FlatDistance(course, sport, from, to);
+    }
+
+    /// <summary>
+    /// The flat-ground distance equivalent to the course between two total distances: <c>∫ dx / factor(grade(x))</c>,
+    /// the time a constant flat speed of 1 m/s needs for it. Read from a per-lap prefix table, so the cost does not grow
+    /// with the distance left (a long multi-lap race once spent most of the live view walking the course in 100 m steps).
+    /// </summary>
+    private static double FlatDistance(Course course, Sport sport, double from, double to)
+    {
+        var table = Tables.GetValue(course, _ => new LapTables()).For(course, sport);
+        return Cumulative(course, table, to) - Cumulative(course, table, from);
+    }
+
+    private static double Cumulative(Course course, double[] table, double totalM)
+    {
+        var lap = course.LapLengthM;
+        var whole = Math.Floor(totalM / lap);
+        var x = totalM - whole * lap;
+        var cells = table.Length - 1;
+        var i = Math.Min((int)(x / TableStepM), cells - 1);
+        var cellStart = i * TableStepM;
+        var cellLength = Math.Min(TableStepM, lap - cellStart);
+        var within = cellLength > 0 ? Math.Clamp((x - cellStart) / cellLength, 0, 1) : 0;
+        return whole * table[cells] + table[i] + (table[i + 1] - table[i]) * within;
+    }
+
+    private const double TableStepM = 10;
+
+    private static readonly ConditionalWeakTable<Course, LapTables> Tables = new();
+
+    /// <summary>Per sport, the running sum of <c>step / factor</c> over one lap in <see cref="TableStepM"/> cells.</summary>
+    private sealed class LapTables
+    {
+        private readonly double[]?[] _bySport = new double[]?[Enum.GetValues<Sport>().Length];
+
+        public double[] For(Course course, Sport sport)
         {
-            var len = Math.Min(StepM, to - d);
-            length += len;
-            weighted += len / GradeModel.SpeedFactor(sport, course.GradePercentAt((d + len / 2) % course.LapLengthM));
+            var index = (int)sport;
+            if (Volatile.Read(ref _bySport[index]) is { } built) return built;
+            var lap = course.LapLengthM;
+            var cells = Math.Max(1, (int)Math.Ceiling(lap / TableStepM));
+            var table = new double[cells + 1];
+            for (var i = 0; i < cells; i++)
+            {
+                var start = i * TableStepM;
+                var len = Math.Min(TableStepM, lap - start);
+                table[i + 1] = table[i] + (len > 0 ? len / GradeModel.SpeedFactor(sport, course.GradePercentAt(start + len / 2)) : 0);
+            }
+            Volatile.Write(ref _bySport[index], table); // a race builds the same table twice, harmlessly
+            return table;
         }
-        return length / weighted;
     }
 }

@@ -190,4 +190,36 @@ public class EtaEstimatorTests
 
         Assert.Equal(approximate, eta.Approximate);
     }
+
+    /// <summary>Rolling hills: the grade changes all along the lap.</summary>
+    private static Course Hills(int laps) =>
+        Course.Create(TestCourses.Loop(5_700, 25, d => 40 * Math.Sin(d / 300)), laps);
+
+    [Fact]
+    public void The_time_left_over_many_laps_is_the_sum_of_the_laps()
+    {
+        // The estimate reads a per-lap table, so ten laps cost one lookup and take exactly ten times one lap.
+        var course = Hills(10);
+        var oneLap = EtaEstimator.Estimate(course, Sport.Running, Snap(0, 3), Now, targetTotalDistanceM: course.LapLengthM)!;
+        var all = EtaEstimator.Estimate(course, Sport.Running, Snap(0, 3), Now)!;
+
+        Assert.Equal(10 * (oneLap.Expected - Now).TotalSeconds, (all.Expected - Now).TotalSeconds, 0.01);
+    }
+
+    [Fact]
+    public void The_time_left_matches_a_fine_integration_of_the_grades_ahead()
+    {
+        var course = Hills(3);
+        const double from = 1_234;
+        var reference = 0.0;
+        for (var d = from; d < course.TotalLengthM; d += 1)
+        {
+            var len = Math.Min(1, course.TotalLengthM - d);
+            reference += len / (3 * GradeModel.SpeedFactor(Sport.Running, course.GradePercentAt((d + len / 2) % course.LapLengthM)));
+        }
+
+        var eta = EtaEstimator.Estimate(course, Sport.Running, Snap(from, 3), Now)!;
+
+        Assert.InRange((eta.Expected - Now).TotalSeconds, reference * 0.995, reference * 1.005);
+    }
 }
