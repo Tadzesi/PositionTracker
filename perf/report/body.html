@@ -24,13 +24,43 @@
     <div class="kpi"><div class="l">Namerané body</div><div class="v"><span data-v="kpi.samples"></span></div><div class="s"><span data-v="kpi.channels"></span> kanálov</div></div>
   </div>
   <div class="findings" id="findings">
-    <div class="find"><span class="ic crit" aria-hidden="true">!</span><h3><span class="pill crit">kritické</span> Jeden zámok drží ingest ~⅔ času</h3><p>Zostavenie živého pohľadu pre 400 bežcov trvá ~1 s a celý čas drží globálny <code>lock</code> runtime. Polohy, ktoré prídu medzitým, čakajú. Latencia preto nemá zvon, ale pílu so sklonom −1. <a href="#zamok">→ 02</a></p></div>
-    <div class="find"><span class="ic crit" aria-hidden="true">!</span><h3><span class="pill crit">kritické</span> Kapacita ~290 aktívnych mobilov</h3><p>Pri 400 prihlásených bez chýb do ~290 aktívnych (p99 1,3 s). Pri 1 500 prihlásených len ~250. Nad tým sa server zrúti: 34–76 % požiadaviek dostane 503 alebo vyprší, aplikácia pritom povoľuje až 2 000 účastníkov. <a href="#pole">→ E1</a></p></div>
+    <div class="find"><span class="ic crit" aria-hidden="true">!</span><h3><span class="pill crit">kritické</span> Jeden zámok drží ingest ~⅔ času</h3><p><b>Opravené, pozri <a href="#zmena">00b</a>.</b> Zostavenie živého pohľadu pre 400 bežcov trvá ~1 s a celý čas drží globálny <code>lock</code> runtime. Polohy, ktoré prídu medzitým, čakajú. Latencia preto nemá zvon, ale pílu so sklonom −1. <a href="#zamok">→ 02</a></p></div>
+    <div class="find"><span class="ic crit" aria-hidden="true">!</span><h3><span class="pill crit">kritické</span> Kapacita ~290 aktívnych mobilov</h3><p><b>Platilo pri 400 kolách. Po oprave na 10 kolách ≥ 6 000, pozri <a href="#zmena">00b</a>.</b> Pri 400 prihlásených bez chýb do ~290 aktívnych (p99 1,3 s). Pri 1 500 prihlásených len ~250. Nad tým sa server zrúti: 34–76 % požiadaviek dostane 503 alebo vyprší, aplikácia pritom povoľuje až 2 000 účastníkov. <a href="#pole">→ E1</a></p></div>
     <div class="find"><span class="ic warn" aria-hidden="true">▲</span><h3><span class="pill warn">varovanie</span> Kaskáda do DB poolu</h3><p>Každý request hľadá device token v databáze. Keď zámok spomalí obsluhu, pripojenia sa držia dlhšie a v poole Npgsql čakalo v špičke až ~700 požiadaviek (v priemere ~250), hoci PostgreSQL využíval len 0,1–0,2 jadra. Po skoku nadol fronta dobiehala ešte ~21 s. <a href="#skok">→ E2</a></p></div>
     <div class="find"><span class="ic info" aria-hidden="true">i</span><h3>Statická sústava: ~1,5 ms CPU na request</h3><p>Chirp a lock-in demodulácia v pásme 0,006–0,2 Hz ukazujú plochý prenos (medián 1,5 ms/req, fáza v mediáne −2°). Samotný príjem polohy je lacný, drahý je prepočet pohľadu: ~2,5 ms CPU na bežca pri každom broadcaste. <a href="#bode">→ E4</a></p></div>
     <div class="find"><span class="ic good" aria-hidden="true">✓</span><h3><span class="pill good">v poriadku</span> Domácnosť si nič nevšimla</h3><p>DNS celej siete odpovedal v kľude aj v saturácii s p50 ~0,9 ms a p99 ~4 ms, kill switch sa nespustil ani raz. CPU nevystúpilo nad 65 °C (ďaleko od limitu čipu) a takt sa pri saturácii držal prevažne na maximálnych 2,9 GHz. <a href="#jitter">→ A3</a></p></div>
     <div class="find"><span class="ic info" aria-hidden="true">i</span><h3>Spektrum prezradilo susedov</h3><p>Okrem harmonických 1,5 s taktu broadcastu je v spektre čiara ~11,5 s (MQTT broker) a v zázname každých 300 s blok ~1,25 jadra na 30–80 s (plánovaná úloha nad systémovým žurnálom). Čiary 1 Hz pochádzajú z našich vlastných 1 s meraní: efekt pozorovateľa. <a href="#spektra">→ A1</a></p></div>
 </div>
+</section>
+
+<section id="zmena">
+  <div class="sh"><span class="no">00b</span><h2>Čo meranie zmenilo</h2><span class="tag">pôvodná vs. opravená verzia · rovnaký HW, rovnaký plán, 1 500 prihlásených, 10 kôl</span></div>
+  <p class="intro">Meranie neskončilo grafmi. Synchrónne priemerovanie a spektrum ukázali, kde aplikácia čaká (sekcia 02). Na základe toho sme zmenili tri miesta v kóde: výpočet ETA, zostavovanie živého pohľadu mimo zámku a cache device tokenov. Potom sme obe verzie zmerali rovnakým plánom na tom istom stroji. <span class="leg-b">Šedou</span> je pôvodná verzia, <span class="leg-a">modrou</span> opravená.</p>
+  <div class="kpis cmp">
+    <div class="kpi accent"><div class="l">Záťaž bez chýb (p99 &lt; 1,5 s)</div><div class="v"><span id="cmp-cap-b"></span><small>→</small> <span id="cmp-cap-a"></span></div><div class="s">mobilov po 5 s · <b id="cmp-cap-x"></b> · opravenú verziu sa nepodarilo saturovať</div></div>
+    <div class="kpi"><div class="l">p99 latencia pri 200 mobiloch</div><div class="v"><span id="cmp-p99-b"></span><small>→</small> <span id="cmp-p99-a"></span></div><div class="s"><span id="cmp-p99-x"></span></div></div>
+    <div class="kpi"><div class="l">CPU aplikácie pri 200 mobiloch</div><div class="v"><span id="cmp-cpu-b"></span><small>→</small> <span id="cmp-cpu-a"></span><small>jadra</small></div><div class="s" id="cmp-cpu-x"></div></div>
+  </div>
+  <p class="take">Na tom istom NUC za 10 W unesie opravená verzia záťaž <b>aspoň 6 000 mobilov</b> (1 200 req/s, p99 0,2 s, nula chýb). Pôvodná sa rozpadla už pri 2 000 (400 req/s, 56 % chýb). Aplikácia pritom povoľuje 2 000 účastníkov, takže rezerva je teraz trojnásobná.</p>
+
+  <div class="grid2">
+    <div class="card"><div id="cmp-sync"></div></div>
+    <div class="card"><h3>Odtlačok zámku zmizol</h3>
+      <p class="take">Pôvodná verzia: request, ktorý príde počas zostavovania živého pohľadu, čaká, kým sa zostavovanie skončí. Medián tvorí rampu dlhú <b id="cmp-B-b"></b> na začiatku každého 1,5 s taktu. Opravená verzia drží zámok len na čas kópie stavu, rampa klesla pod rozlíšenie grafu (<b id="cmp-B-a"></b>) a medián leží na podlahe.</p>
+      <p style="font-size:13.5px;color:var(--ink2)">Rovnaký jav vidno aj v spektre: latencia pôvodnej verzie má na takte broadcastu (0,67 Hz) a jeho harmonických čiaru <b id="cmp-line-b"></b> nad šumom, opravená <b id="cmp-line-a"></b>. Zvyšok čiary je práca, ktorá v takte prebieha naďalej (serializácia a odoslanie pohľadu), ale už neblokuje príjem polôh.</p>
+      <div id="cmp-psd"></div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card"><div id="cmp-cap"></div>
+      <p class="note">Nad 1 490 mobilmi (300 req/s) posielajú tí istí prihlásení bežci častejšie ako raz za 5 s. Ide o záťaž zodpovedajúcu väčšiemu počtu mobilov, nie o väčšie prihlásené pole. Schody končia na maxime generátora, nie na limite servera.</p></div>
+    <div class="card"><div id="cmp-imp-ok"></div><div id="cmp-imp-lat"></div>
+      <p class="take">Hromadný štart 1 000 mobilov v jednej sekunde: p99 odozvy <b id="cmp-ip99-b"></b> → <b id="cmp-ip99-a"></b> (<span id="cmp-ip99-x"></span>). Mobily už pred štartom posielali polohu, takže server ich tokeny pozná.</p>
+      <p class="note">Studený štart, keď sa väčšina mobilov ozve prvýkrát po viac ako 10 minútach, je v oboch verziách rovnaký (p99 <span id="cmp-icold-b"></span> a <span id="cmp-icold-a"></span>): 1 000 overení tokenu v databáze v jednej sekunde. Ďalší kandidát na zlepšenie.</p></div>
+  </div>
+
+  <div class="card"><h3>Prečo: štyri príčiny, štyri čísla</h3><div id="cmp-why"></div>
+    <p class="note">Prvá kampaň (sekcie 01–E7) bežala so 400 kolami okruhu, čo je nad limitom aplikácie (10). Odhad ETA, ktorý prechádzal zvyšok trate po 100 m, bol preto ~40× drahší ako v reálnom preteku a zámok držal ~1 s. Pôvodné čísla nižšie platia pre tento extrém. Porovnanie v tejto sekcii je na realistickom pretekovom nastavení. Builds: pôvodná <code>68fceb1</code>, opravená <code>78bdfbf</code>.</p></div>
 </section>
 
 <section id="zaznam">

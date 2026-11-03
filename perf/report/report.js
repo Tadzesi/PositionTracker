@@ -45,6 +45,73 @@
   if (has('#runid')) $('#runid').textContent = `beh ${D.generated ? D.generated.slice(0, 10) : ''} · ${num(D.kpi?.duration_min, 0)} min`;
   if (has('#sidemeta')) $('#sidemeta').innerHTML = `<b>Hardvér</b><br>Intel NUC11ATKC2<br>Celeron N4505 · 2C/2T<br>15 GiB RAM · NVMe<br><br><b>Softvér</b><br>.NET 10 · PostgreSQL 17<br>nginx · Docker (37 kontajnerov)<br><br>Vygenerované ${D.generated?.replace('T', ' ').replace('+00:00', ' UTC') || ''}`;
 
+  // ------------------------------------------------------------------ 00b before/after (perf/analysis/compare.py): one colour per version
+  const C = D.cmp;
+  if (C && has('#cmp-sync')) {
+    const B = C.before, A = C.after, BEF = '--c-muted', AFT = '--s1';
+    const txt = (sel, v) => { const el = $(sel); if (el) el.textContent = v; };
+    const phones = (r) => (r.capacity_rps == null ? null : r.capacity_rps * 5);
+    const capTxt = (r) => (phones(r) == null ? '–' : (r.capacity_limited ? '' : '≥ ') + num(phones(r), 0));
+    const times = (a, b) => (a && b ? '×' + num(b / a, b / a >= 10 ? 0 : 1) : '');
+    // hero row
+    txt('#cmp-cap-b', capTxt(B)); txt('#cmp-cap-a', capTxt(A)); txt('#cmp-cap-x', times(phones(B), phones(A)) + (A.capacity_limited ? '' : ' a viac'));
+    txt('#cmp-p99-b', ms(B.same_load.p99)); txt('#cmp-p99-a', ms(A.same_load.p99)); txt('#cmp-p99-x', times(A.same_load.p99, B.same_load.p99) + ' rýchlejšie');
+    const loadB = B.same_load.app - B.same_load.app_idle, loadA = A.same_load.app - A.same_load.app_idle;
+    txt('#cmp-cpu-b', num(B.same_load.app, 2)); txt('#cmp-cpu-a', num(A.same_load.app, 2));
+    txt('#cmp-cpu-x', '−' + num((1 - A.same_load.app / B.same_load.app) * 100, 0) + ' % · uvoľnené pre ostatné služby servera');
+
+    // the lock's fingerprint: latency against the time since the view build started
+    const sync = (r, name, color, r0) => [
+      { name: name + ' · request', color, x: r.sync.d, y: r.sync.lat, points: true, r: r0, noLegend: true, noTip: true },
+      { name: name + ' · medián', color, x: r.sync.bins, y: r.sync.p50, width: 2.4, fmt: ms },
+    ];
+    new Plot('#cmp-sync', { title: 'Latencia príjmu polohy vs. čas od začiatku zostavovania živého pohľadu (200 mobilov, čiarkovane = ďalší takt)', height: 340,
+      x: { label: 's od začiatku zostavovania', min: 0, max: B.sync.period * 1.3, fmt: f(1) }, y: { log: true, label: 'ms', min: 0.5, tipFmt: ms },
+      vlines: [{ x: B.sync.period }],
+      series: [...sync(B, 'pred', BEF, 2.2), ...sync(A, 'po', AFT, 2.2)], forceLegend: true });
+    txt('#cmp-B-b', B.sync.B == null ? '–' : num(B.sync.B * 1000, 0) + ' ms');
+    txt('#cmp-B-a', A.sync.B == null || A.sync.B < 0.05 ? '< 50 ms' : num(A.sync.B * 1000, 0) + ' ms');
+
+    // the same as a spectrum: lines at the broadcast harmonics
+    new Plot('#cmp-psd', { title: 'Spektrum latencie (Welch, 20 Hz) · čiary = harmonické taktu', height: 260,
+      x: { label: 'Hz', min: 0.05, max: 3, fmt: f(2) }, y: { label: 'dB', zero: false },
+      vlines: B.psd.lines.filter((v) => v <= 3).map((v, i) => ({ x: v, label: i ? '' : num(v, 2) + ' Hz' })),
+      series: [{ name: 'pred', color: BEF, x: B.psd.f, y: B.psd.db, width: 1.6, fmt: f(1, 'dB') }, { name: 'po', color: AFT, x: A.psd.f, y: A.psd.db, width: 1.6, fmt: f(1, 'dB') }] });
+    txt('#cmp-line-b', B.psd.line_db[0] == null ? '–' : '+' + num(B.psd.line_db[0], 0) + ' dB');
+    txt('#cmp-line-a', A.psd.line_db[0] == null ? '–' : (A.psd.line_db[0] >= 0 ? '+' : '') + num(A.psd.line_db[0], 0) + ' dB');
+
+    // capacity: load (phones every 5 s) against p99, the criterion and the gained range
+    const cap = (r, name, color) => ({ name, color, x: r.stairs.map((s) => s.rps * 5), y: r.stairs.map((s) => s.p99), points: true, connect: true, r: 4, fmt: ms });
+    const bandsCap = phones(B) && phones(A) && phones(A) > phones(B) ? [{ x0: phones(B), x1: phones(A), label: 'získaná kapacita' }] : [];
+    new Plot('#cmp-cap', { title: 'Záťaž vs. p99 latencia servera (schody po 90 s)', height: 320, bands: bandsCap, bandLabels: true,
+      x: { label: 'mobilov po 5 s (= req/s × 5)', min: 0 }, y: { log: true, label: 'ms', tipFmt: ms }, hlines: [{ y: 1500, label: 'kritérium p99 1,5 s' }],
+      series: [cap(B, 'pred', BEF), cap(A, 'po', AFT)] });
+
+    // mass start: 1000 phones within one second
+    const I = (r) => r.impulse;
+    new Plot('#cmp-imp-ok', { title: 'Hromadný štart 1 000 mobilov: prijaté polohy [req/s]', height: 230, group: 'cmp-imp',
+      x: { label: 's od štartu', min: -1, max: 8, fmt: f(0) }, y: { label: 'req/s' }, vlines: [{ x: 0, label: 'štart' }],
+      series: [{ name: 'pred', color: BEF, x: I(B).t, y: I(B).ok, width: 1.6, fmt: f(0, 'req/s') }, { name: 'po', color: AFT, x: I(A).t, y: I(A).ok, width: 1.6, fmt: f(0, 'req/s') }] });
+    new Plot('#cmp-imp-lat', { title: 'Hromadný štart: najdlhšia odozva servera v okne 0,25 s', height: 230, group: 'cmp-imp',
+      x: { label: 's od štartu', min: -1, max: 8, fmt: f(0) }, y: { log: true, label: 'ms', tipFmt: ms }, vlines: [{ x: 0 }],
+      series: [{ name: 'pred', color: BEF, x: I(B).t, y: I(B).lat_max, width: 1.6, fmt: ms }, { name: 'po', color: AFT, x: I(A).t, y: I(A).lat_max, width: 1.6, fmt: ms }] });
+    txt('#cmp-drain-b', num(I(B).drain_s, 1) + ' s'); txt('#cmp-drain-a', num(I(A).drain_s, 1) + ' s');
+    txt('#cmp-ip99-b', ms(I(B).c_p99)); txt('#cmp-ip99-a', ms(I(A).c_p99));
+    txt('#cmp-icold-b', ms(I(B).cold_c_p99)); txt('#cmp-icold-a', ms(I(A).cold_c_p99));
+    txt('#cmp-ip99-x', times(I(A).c_p99, I(B).c_p99));
+
+    // why: four rows
+    const why = [
+      ['Zámok drží príjem polôh', txtB('#cmp-B-b'), txtB('#cmp-B-a'), 'dĺžka rampy v grafe vyššie'],
+      ['Čiara taktu v spektre latencie', txtB('#cmp-line-b'), txtB('#cmp-line-a'), 'výška nad šumom pri 0,67 Hz'],
+      ['Čakanie na DB pripojenie na schodoch', num(B.db_pending_stairs, 0), num(A.db_pending_stairs, 0), 'špička fronty Npgsql (pôvodná verzia pri ' + num(B.db_pending_at, 0) + ' req/s)'],
+      ['CPU aplikácie pri 200 mobiloch', num(B.same_load.app, 2) + ' jadra', num(A.same_load.app, 2) + ' jadra', 'z 2 jadier NUC'],
+    ];
+    function txtB(sel) { return $(sel)?.textContent || '–'; }
+    $('#cmp-why').innerHTML = '<div class="tblwrap"><table class="tbl"><thead><tr><th style="text-align:left">Príčina</th><th>pred</th><th>po</th><th style="text-align:left">čo to je</th></tr></thead><tbody>'
+      + why.map((r) => `<tr><td style="text-align:left">${r[0]}</td><td>${r[1]}</td><td><b>${r[2]}</b></td><td style="text-align:left;color:var(--muted);white-space:normal;font-family:var(--font-ui);min-width:180px">${r[3]}</td></tr>`).join('') + '</tbody></table></div>';
+  }
+
   // ------------------------------------------------------------------ 01 strip chart (the DAQ recorder view)
   const strip = $('#strip');
   if (strip && T.length) {

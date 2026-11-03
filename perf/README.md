@@ -34,3 +34,16 @@ ssh tadzesi@192.168.1.2 'cd ~/pt-loadtest && sudo pkill -f "^python3 sampler.py"
 
 The sampler runs as root (RAPL energy counters are root-only) and stops `pt-lt-nginx` when the home DNS slows down
 (6 probes in a row over 250 ms) or the CPU passes 98 °C.
+
+## Before/after comparison (section 00b of the report)
+
+The first campaign seeded 400 laps, above the app's limit of 10, which made the ETA (and the lock it ran under) ~40x more
+expensive than in a real race. The comparison runs the `CMP` plan on a 10-lap, 1 500-runner seed against two images:
+
+```sh
+dotnet run -c Release --project tools/LoadLab -- seed site/assets/example-trat.gpx 1500 perf/data/seedC 10
+# server: git archive <commit> | build -> pt-lt-app:before (68fceb1) and pt-lt-app:after (78bdfbf), VITE_BASE=/tracker/app/
+Start-Process powershell -ArgumentList '-File perf/compare.ps1' -WindowStyle Hidden   # ~1.5 h, collects and tears down
+python perf/analysis/compare.py perf/data/cmp-before perf/data/cmp-before-server perf/data/cmp-after perf/data/cmp-after-server perf/data/compare.json
+python perf/report/build.py perf/data/report_run2.json site/perf/index.html perf/data/report_run1.json perf/data/compare.json
+```
