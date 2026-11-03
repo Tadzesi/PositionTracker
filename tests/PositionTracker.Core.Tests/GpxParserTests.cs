@@ -121,4 +121,26 @@ public class GpxParserTests
         Assert.Equal(2, pts.Count);
         Assert.Null(pts[0].Ele);
     }
+
+    [Fact]
+    public void Points_closer_than_the_minimum_spacing_are_thinned_and_the_ends_are_kept()
+    {
+        // 0.5 m apart along a meridian (about 4.5e-6 degrees): 2001 points over about a kilometre
+        var points = Enumerable.Range(0, 2001).Select(i => new GeoPoint(48 + i * 4.5e-6, 17)).ToList();
+
+        var thinned = GpxParser.Thin(points, GpxParser.MinPointSpacingM);
+
+        Assert.Equal(points[0], thinned[0]);
+        Assert.Equal(points[^1], thinned[^1]);
+        Assert.InRange(thinned.Count, 450, 510);
+        for (var i = 1; i < thinned.Count; i++)
+            Assert.True(GeoMath.DistanceM(thinned[i - 1], thinned[i]) >= GpxParser.MinPointSpacingM - 1e-9);
+    }
+
+    [Fact]
+    public void Sparse_points_are_kept_as_they_are()
+    {
+        var points = Enumerable.Range(0, 50).Select(i => new GeoPoint(48 + i * 1e-4, 17)).ToList(); // about 11 m apart
+        Assert.Equal(points, GpxParser.Thin(points, GpxParser.MinPointSpacingM));
+    }
 }

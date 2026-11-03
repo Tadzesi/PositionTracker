@@ -9,7 +9,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@microsoft/signalr": "^9.0.19",
     "leaflet": "1.9",
     "qrcode": "1.5",
     "react": "^19.3.1",
@@ -29,6 +28,6 @@
     "jsdom": "^29.1.1",
     "typescript": "^5.9.3",
     "vite": "^7.3.7",
-    "vitest": "^3.2.7"
+    "vitest": "^5.1.0"
   }
 }

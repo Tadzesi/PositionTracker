@@ -120,18 +120,36 @@ public sealed class OrganizerService(
     /// <summary>
     /// Redeems a code typed on the sign-up or sign-in page; like a sign-in link it proves access to the mailbox, so it confirms
     /// an unconfirmed email and returns the organizer to start a session for. An unknown address is <see cref="LinkStatus.Unknown"/>.
+    /// A wrong code is counted on the account; after <see cref="AccountOptions.CodeFailuresBeforeRevoke"/> of them every live code
+    /// of the account is revoked (the count is in the database, so it survives restarts and cannot be reset by a flood of keys).
     /// </summary>
     public async Task<(LinkStatus Status, OrganizerEntity? Organizer)> RedeemCodeAsync(string normalized, string? code, CancellationToken ct)
     {
         var id = await db.Organizers.AsNoTracking().Where(o => o.EmailNormalized == normalized).Select(o => (Guid?)o.Id).SingleOrDefaultAsync(ct);
         if (id is null) return (LinkStatus.Unknown, null);
         var result = await links.RedeemCodeAsync(id.Value, code, ct);
-        if (!result.IsOk) return (result.Status, null);
+        if (!result.IsOk)
+        {
+            if (result.Status == LinkStatus.Unknown) await CountCodeFailureAsync(id.Value, ct);
+            return (result.Status, null);
+        }
         var now = clock.GetUtcNow();
+        await db.Organizers.Where(o => o.Id == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(o => o.CodeFailures, 0), ct);
         await db.Organizers.Where(o => o.Id == id && o.EmailConfirmedAt == null)
             .ExecuteUpdateAsync(s => s.SetProperty(o => o.EmailConfirmedAt, now), ct);
         var organizer = await db.Organizers.AsNoTracking().SingleOrDefaultAsync(o => o.Id == id, ct);
         return organizer is null ? (LinkStatus.Unknown, null) : (LinkStatus.Ok, organizer);
+    }
+
+    private async Task CountCodeFailureAsync(Guid id, CancellationToken ct)
+    {
+        await db.Organizers.Where(o => o.Id == id).ExecuteUpdateAsync(s => s.SetProperty(o => o.CodeFailures, o => o.CodeFailures + 1), ct);
+        var limit = options.Value.CodeFailuresBeforeRevoke;
+        // Concurrent failures may both see the limit and both revoke: harmless, the revocation is idempotent.
+        if (await db.Organizers.Where(o => o.Id == id && o.CodeFailures >= limit)
+                .ExecuteUpdateAsync(s => s.SetProperty(o => o.CodeFailures, 0), ct) == 1)
+            await links.RevokeCodesAsync(id, ct);
     }
 
     /// <summary>Ends every session of the organizer: sessions carry the old security stamp.</summary>

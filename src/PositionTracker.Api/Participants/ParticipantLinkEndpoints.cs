@@ -14,16 +14,29 @@ namespace PositionTracker.Api.Participants;
 /// Per-link request budget: <see cref="PerMinute"/> requests per fixed one-minute window and link token, on the injected
 /// <see cref="TimeProvider"/>. Keys are hashes of the token (the token itself is not kept). Beyond
 /// <see cref="MaxKeys"/> live windows new keys are not tracked (a flood of random tokens cannot grow memory; such
-/// tokens do not exist anyway).
+/// tokens do not exist anyway); ended windows are pruned at most once per window, so a flood does not scan the dictionary
+/// on every request. A flood of random tokens is stopped before that by <see cref="UnknownLinksPerIpPerMinute"/>: each client
+/// address bucket (IPv4 address, IPv6 /64) may look up that many links that do not exist per minute, then gets 429 without a
+/// database query until the window ends. Valid links of many participants behind one address (a mobile carrier's NAT at the
+/// start line) are not affected, only lookups that found nothing count.
 /// </summary>
 public sealed class ParticipantLinkLimiter(TimeProvider clock)
 {
     public const int PerMinute = 60;
     public const int MaxKeys = 50_000;
+    public const int UnknownLinksPerIpPerMinute = 30;
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
 
     private readonly ConcurrentDictionary<string, (long Window, int Count)> _counts = new(StringComparer.Ordinal);
     private readonly Lock _gate = new();
+    private long _prunedWindow = long.MinValue;
+    private readonly Accounts.HourlyCounter _unknownPerIp = new(clock, UnknownLinksPerIpPerMinute, MaxKeys, Window);
+
+    /// <summary>Whether the address may still look up a link in this window (it has not hit too many unknown links).</summary>
+    public bool MayLookUp(System.Net.IPAddress? ip) => _unknownPerIp.CanTake(Accounts.AccountRateLimiter.IpBucket(ip));
+
+    /// <summary>Counts a lookup of an unknown link from <paramref name="ip"/>.</summary>
+    public void NoteUnknown(System.Net.IPAddress? ip) => _unknownPerIp.TryTake(Accounts.AccountRateLimiter.IpBucket(ip));
 
     /// <summary>Takes one request of the link's budget; false (with the wait until the next window) when it is used up.</summary>
     public bool TryTake(string linkToken, out TimeSpan retryAfter)
@@ -34,7 +47,11 @@ public sealed class ParticipantLinkLimiter(TimeProvider clock)
         var key = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(linkToken.Length > 128 ? linkToken[..128] : linkToken)));
         lock (_gate)
         {
-            if (_counts.Count >= MaxKeys) Prune(window);
+            if (_counts.Count >= MaxKeys && _prunedWindow != window)
+            {
+                _prunedWindow = window;
+                Prune(window);
+            }
             if (!_counts.TryGetValue(key, out var entry) || entry.Window != window)
             {
                 if (_counts.Count >= MaxKeys) return true;
@@ -92,12 +109,20 @@ public static class ParticipantLinkEndpoints
             var http = context.HttpContext;
             http.Response.Headers["Referrer-Policy"] = "no-referrer";
             var limiter = http.RequestServices.GetRequiredService<ParticipantLinkLimiter>();
+            var ip = http.Connection.RemoteIpAddress;
+            if (!limiter.MayLookUp(ip))
+            {
+                http.Response.Headers.RetryAfter = "60";
+                return EventErrors.Result(ParticipantErrors.RateLimited);
+            }
             if (http.GetRouteValue("linkToken") is string token && !limiter.TryTake(token, out var wait))
             {
                 http.Response.Headers.RetryAfter = Math.Max(1, (int)Math.Ceiling(wait.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
                 return EventErrors.Result(ParticipantErrors.RateLimited);
             }
-            return await next(context);
+            var result = await next(context);
+            if (result is IStatusCodeHttpResult { StatusCode: StatusCodes.Status404NotFound }) limiter.NoteUnknown(ip);
+            return result;
         });
 
         group.MapGet("", async (string linkToken, HttpContext context, ParticipantService service) =>

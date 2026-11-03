@@ -1013,6 +1013,76 @@ public sealed class AccountTests(PostgresFixture postgres) : IClassFixture<Postg
         await AssertErrorAsync(await CodeAsync(Client(host, "198.51.100.10"), "bob@example.org", code), HttpStatusCode.BadRequest, "code_invalid", "code");
     }
 
+    [Fact]
+    public async Task Wrong_codes_are_counted_in_the_database_and_revoke_every_live_code_of_the_account()
+    {
+        // a flood of other keys cannot reset this count: it is on the account row, not in the in-memory limiter
+        await using var host = Host(configure: f => f.Settings["Accounts:CodeFailuresBeforeRevoke"] = "3");
+        Assert.Equal(HttpStatusCode.Accepted, (await SignUpAsync(Client(host), "Anna", "anna@example.org", "sk")).StatusCode);
+        var code = Code((await OutboxAsync(host)).Single());
+        var wrong = code == "000000" ? "000001" : "000000";
+
+        for (var i = 0; i < 2; i++)
+            await AssertErrorAsync(await CodeAsync(Client(host, $"198.51.100.{i + 1}"), "anna@example.org", wrong), HttpStatusCode.BadRequest, "code_invalid", "code");
+        await using (var db = Db(host)) Assert.Equal(2, (await db.Organizers.SingleAsync()).CodeFailures);
+        await AssertErrorAsync(await CodeAsync(Client(host, "198.51.100.3"), "anna@example.org", wrong), HttpStatusCode.BadRequest, "code_invalid", "code");
+
+        // the third wrong code revoked the right one, and the count starts again
+        await AssertErrorAsync(await CodeAsync(Client(host, "198.51.100.4"), "anna@example.org", code), HttpStatusCode.BadRequest, "code_invalid", "code");
+        await using (var db = Db(host)) Assert.Equal(0, (await db.Organizers.SingleAsync()).CodeFailures);
+    }
+
+    [Fact]
+    public async Task A_right_code_resets_the_count_of_wrong_ones()
+    {
+        await using var host = Host(configure: f => f.Settings["Accounts:CodeFailuresBeforeRevoke"] = "3");
+        Assert.Equal(HttpStatusCode.Accepted, (await SignUpAsync(Client(host), "Anna", "anna@example.org", "sk")).StatusCode);
+        var code = Code((await OutboxAsync(host)).Single());
+        var wrong = code == "000000" ? "000001" : "000000";
+
+        await AssertErrorAsync(await CodeAsync(Client(host), "anna@example.org", wrong), HttpStatusCode.BadRequest, "code_invalid", "code");
+        Assert.Equal(HttpStatusCode.OK, (await CodeAsync(Client(host), "anna@example.org", code)).StatusCode);
+        await using var db = Db(host);
+        Assert.Equal(0, (await db.Organizers.SingleAsync()).CodeFailures);
+    }
+
+    [Fact]
+    public async Task Code_hashes_are_keyed_so_the_table_alone_does_not_reveal_a_code()
+    {
+        await using var host = Host(configure: f => f.Settings["Accounts:RateLimitSalt"] = "a-server-secret");
+        Assert.Equal(HttpStatusCode.Accepted, (await SignUpAsync(Client(host), "Anna", "anna@example.org", "sk")).StatusCode);
+        var code = Code((await OutboxAsync(host)).Single());
+        var row = (await LinkTokensAsync(host)).Single(t => t.Purpose == nameof(LinkPurpose.OrganizerCode));
+
+        Assert.NotEqual(LinkTokenService.Hash($"code:{row.SubjectId:N}:{code}"), row.TokenHash);
+        Assert.Equal(HttpStatusCode.OK, (await CodeAsync(Client(host), "anna@example.org", code)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Link_redemptions_of_one_IPv6_48_share_a_budget()
+    {
+        await using var host = Host(configure: f =>
+        {
+            f.Settings["Accounts:LinkRedeemsPerHourPerPrefix48"] = "3";
+            f.Settings["Accounts:LinkRedeemsPerIpPerHour"] = "100";
+        });
+        // three different /64s of one /48
+        for (var i = 1; i <= 3; i++)
+            await AssertErrorAsync(await RedeemAsync(Client(host, $"2001:db8:1:{i}::1"), "no-such-token"), HttpStatusCode.BadRequest, "link_invalid");
+        await AssertErrorAsync(await RedeemAsync(Client(host, "2001:db8:1:4::1"), "no-such-token"), HttpStatusCode.TooManyRequests, "rate_limited");
+        // another /48 has its own budget
+        await AssertErrorAsync(await RedeemAsync(Client(host, "2001:db8:2::1"), "no-such-token"), HttpStatusCode.BadRequest, "link_invalid");
+    }
+
+    [Fact]
+    public async Task A_code_for_an_unknown_address_takes_the_minimum_response_time()
+    {
+        await using var host = Host(minResponseMs: 300);
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        await AssertErrorAsync(await CodeAsync(Client(host), "nobody@example.org", "123456"), HttpStatusCode.BadRequest, "code_invalid", "code");
+        Assert.True(System.Diagnostics.Stopwatch.GetElapsedTime(started) >= TimeSpan.FromMilliseconds(290));
+    }
+
     // ----- helpers -----
 
     private ApiFactory Host(int minResponseMs = 0, Action<ApiFactory>? configure = null, Action<IServiceCollection>? services = null)

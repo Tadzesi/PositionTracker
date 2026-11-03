@@ -2,6 +2,7 @@ using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using PositionTracker.Data;
 using PositionTracker.Data.Entities;
 
@@ -34,8 +35,14 @@ public readonly record struct LinkResult(LinkStatus Status, Guid SubjectId)
 /// transaction as the outbox row of the email that carries it (the caller begins the transaction; without one
 /// <see cref="IssueAsync"/> uses its own so superseding and inserting stay atomic). Raw tokens are never logged.
 /// </summary>
-public sealed class LinkTokenService(AppDbContext db, TimeProvider clock)
+public sealed class LinkTokenService(AppDbContext db, TimeProvider clock, IOptions<AccountOptions>? accounts = null)
 {
+    /// <summary>
+    /// Key of the code hashes (from <see cref="AccountOptions.RateLimitSalt"/>, a server secret): a six-digit code has only a
+    /// million values, so a plain hash in the database could be reversed at once by anyone who can read the table.
+    /// </summary>
+    private readonly byte[] _codeKey = SHA256.HashData(Encoding.UTF8.GetBytes("code-hash\n" + (accounts?.Value.RateLimitSalt ?? "")));
+
     public static readonly TimeSpan EmailConfirmLifetime = TimeSpan.FromDays(14);
     public static readonly TimeSpan SignInLifetime = TimeSpan.FromMinutes(15);
     public static readonly TimeSpan InviteLifetime = TimeSpan.FromDays(14);
@@ -128,7 +135,21 @@ public sealed class LinkTokenService(AppDbContext db, TimeProvider clock)
         return RedeemHashAsync(LinkPurpose.OrganizerCode, CodeHash(subjectId, code), singleUse: true, ct);
     }
 
-    private static byte[] CodeHash(Guid subjectId, string code) => Hash($"code:{subjectId:N}:{code}");
+    private byte[] CodeHash(Guid subjectId, string code) =>
+        HMACSHA256.HashData(_codeKey, Encoding.UTF8.GetBytes($"code:{subjectId:N}:{code}"));
+
+    /// <summary>
+    /// Revokes every live code of <paramref name="subjectId"/> (too many wrong guesses): the account has to ask for a new mail,
+    /// which is rate limited, so guessing is bounded by the mails, not by an in-memory counter.
+    /// </summary>
+    public Task<int> RevokeCodesAsync(Guid subjectId, CancellationToken ct)
+    {
+        var now = clock.GetUtcNow();
+        var purpose = nameof(LinkPurpose.OrganizerCode);
+        return db.LinkTokens
+            .Where(t => t.SubjectId == subjectId && t.Purpose == purpose && t.RevokedAt == null && t.UsedAt == null && t.ExpiresAt > now)
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.RevokedAt, now), ct);
+    }
 
     /// <summary>
     /// Checks a token for <paramref name="purpose"/>. Single-use tokens are marked used atomically (of concurrent

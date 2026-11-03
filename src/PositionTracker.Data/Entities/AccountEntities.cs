@@ -17,6 +17,8 @@ public sealed class OrganizerEntity
     /// when left empty.
     /// </summary>
     public Guid SecurityStamp { get; set; }
+    /// <summary>Wrong sign-in codes typed since the last correct one (or the last revocation of the account's codes).</summary>
+    public int CodeFailures { get; set; }
 }
 
 /// <summary>

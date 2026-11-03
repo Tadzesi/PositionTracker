@@ -249,7 +249,7 @@
   <div class="grid2">
     <div class="card">
       <h3>Zostava</h3>
-      <p class="sub">Samostatný testovací stack (rovnaký image ako produkcia, vlastná databáza, simulované e-maily) na <code>192.168.1.2:18080</code>, mimo Cloudflare. Produkčné dáta neboli dotknuté.</p>
+      <p class="sub">Samostatný testovací stack (rovnaký image ako produkcia, vlastná databáza, simulované e-maily) na samostatnom porte toho istého domáceho servera, mimo Cloudflare. Produkčné dáta neboli dotknuté.</p>
       <ul style="font-size:13.5px;margin:6px 0 0;padding-left:18px;color:var(--ink2)">
         <li><b>Generátor</b>: vlastný .NET 10 nástroj <code>LoadLab</code> na Windows PC. Plánovač na dedikovanom vlákne integruje cieľový tok R(t) (open loop) a latenciu meria od plánovaného času odoslania.</li>
         <li><b>Pretek</b>: 400 potvrdených bežcov s vlastnými tokenmi (v 1. behu 1 500), 10 z nich sú sondy. Polohy ležia na reálnom okruhu (5,7 km, Žilina) a rýchlosti sú 2,4–4,6 m/s.</li>

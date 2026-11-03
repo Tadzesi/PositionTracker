@@ -47,6 +47,30 @@ public sealed class LiveBroadcaster(
     /// <summary>The simulated demo events have their own lifetime (see <see cref="Simulation.SimulationService"/>).</summary>
     private static bool IsSimulated(string eventId) => eventId.StartsWith("demo-", StringComparison.Ordinal);
 
+    /// <summary>How long the acknowledgements of one event may take to load (database) before its view is sent without them.</summary>
+    internal static readonly TimeSpan AckTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// The organizer view with the alarm acknowledgements applied, or the plain view when they take longer than
+    /// <see cref="AckTimeout"/> (wall clock): events are broadcast one after another, so a slow database must not hold up the
+    /// live updates of every other event. The acknowledgements are applied again on the next tick.
+    /// </summary>
+    private async ValueTask<PositionTracker.Core.Runtime.LiveView> WithAcksAsync(
+        PositionTracker.Core.Runtime.LiveView view, string eventId, CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(AckTimeout);
+        try
+        {
+            return await acks.ApplyAsync(view, timeout.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning("Alarm acknowledgements of event {EventId} took longer than {Timeout}; view sent without them.", eventId, AckTimeout);
+            return view;
+        }
+    }
+
     public async Task BroadcastAsync(CancellationToken cancellationToken = default)
     {
         var events = registry.All;
@@ -72,7 +96,7 @@ public sealed class LiveBroadcaster(
                 var view = runtime.BuildLiveView(registry.FinishedAt(eventId));
                 feed.Push(runtime, view);
                 await hub.Clients.Group(LiveHub.OrganizerGroup(eventId))
-                    .SendAsync(LiveHub.LiveUpdateMethod, await acks.ApplyAsync(view, cancellationToken), cancellationToken);
+                    .SendAsync(LiveHub.LiveUpdateMethod, await WithAcksAsync(view, eventId, cancellationToken), cancellationToken);
                 if (feed.GetCurrent(runtime) is { } spectatorView)
                     await hub.Clients.Group(LiveHub.SpectatorGroup(eventId))
                         .SendAsync(LiveHub.PublicUpdateMethod, spectatorView, cancellationToken);

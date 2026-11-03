@@ -122,7 +122,7 @@ export default function MapView({ points, markers, checkpoints, selectedId, onSe
     if (!g) return;
     g.clearLayers();
     for (const c of checkpoints ?? []) {
-      L.circleMarker([c.lat, c.lon], { radius: 5, color: '#FFD60A', weight: 2, fillOpacity: 0.9 }).bindTooltip(c.name).addTo(g);
+      L.circleMarker([c.lat, c.lon], { radius: 5, color: '#FFD60A', weight: 2, fillOpacity: 0.9 }).bindTooltip(escapeHtml(c.name)).addTo(g);
     }
     for (const mk of markers) {
       const selected = mk.selected || mk.id === selectedId;

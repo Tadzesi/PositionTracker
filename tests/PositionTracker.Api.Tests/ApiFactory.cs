@@ -18,7 +18,7 @@ using PositionTracker.Core.Simulation;
 namespace PositionTracker.Api.Tests;
 
 /// <summary>
-/// Test host with a <see cref="FakeTimeProvider"/>, the organizer key <c>test-key</c> and a seeded cycling event
+/// Test host with a <see cref="FakeTimeProvider"/>, the organizer key <c>test-key-0123456789abcdefghijklmnop</c> and a seeded cycling event
 /// (<see cref="EventId"/>, one lap of the 12.5 km demo loop starting at <see cref="T0"/>) with participants
 /// <see cref="Participant1"/> and <see cref="Participant2"/> and their tokens. Change <see cref="Settings"/>
 /// before the first use of the factory to override configuration. Set <see cref="SeedTestEvent"/> to false for a
@@ -45,12 +45,12 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     /// <summary>Extra service registrations applied after the app's own (to replace a service in a test).</summary>
     public Action<IServiceCollection>? ConfigureServices { get; init; }
 
-    public string OrganizerKey => "test-key";
+    public string OrganizerKey => "test-key-0123456789abcdefghijklmnop";
 
     /// <summary>Configuration overrides applied on top of the app's settings when the host is built.</summary>
     public Dictionary<string, string?> Settings { get; } = new()
     {
-        ["Organizer:ApiKey"] = "test-key",
+        ["Organizer:ApiKey"] = "test-key-0123456789abcdefghijklmnop",
         ["ConnectionStrings:Default"] = "", // in memory, unless a test sets a database
         ["Persistence:MigrateOnStartup"] = "false",
         // Hermetic: the in-memory source is added last, so these override environment variables (and user secrets

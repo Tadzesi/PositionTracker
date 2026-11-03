@@ -23,6 +23,12 @@ public class PositionFilterTests
     }
 
     [Fact]
+    public void A_negative_accuracy_is_rejected()
+    {
+        Assert.Equal(FilterDecision.RejectAccuracy, PositionFilter.Evaluate(Fix(0, accuracy: -1), null, Runner));
+    }
+
+    [Fact]
     public void Accuracy_above_limit_is_rejected()
     {
         Assert.Equal(FilterDecision.RejectAccuracy, PositionFilter.Evaluate(Fix(0, accuracy: 51), null, Runner));

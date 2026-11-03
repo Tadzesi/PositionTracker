@@ -20,7 +20,8 @@ public static class PositionFilter
     /// </summary>
     public static FilterDecision Evaluate(PositionFix fix, PositionFix? previousAccepted, FilterOptions options)
     {
-        if (fix.AccuracyM is { } accuracy && !(accuracy <= options.MaxAccuracyM))
+        // a negative accuracy is no real measurement (a device bug), so it is rejected like a poor one
+        if (fix.AccuracyM is { } accuracy && !(accuracy >= 0 && accuracy <= options.MaxAccuracyM))
             return FilterDecision.RejectAccuracy;
 
         if (previousAccepted is null)

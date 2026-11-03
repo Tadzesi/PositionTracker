@@ -90,9 +90,10 @@ public static class IngestEndpoints
             return Results.Problem($"At most {MaxFixesPerBatch} fixes per batch.",
                 statusCode: StatusCodes.Status413PayloadTooLarge);
 
-        // A battery level outside 0..100 is a device bug, not a reason to refuse the fixes: it is stored as unknown.
+        // A battery level outside 0..100 is a device bug, not a reason to refuse the fixes: it is stored as unknown; a negative
+        // queue length (also a bug) is stored as 0.
         var status = request.Status is { } s
-            ? new DeviceStatus(s.Battery is >= 0 and <= 100 ? s.Battery : null, s.Charging, s.Queue, s.Foreground)
+            ? new DeviceStatus(s.Battery is >= 0 and <= 100 ? s.Battery : null, s.Charging, Math.Max(0, s.Queue), s.Foreground)
             : null;
         var batch = new PositionBatch(fixes.Select(f => new PositionFix(f.T, f.Lat, f.Lon, f.Acc)).ToList(), status);
         return await ApplyAsync(context, eventId, runtime, caller.ParticipantId, caller.TokenHash, batch, fixLimiter, history,
@@ -231,7 +232,14 @@ public static class IngestEndpoints
             {
                 try
                 {
-                    context.Items[CallerKey] = await ResolveAsync(context, raw);
+                    var (status, caller) = await ResolveAsync(context, raw);
+                    if (status == DeviceLookupStatus.Throttled)
+                    {
+                        SetRetryAfter(context, DeviceLookupLimiter.Window);
+                        context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+                        return;
+                    }
+                    context.Items[CallerKey] = caller;
                 }
                 catch (Exception ex) when (EventService.IsDatabaseFailure(ex) && !context.RequestAborted.IsCancellationRequested)
                 {
@@ -243,13 +251,25 @@ public static class IngestEndpoints
             await next(context);
         });
 
-    private static async Task<Caller?> ResolveAsync(HttpContext context, string raw)
+    /// <summary>
+    /// The caller of a device request: simulated tokens from memory, database tokens from the cache or (while the client
+    /// address has lookup budget, see <see cref="DeviceLookupLimiter"/>) the database.
+    /// </summary>
+    private static async Task<(DeviceLookupStatus Status, Caller? Caller)> ResolveAsync(HttpContext context, string raw)
+    {
+        var (status, id) = await ResolveDeviceTokenAsync(context, raw);
+        return (status, id is { } found ? new Caller(found.EventId, found.ParticipantId, TokenService.Hash(raw)) : null);
+    }
+
+    /// <summary>Resolves a raw device token of the request (shared with the OwnTracks adapter).</summary>
+    internal static async Task<(DeviceLookupStatus Status, (string EventId, string ParticipantId)? Id)> ResolveDeviceTokenAsync(
+        HttpContext context, string raw)
     {
         var services = context.RequestServices;
-        (string EventId, string ParticipantId)? id = services.GetRequiredService<TokenService>().Resolve(raw);
-        if (id is null && services.GetRequiredService<IOptions<PersistenceOptions>>().Value.Enabled)
-            id = await services.GetRequiredService<ITokenService>().ResolveAsync(raw, context.RequestAborted);
-        return id is { } found ? new Caller(found.EventId, found.ParticipantId, TokenService.Hash(raw)) : null;
+        if (services.GetRequiredService<TokenService>().Resolve(raw) is { } simulated) return (DeviceLookupStatus.Found, simulated);
+        if (!services.GetRequiredService<IOptions<PersistenceOptions>>().Value.Enabled) return (DeviceLookupStatus.NotFound, null);
+        return await services.GetRequiredService<DeviceTokens>()
+            .ResolveFromAsync(raw, context.Connection.RemoteIpAddress, context.RequestAborted);
     }
 
     private static string? BearerToken(HttpRequest request)

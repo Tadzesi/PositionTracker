@@ -38,7 +38,16 @@ builder.Services.AddOperations();
 builder.Services.AddOptions<OrganizerOptions>()
     .BindConfiguration(OrganizerOptions.Section)
     .Validate(o => !string.IsNullOrWhiteSpace(o.ApiKey), "Configuration value 'Organizer:ApiKey' is required.")
+    // The operator key opens the live view of every event: outside Development it must be long enough not to be guessed.
+    .Validate(o => builder.Environment.IsDevelopment() || o.ApiKey.Trim().Length >= ApiKeyGuard.MinKeyLength,
+        $"Configuration value 'Organizer:ApiKey' must have at least {ApiKeyGuard.MinKeyLength} characters.")
     .ValidateOnStart();
+// Kestrel caps: open connections and WebSocket (upgraded) connections in all, so a flood cannot exhaust memory and sockets.
+builder.WebHost.ConfigureKestrel(o =>
+{
+    o.Limits.MaxConcurrentConnections = 10_000;
+    o.Limits.MaxConcurrentUpgradedConnections = HubConnectionLimiter.Total;
+});
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(EnumsAsStrings()));
 builder.Services.AddIngestRateLimiting();
 builder.Services.AddSingleton<FixRateLimiter>();
@@ -49,6 +58,9 @@ builder.Services.AddOptions<LiveOptions>()
     .ValidateOnStart();
 builder.Services.AddSignalR()
     .AddJsonProtocol(o => o.PayloadSerializerOptions.Converters.Add(EnumsAsStrings()));
+builder.Services.AddSingleton<HubConnectionLimiter>();
+builder.Services.AddSingleton<ApiKeyGuard>();
+builder.Services.AddSingleton<DeviceLookupLimiter>();
 builder.Services.AddSingleton<SpectatorFeed>();
 builder.Services.AddSingleton<LiveBroadcaster>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<LiveBroadcaster>());

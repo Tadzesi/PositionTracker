@@ -97,7 +97,8 @@ Hub: `/hubs/live`. Server methods:
 - `JoinSpectator(eventId)`: receives `PublicUpdate` with the delayed spectator view.
 
 Views are pushed every `Live:IntervalMs` (default 1 500 ms). An unknown event or a wrong key fails the call
-with a `HubException`.
+with a `HubException`. A client address (IPv4 address or IPv6 /64) may hold 50 hub connections, all clients together 5 000
+(Kestrel caps upgraded connections at the same number); one connection may join at most 4 groups.
 
 ## Device ingest contract
 
@@ -135,6 +136,10 @@ event and participant (in Plan 1 only the demo simulator issues them).
 - The fix-budget `429` (problem details naming the 600 fixes per minute) is distinct from the request-limit
   `429` (60 requests per minute); both carry `Retry-After`. Budget taken by a request that then fails with `500`
   is not refunded.
+- Unknown tokens: a token that is not cached is looked up in the database, and a client address (IPv4 address or IPv6
+  /64) may have 30 lookups a minute that find nothing; beyond that further uncached tokens from it get `429` with
+  `Retry-After: 60` without a query (OwnTracks too). Valid tokens of a live event are cached, so phones are not affected.
+  Unknown participant links (`/api/p/{token}`) are limited the same way (30 a minute per address).
 
 `POST /api/events/{eventId}/actions` with `{"action": "sos" | "sosCleared" | "pause" | "resume" | "dnf"}`:
 `204`, same authentication and status codes.
@@ -143,7 +148,7 @@ event and participant (in Plan 1 only the demo simulator issues them).
 
 | Key | Meaning |
 |---|---|
-| `Organizer:ApiKey` | Organizer key for `/live`, the demo endpoints and `JoinOrganizer`. Required; startup fails without it. |
+| `Organizer:ApiKey` | Organizer key for `/live`, the demo endpoints, `/api/ops` and `JoinOrganizer`. Required; startup fails without it, and outside Development also when it is shorter than 32 characters. A client address may present 20 wrong keys an hour; beyond that every key from it is refused for the rest of the hour. |
 | `Live:IntervalMs` | Broadcast interval in milliseconds (default 1 500, must be positive). |
 | `ConnectionStrings:Default` | PostgreSQL connection string. Without it nothing is persisted or rebuilt. |
 | `Persistence:QueueCapacity` | Position history writes (one per ingested batch or action) not yet in the database; default 1 000. |
@@ -155,10 +160,11 @@ event and participant (in Plan 1 only the demo simulator issues them).
 | `Email:Smtp:{Port,UseStartTls,User,Password,TimeoutSeconds}` | SMTP connection (defaults 587, STARTTLS required, no auth, 30 s). |
 | `Email:From` / `Email:FromName` / `Email:PublicBaseUrl` | Sender and the base of emailed links; `From` and `PublicBaseUrl` are required once a host is set. `PublicBaseUrl` must be https outside Development, without query or fragment (trailing `/` removed). Port 465 needs `UseStartTls=false`; credentials over a plain connection are rejected. |
 | `Email:Outbox:{PollIntervalSeconds,BatchSize,MaxAttempts,RetryBaseSeconds,RetryMaxSeconds,RetentionDays}` | Outbox worker (defaults 5, 20, 6, 60, 3600, 7). |
-| `Accounts:{RequestsPerIpPerHour,MailsPerEmailAndIpPerHour,MailsPerEmailPerHour,GlobalMailsPerHour,LinkRedeemsPerIpPerHour}` | Organizer account limits per hour (defaults 20, 3, 10, 200, 60). |
+| `Accounts:{RequestsPerIpPerHour,MailsPerEmailAndIpPerHour,MailsPerEmailPerHour,GlobalMailsPerHour,LinkRedeemsPerIpPerHour,LinkRedeemsPerHourPerPrefix48}` | Organizer account limits per hour (defaults 20, 3, 10, 200, 60, 300; the last per IPv6 /48 on top of the per-/64 one). |
+| `Accounts:CodeFailuresBeforeRevoke` | Wrong six-digit codes of an account (counted on the account row, so a flood of other keys cannot reset them) after which all its live codes are revoked (default 5). |
 | `Accounts:RateLimitMaxKeys` | Keys each limiter keeps at most (default 100 000; the oldest windows are evicted beyond). |
-| `Accounts:MinResponseMilliseconds` | Sign-up and sign-in answer no sooner than this (default 400 ms), so timing does not reveal an account. |
-| `Accounts:RateLimitSalt` | Secret salt of the per-email limiter keys; empty = random per process (the counters are in memory). |
+| `Accounts:MinResponseMilliseconds` | Sign-up, sign-in and code redemption answer no sooner than this (default 400 ms), so timing does not reveal an account. |
+| `Accounts:RateLimitSalt` | Secret salt of the per-email limiter keys and the key of the stored code hashes (a six-digit code under a plain hash could be read straight from the table); empty = random limiter salt per process and an unkeyed code hash (Development only; required in the compose files). Changing it invalidates the codes in flight. |
 | `Accounts:ConfirmPath` / `Accounts:SignInPath` | Front-end pages the emailed links open (defaults `account/confirm`, `account/signin`, relative to `Email:PublicBaseUrl`). |
 | `Accounts:DataProtectionKeysPath` | Directory of the keys that encrypt session cookies. Set a persistent volume in a container, or every restart signs everyone out. |
 | `Proxy:{KnownProxies,KnownNetworks}` | Addresses / CIDR ranges of the reverse proxy: only from these `X-Forwarded-For/Proto` is trusted (required behind a proxy, see `docs/ops/deployment.md`). Empty: the headers are ignored. |
@@ -357,7 +363,7 @@ the public spectator page (`/e/{eventId}`: search, follow, ETA, in-page finish a
 
 ```
 cd web
-npm install --legacy-peer-deps
+npm install
 npm test                      # vitest (unit + page tests with a mocked fetch)
 npm run build                 # writes src/PositionTracker.Api/wwwroot (git-ignored); the API serves it
 npm run dev                   # Vite dev server on :5173, proxies /api and /hubs to http://localhost:5298

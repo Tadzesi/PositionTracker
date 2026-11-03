@@ -21,8 +21,7 @@ public static class DemoEndpoints
     {
         var group = app.MapGroup("/api/demo/events").AddEndpointFilter(async (context, next) =>
         {
-            var organizer = context.HttpContext.RequestServices.GetRequiredService<IOptions<OrganizerOptions>>().Value;
-            return organizer.IsValidKey(context.HttpContext.Request.Headers[OrganizerOptions.ApiKeyHeader].ToString())
+            return context.HttpContext.RequestServices.GetRequiredService<ApiKeyGuard>().IsValidRequest(context.HttpContext)
                 ? await next(context)
                 : Results.Unauthorized();
         });

@@ -29,8 +29,7 @@ public static class OpsEndpoints
     {
         var group = app.MapGroup("/api/ops").AddEndpointFilter(async (context, next) =>
         {
-            var organizer = context.HttpContext.RequestServices.GetRequiredService<IOptions<OrganizerOptions>>().Value;
-            return organizer.IsValidKey(context.HttpContext.Request.Headers[OrganizerOptions.ApiKeyHeader].ToString())
+            return context.HttpContext.RequestServices.GetRequiredService<ApiKeyGuard>().IsValidRequest(context.HttpContext)
                 ? await next(context)
                 : Results.Unauthorized();
         });

@@ -82,19 +82,37 @@ public static class AdminEndpoints
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
             return;
         }
-        context.Items[CookieAuth.ActAsItemKey] = target;
-        if (!HttpMethods.IsGet(context.Request.Method) && !HttpMethods.IsHead(context.Request.Method))
+        var path = context.Request.Path.Value ?? "";
+        var now = context.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow();
+        var isRead = HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method);
+        // Every change is audited; reads too (an export of another organizer's participants is personal data), but the same
+        // read of the same admin and organizer at most once per ReadAuditInterval, so a polling page does not flood the table.
+        var memoKey = $"{admin.Id:N}|{target:N}|{context.Request.Method}|{path}";
+        var audit = !isRead || ActAsReadMemo.ShouldAudit(memoKey, now);
+        if (audit || !ActAsReadMemo.IsKnownTarget(target))
         {
-            var path = context.Request.Path.Value ?? "";
             await using var db = await context.RequestServices.GetRequiredService<IDbContextFactory<AppDbContext>>()
                 .CreateDbContextAsync(context.RequestAborted);
-            db.AdminAudit.Add(new AdminAuditEntity
+            if (!ActAsReadMemo.IsKnownTarget(target))
             {
-                At = context.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow(), AdminId = admin.Id, OrganizerId = target,
-                Method = context.Request.Method, Path = path.Length > 300 ? path[..300] : path,
-            });
-            await db.SaveChangesAsync(context.RequestAborted);
+                if (!await db.Organizers.AnyAsync(o => o.Id == target, context.RequestAborted))
+                {
+                    context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                    return;
+                }
+                ActAsReadMemo.AddKnownTarget(target);
+            }
+            if (audit)
+            {
+                db.AdminAudit.Add(new AdminAuditEntity
+                {
+                    At = now, AdminId = admin.Id, OrganizerId = target,
+                    Method = context.Request.Method, Path = path.Length > 300 ? path[..300] : path,
+                });
+                await db.SaveChangesAsync(context.RequestAborted);
+            }
         }
+        context.Items[CookieAuth.ActAsItemKey] = target;
         await next();
     });
 
@@ -193,5 +211,34 @@ public static class AdminEndpoints
         var emails = await db.Organizers.AsNoTracking().ToDictionaryAsync(o => o.Id, o => o.Email, ct);
         return Results.Ok(rows.Select(r => new AuditRow(r.At, emails.GetValueOrDefault(r.AdminId, "?"), emails.GetValueOrDefault(r.OrganizerId, "?"),
             r.Method, r.Path)).ToList());
+    }
+}
+
+/// <summary>
+/// Throttles the audit rows of act-as reads (one per admin, organizer, method and path per <see cref="ReadAuditInterval"/>) and
+/// remembers organizer ids that exist, so the check of the act-as target costs one query per organizer. Bounded: starts over
+/// beyond <see cref="MaxEntries"/>.
+/// </summary>
+internal static class ActAsReadMemo
+{
+    public static readonly TimeSpan ReadAuditInterval = TimeSpan.FromMinutes(10);
+    private const int MaxEntries = 10_000;
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset> Reads = new(StringComparer.Ordinal);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, byte> Targets = new();
+
+    public static bool ShouldAudit(string key, DateTimeOffset now)
+    {
+        if (Reads.Count > MaxEntries) Reads.Clear();
+        if (Reads.TryGetValue(key, out var last) && now >= last && now - last < ReadAuditInterval) return false;
+        Reads[key] = now;
+        return true;
+    }
+
+    public static bool IsKnownTarget(Guid id) => Targets.ContainsKey(id);
+
+    public static void AddKnownTarget(Guid id)
+    {
+        if (Targets.Count > MaxEntries) Targets.Clear();
+        Targets[id] = 0;
     }
 }

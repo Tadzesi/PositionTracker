@@ -37,10 +37,10 @@ public static class LiveEndpoints
     }
 
     private static async Task<IResult> GetLive(string eventId, HttpContext context, EventRegistry registry,
-        IOptions<OrganizerOptions> organizer, IOptions<PersistenceOptions> persistence, IDbContextFactory<AppDbContext> contexts,
+        ApiKeyGuard keys, IOptions<PersistenceOptions> persistence, IDbContextFactory<AppDbContext> contexts,
         AlarmAckService acks)
     {
-        if (!organizer.Value.IsValidKey(context.Request.Headers[OrganizerOptions.ApiKeyHeader].ToString()))
+        if (!keys.IsValidRequest(context))
         {
             // No operator key: an organizer session may read its own event only.
             if (CookieAuth.ActingOrganizerId(context) is not { } organizerId) return Results.Unauthorized();

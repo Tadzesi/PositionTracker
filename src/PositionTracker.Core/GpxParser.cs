@@ -9,6 +9,30 @@ public sealed class GpxFormatException(string message) : Exception(message);
 public static class GpxParser
 {
     /// <summary>
+    /// Points closer than this to the previous kept point are dropped (<see cref="Thin"/>). GPS noise below that adds nothing to
+    /// the course, but every point is a segment the course matcher scans for each fix: a 1 MB GPX of densely packed points on a
+    /// short lap would make every fix of the event cost thousands of segments.
+    /// </summary>
+    public const double MinPointSpacingM = 2.0;
+
+    /// <summary>
+    /// Keeps the first point, every point at least <paramref name="minSpacingM"/> from the last kept one, and the last point
+    /// (a closed lap stays closed). Deterministic, so a stored GPX always yields the same course.
+    /// </summary>
+    public static List<GeoPoint> Thin(IReadOnlyList<GeoPoint> points, double minSpacingM)
+    {
+        var kept = new List<GeoPoint>(points.Count);
+        for (var i = 0; i < points.Count; i++)
+        {
+            var p = points[i];
+            if (kept.Count == 0 || i == points.Count - 1 || GeoMath.DistanceM(kept[^1], p) >= minSpacingM) kept.Add(p);
+        }
+        // the last point may sit right after the previous kept one: drop that previous one instead, unless it is the first
+        if (kept.Count > 2 && GeoMath.DistanceM(kept[^2], kept[^1]) < minSpacingM) kept.RemoveAt(kept.Count - 2);
+        return kept;
+    }
+
+    /// <summary>
     /// Reads the track points (or, without any, the route points) of a GPX document. A DTD is refused and no
     /// external resource is resolved. Latitude and longitude must be finite and in range; an empty <c>ele</c>
     /// element means no elevation for that point. Anything else invalid is a <see cref="GpxFormatException"/>.
@@ -24,6 +48,7 @@ public static class GpxParser
             var points = ReadPoints(doc, "trkpt");
             if (points.Count == 0)
                 points = ReadPoints(doc, "rtept");
+            points = Thin(points, MinPointSpacingM);
             if (points.Count < 2)
                 throw new GpxFormatException("GPX must contain at least 2 track or route points.");
             return points;

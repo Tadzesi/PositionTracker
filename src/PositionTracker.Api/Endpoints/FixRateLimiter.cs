@@ -16,6 +16,7 @@ public sealed class FixRateLimiter(TimeProvider clock)
 
     private readonly object _lock = new();
     private readonly Dictionary<string, (DateTimeOffset Start, int Used)> _windows = new(StringComparer.Ordinal);
+    private DateTimeOffset _nextPrune = DateTimeOffset.MinValue;
 
     /// <summary>
     /// Takes all <paramref name="requested"/> fixes from the budget of <paramref name="key"/> and returns true, or
@@ -31,9 +32,13 @@ public sealed class FixRateLimiter(TimeProvider clock)
         lock (_lock)
         {
             var now = clock.GetUtcNow();
-            if (_windows.Count > PruneAbove)
+            // Pruning scans every window, so it runs at most once per window length (amortised), not on every call above the mark.
+            if (_windows.Count > PruneAbove && now >= _nextPrune)
+            {
+                _nextPrune = now + Window;
                 foreach (var stale in _windows.Where(w => now - w.Value.Start >= Window).Select(w => w.Key).ToList())
                     _windows.Remove(stale);
+            }
 
             if (!_windows.TryGetValue(key, out var window) || now - window.Start >= Window || now < window.Start)
                 window = (now, 0);

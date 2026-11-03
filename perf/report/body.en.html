@@ -249,7 +249,7 @@
   <div class="grid2">
     <div class="card">
       <h3>Setup</h3>
-      <p class="sub">A separate test stack (the same image as production, its own database, simulated e-mails) at <code>192.168.1.2:18080</code>, outside Cloudflare. Production data was not touched.</p>
+      <p class="sub">A separate test stack (the same image as production, its own database, simulated e-mails) on a separate port of the same home server, outside Cloudflare. Production data was not touched.</p>
       <ul style="font-size:13.5px;margin:6px 0 0;padding-left:18px;color:var(--ink2)">
         <li><b>Generator</b>: our own .NET 10 tool <code>LoadLab</code> on a Windows PC. A scheduler on a dedicated thread integrates the target rate R(t) (open loop) and measures latency from the scheduled send time.</li>
         <li><b>Race</b>: 400 confirmed runners with their own tokens (1,500 in the 1st run), 10 of them probes. Positions lie on a real loop (5.7 km, Žilina) and speeds are 2.4–4.6 m/s.</li>

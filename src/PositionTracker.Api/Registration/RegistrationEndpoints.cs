@@ -39,7 +39,8 @@ public static class RegistrationEndpoints
         services.AddSingleton<DeviceTokenCache>();
         services.AddSingleton<DeviceTokenWarmer>();
         services.AddHostedService(sp => sp.GetRequiredService<DeviceTokenWarmer>());
-        services.AddScoped<ITokenService, DeviceTokens>();
+        services.AddScoped<DeviceTokens>();
+        services.AddScoped<ITokenService>(sp => sp.GetRequiredService<DeviceTokens>());
         services.AddScoped<RegistrationService>();
         return services;
     }

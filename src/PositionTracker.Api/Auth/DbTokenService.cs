@@ -72,9 +72,27 @@ public sealed class DbTokenService(AppDbContext db, TimeProvider clock) : IToken
 /// <see cref="DbTokenService"/>, simulated events the in-memory <see cref="TokenService"/>, which never writes a row.
 /// Resolving tries memory first, then the <see cref="DeviceTokenCache"/>, then the database; issuing and revoking clear all.
 /// </summary>
-public sealed class DeviceTokens(TokenService memory, DbTokenService database, DeviceTokenCache cache, TimeProvider clock)
+public sealed class DeviceTokens(
+    TokenService memory, DbTokenService database, DeviceTokenCache cache, DeviceLookupLimiter lookups, TimeProvider clock)
     : ITokenService
 {
+    /// <summary>
+    /// Resolves the token of a device request from <paramref name="ip"/>: memory and cache first; a cache miss queries the
+    /// database only while the address has lookup budget left (<see cref="DeviceLookupLimiter"/>), else
+    /// <see cref="DeviceLookupStatus.Throttled"/> without a query. A lookup that finds nothing is counted against the address.
+    /// </summary>
+    public async Task<(DeviceLookupStatus Status, (string EventId, string ParticipantId)? Id)> ResolveFromAsync(
+        string rawToken, System.Net.IPAddress? ip, CancellationToken ct)
+    {
+        if (memory.Resolve(rawToken) is { } simulated) return (DeviceLookupStatus.Found, simulated);
+        if (string.IsNullOrEmpty(rawToken)) return (DeviceLookupStatus.NotFound, null);
+        if (cache.Get(TokenService.Hash(rawToken)) is { } cached) return (DeviceLookupStatus.Found, cached);
+        if (!lookups.MayLookUp(ip)) return (DeviceLookupStatus.Throttled, null);
+        var found = await ResolveAsync(rawToken, ct);
+        if (found is null) lookups.NoteMiss(ip);
+        return (found is null ? DeviceLookupStatus.NotFound : DeviceLookupStatus.Found, found);
+    }
+
     public async Task<string> IssueAsync(string eventId, string participantId, CancellationToken ct)
     {
         if (!DbTokenService.IsDatabaseId(eventId)) return memory.Issue(eventId, participantId);

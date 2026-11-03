@@ -202,6 +202,17 @@ public static class AccountEndpoints
     }
 
     private static async Task<IResult> RedeemCodeAsync(HttpContext context, OrganizerService organizers, AccountRateLimiter limiter,
+        IEmailMode mode, IOptions<JsonOptions> json, IOptions<AccountOptions> options, ILoggerFactory loggers)
+    {
+        // A wrong code for an unknown address must not answer faster than one for an account (no account enumeration by timing).
+        var started = Stopwatch.GetTimestamp();
+        var result = await RedeemCodeCoreAsync(context, organizers, limiter, mode, json, loggers);
+        var remaining = TimeSpan.FromMilliseconds(options.Value.MinResponseMilliseconds) - Stopwatch.GetElapsedTime(started);
+        if (remaining > TimeSpan.Zero) await Task.Delay(remaining, context.RequestAborted);
+        return result;
+    }
+
+    private static async Task<IResult> RedeemCodeCoreAsync(HttpContext context, OrganizerService organizers, AccountRateLimiter limiter,
         IEmailMode mode, IOptions<JsonOptions> json, ILoggerFactory loggers)
     {
         var (body, error) = await ReadAsync<CodeRequest>(context, json);

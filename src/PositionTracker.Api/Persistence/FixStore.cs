@@ -129,15 +129,30 @@ public sealed class FixStore(IDbContextFactory<AppDbContext> contexts) : IFixSto
             yield return new StoredAction(a.ParticipantId.ToString("D"), a.Action, a.Time);
     }
 
+    /// <summary>Rows deleted per statement by <see cref="DeleteOlderThanAsync"/>.</summary>
+    internal const int RetentionBatchSize = 10_000;
+
+    /// <summary>
+    /// Deletes the fixes and device statuses of events that ended before <paramref name="eventEndedBefore"/>, in batches of
+    /// <see cref="RetentionBatchSize"/> rows, each its own short statement: one statement over a big event would hold its locks
+    /// (and the WAL) for long and could run into the command timeout every night, so the data would never shrink. A run cut off
+    /// half way is simply continued by the next one.
+    /// </summary>
     public async Task<int> DeleteOlderThanAsync(DateTimeOffset eventEndedBefore, CancellationToken ct)
     {
         var cutoff = eventEndedBefore.ToUniversalTime();
         await using var db = await contexts.CreateDbContextAsync(ct);
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var ended = db.Events.Where(e => e.EndedAt != null && e.EndedAt < cutoff).Select(e => e.Id);
-        var deleted = await db.Fixes.Where(f => ended.Contains(f.EventId)).ExecuteDeleteAsync(ct);
-        await db.DeviceStatuses.Where(s => ended.Contains(s.EventId)).ExecuteDeleteAsync(ct);
-        await transaction.CommitAsync(ct);
+        var deleted = 0;
+        int batch;
+        do
+        {
+            batch = await db.Fixes.Where(f => ended.Contains(f.EventId)).OrderBy(f => f.Id).Take(RetentionBatchSize).ExecuteDeleteAsync(ct);
+            deleted += batch;
+        }
+        while (batch == RetentionBatchSize);
+        do batch = await db.DeviceStatuses.Where(s => ended.Contains(s.EventId)).OrderBy(s => s.Id).Take(RetentionBatchSize).ExecuteDeleteAsync(ct);
+        while (batch == RetentionBatchSize);
         return deleted;
     }
 }

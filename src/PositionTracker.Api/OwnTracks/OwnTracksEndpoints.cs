@@ -41,7 +41,17 @@ public static class OwnTracksEndpoints
         try
         {
             (username, password) = ParseBasic(context.Request.Headers.Authorization.ToString());
-            id = password is null ? null : await ResolveAsync(context, password);
+            if (password is null) id = null;
+            else
+            {
+                var (status, found) = await IngestEndpoints.ResolveDeviceTokenAsync(context, password);
+                if (status == DeviceLookupStatus.Throttled)
+                {
+                    context.Response.Headers.RetryAfter = ((int)DeviceLookupLimiter.Window.TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+                }
+                id = found;
+            }
         }
         catch (Exception ex) when (EventService.IsDatabaseFailure(ex) && !context.RequestAborted.IsCancellationRequested)
         {
@@ -134,15 +144,6 @@ public static class OwnTracksEndpoints
         if (runtime is null) return noRuntime;
         return runtime.Participants.TryGetValue(participantId, out var info)
             && string.Equals(info.Bib, username, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static async Task<(string EventId, string ParticipantId)?> ResolveAsync(HttpContext context, string token)
-    {
-        var services = context.RequestServices;
-        var found = services.GetRequiredService<TokenService>().Resolve(token);
-        if (found is not null) return (found.Value.EventId, found.Value.ParticipantId);
-        if (!services.GetRequiredService<IOptions<PersistenceOptions>>().Value.Enabled) return null;
-        return await services.GetRequiredService<ITokenService>().ResolveAsync(token, context.RequestAborted);
     }
 
     private static (string? Username, string? Password) ParseBasic(string header)

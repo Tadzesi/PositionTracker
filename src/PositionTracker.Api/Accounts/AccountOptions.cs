@@ -41,6 +41,16 @@ public sealed class AccountOptions
     /// </summary>
     public int CodeAttemptsPerEmailPerHour { get; set; } = 10;
 
+    /// <summary>
+    /// Wrong codes of an account (counted in the database, so no flood of other keys can reset the count) after which all its
+    /// live codes are revoked; the next attempt needs a new mail. With at most <see cref="MailsPerEmailPerHour"/> mails an hour
+    /// this bounds the guesses at about 50 an hour, a chance of 1 in 20 000 per hour.
+    /// </summary>
+    public int CodeFailuresBeforeRevoke { get; set; } = 5;
+
+    /// <summary>Code redemptions per IPv6 /48 and hour (on top of <see cref="LinkRedeemsPerIpPerHour"/> per /64).</summary>
+    public int LinkRedeemsPerHourPerPrefix48 { get; set; } = 300;
+
     /// <summary>Keys each limiter keeps at most (memory bound); the oldest windows are evicted beyond.</summary>
     public int RateLimitMaxKeys { get; set; } = 100_000;
 
@@ -66,9 +76,9 @@ public sealed class AccountOptions
     {
         error = "";
         if (RequestsPerIpPerHour < 1 || RequestsPerHourPerPrefix48 < 1 || MailsPerEmailAndIpPerHour < 1 || MailsPerEmailPerHour < 1 || GlobalMailsPerHour < 1
-            || LinkRedeemsPerIpPerHour < 1 || RateLimitMaxKeys < 1)
+            || LinkRedeemsPerIpPerHour < 1 || LinkRedeemsPerHourPerPrefix48 < 1 || CodeFailuresBeforeRevoke < 1 || RateLimitMaxKeys < 1)
             error = "Accounts:RequestsPerIpPerHour, RequestsPerHourPerPrefix48, MailsPerEmailAndIpPerHour, MailsPerEmailPerHour, GlobalMailsPerHour, " +
-                "LinkRedeemsPerIpPerHour and RateLimitMaxKeys must be positive.";
+                "LinkRedeemsPerIpPerHour, LinkRedeemsPerHourPerPrefix48, CodeFailuresBeforeRevoke and RateLimitMaxKeys must be positive.";
         else if (MinResponseMilliseconds is < 0 or > 10_000)
             error = "Accounts:MinResponseMilliseconds must be between 0 and 10000.";
         else if (string.IsNullOrWhiteSpace(ConfirmPath) || string.IsNullOrWhiteSpace(SignInPath))
