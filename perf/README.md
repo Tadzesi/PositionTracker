@@ -47,3 +47,11 @@ Start-Process powershell -ArgumentList '-File perf/compare.ps1' -WindowStyle Hid
 python perf/analysis/compare.py perf/data/cmp-before perf/data/cmp-before-server perf/data/cmp-after perf/data/cmp-after-server perf/data/compare.json
 python perf/report/build.py perf/data/report_run2.json site/perf/index.html perf/data/report_run1.json perf/data/compare.json
 ```
+
+The coldest mass start (1 000 phones the server has never seen) without and with the token warm-up:
+
+```sh
+Start-Process powershell -ArgumentList '-File','perf/compare.ps1','-Versions','after,warm','-Plan','CMP,C0,C3','-Tag','cold' -WindowStyle Hidden
+python perf/analysis/cold.py perf/data/cold-after perf/data/cold-after-server perf/data/cold-warm perf/data/cold-warm-server perf/data/cold.json
+python perf/report/build.py perf/data/report_run2.json site/perf/index.html perf/data/report_run1.json perf/data/compare.json perf/data/cold.json
+```

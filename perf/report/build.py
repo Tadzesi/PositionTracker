@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Builds the single-file report page: template + body + charts.js + report.js + the analysis JSON.
 
-usage: build.py <report.json> <out.html> [<big-field-report.json>] [<compare.json>]
+usage: build.py <report.json> <out.html> [<big-field-report.json>] [<compare.json>] [<cold.json>]
 The page is fully static and self-contained (no CDN); only the Archivo font is shared with the site (../fonts/).
 """
 import json, os, re, sys
@@ -22,6 +22,8 @@ if len(sys.argv) > 3:  # the 1 500-runner run (field sweep until it saturated) g
                    "phases": big.get("phases"), "kpi": big.get("kpi")}
 if len(sys.argv) > 4:  # the before/after comparison (perf/analysis/compare.py)
     data["cmp"] = json.load(open(sys.argv[4], encoding="utf-8"))
+if len(sys.argv) > 5:  # the coldest mass start without and with the token warm-up (perf/analysis/cold.py)
+    data["cmp"]["cold"] = json.load(open(sys.argv[5], encoding="utf-8"))
 data = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
 body = re.sub(r"\[\[(TAKE_\w+|FINDINGS|SOAK)\]\]", "", read("body.html"))  # sections without a written conclusion yet
 page = (read("template.html")

@@ -97,7 +97,12 @@
       series: [{ name: 'pred', color: BEF, x: I(B).t, y: I(B).lat_max, width: 1.6, fmt: ms }, { name: 'po', color: AFT, x: I(A).t, y: I(A).lat_max, width: 1.6, fmt: ms }] });
     txt('#cmp-drain-b', num(I(B).drain_s, 1) + ' s'); txt('#cmp-drain-a', num(I(A).drain_s, 1) + ' s');
     txt('#cmp-ip99-b', ms(I(B).c_p99)); txt('#cmp-ip99-a', ms(I(A).c_p99));
-    txt('#cmp-icold-b', ms(I(B).cold_c_p99)); txt('#cmp-icold-a', ms(I(A).cold_c_p99));
+    const CO = C.cold;
+    if (CO) {
+      txt('#cmp-cold-b', ms(CO.without.p99)); txt('#cmp-cold-a', ms(CO.with.p99)); txt('#cmp-cold-x', times(CO.with.p99, CO.without.p99) + ' rýchlejšie');
+      txt('#cmp-colddb-b', num(CO.without.db_pending_max, 0)); txt('#cmp-colddb-a', num(CO.with.db_pending_max, 0));
+      txt('#cmp-colderr-b', num(CO.without.err, 0)); txt('#cmp-colderr-a', num(CO.with.err, 0));
+    }
     txt('#cmp-ip99-x', times(I(A).c_p99, I(B).c_p99));
 
     // why: four rows

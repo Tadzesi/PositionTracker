@@ -4,6 +4,7 @@
 # Images: built on the server from `git archive` of the commits (see perf/README.md).
 # -Versions picks the image tags, -Plan the LoadLab phases (CMP = everything; CMP,C0,C3 = the cold mass start only).
 param([string[]]$Versions = @('before', 'after'), [string]$Plan = 'CMP', [string]$Tag = 'cmp')
+$Versions = $Versions | ForEach-Object { $_ -split ',' }   # Start-Process passes 'a,b' as one string
 $ErrorActionPreference = 'Continue'   # PowerShell 5.1 turns native stderr into terminating errors under 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
 $server = 'tadzesi@192.168.1.2'

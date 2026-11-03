@@ -56,7 +56,8 @@
       <p class="note">Nad 1 490 mobilmi (300 req/s) posielajú tí istí prihlásení bežci častejšie ako raz za 5 s. Ide o záťaž zodpovedajúcu väčšiemu počtu mobilov, nie o väčšie prihlásené pole. Schody končia na maxime generátora, nie na limite servera.</p></div>
     <div class="card"><div id="cmp-imp-ok"></div><div id="cmp-imp-lat"></div>
       <p class="take">Hromadný štart 1 000 mobilov v jednej sekunde: p99 odozvy <b id="cmp-ip99-b"></b> → <b id="cmp-ip99-a"></b> (<span id="cmp-ip99-x"></span>). Mobily už pred štartom posielali polohu, takže server ich tokeny pozná.</p>
-      <p class="note">Studený štart, keď sa väčšina mobilov ozve prvýkrát po viac ako 10 minútach, je v oboch verziách rovnaký (p99 <span id="cmp-icold-b"></span> a <span id="cmp-icold-a"></span>): 1 000 overení tokenu v databáze v jednej sekunde. Ďalší kandidát na zlepšenie.</p></div>
+      <p class="take">Studený štart: 1 000 mobilov, ktoré server ešte nevidel (napríklad hneď po reštarte). Bez prednačítania tokenov išlo 1 000 overení naraz do databázy: p99 <b id="cmp-cold-b"></b>, fronta na DB pripojenie <span id="cmp-colddb-b"></span>, <span id="cmp-colderr-b"></span> chyby. Server teraz tokeny živých pretekov načíta vopred a každých 5 minút ich obnovuje: p99 <b id="cmp-cold-a"></b> (<span id="cmp-cold-x"></span>), fronta <span id="cmp-colddb-a"></span>, chyby <span id="cmp-colderr-a"></span>.</p>
+      <p class="note">Merané samostatne: kľud a tri štarty po 1 000 mobiloch na verzii s cache tokenov (<code>78bdfbf</code>) a s prednačítaním (<code>acaa272</code>). Druhý štart s prednačítaním (p99 0,6 s) padol na beh plánovanej úlohy servera, ktorá vtedy zabrala 1,7 jadra.</p></div>
   </div>
 
   <div class="card"><h3>Prečo: štyri príčiny, štyri čísla</h3><div id="cmp-why"></div>
