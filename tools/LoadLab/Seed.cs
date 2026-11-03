@@ -12,7 +12,7 @@ namespace LoadLab;
 /// </summary>
 public static class Seed
 {
-    public static void Write(string gpxPath, int runners, string outDir)
+    public static void Write(string gpxPath, int runners, string outDir, int laps = 10)
     {
         Directory.CreateDirectory(outDir);
         var course = Course.Load(gpxPath);
@@ -27,7 +27,7 @@ public static class Seed
             INSERT INTO "Organizers" ("Id","CreatedAt","Email","EmailConfirmedAt","EmailNormalized","Language","Name")
             VALUES ('{organizerId}', now(), 'loadtest@lab463.invalid', now(), 'loadtest@lab463.invalid', 'sk', 'Load test');
             INSERT INTO "Events" ("Id","OrganizerId","Name","Location","StartTime","Sport","State","Laps","PointToPoint","SpectatorDelaySeconds","GpxBytes","CreatedAt","Version")
-            VALUES ('{eventId}', '{organizerId}', 'NUC load test', 'Žilina', now() - interval '10 minutes', 'Running', 'Live', 400, false, 30,
+            VALUES ('{eventId}', '{organizerId}', 'NUC load test', 'Žilina', now() - interval '10 minutes', 'Running', 'Live', {laps}, false, 30,
                     decode('{gpx}', 'base64'), now(), gen_random_uuid());
             INSERT INTO "Courses" ("EventId","LapLengthM","AscentM","DescentM","PointCount","IsClosed","UploadedAt")
             VALUES ('{eventId}', {course.LengthM.ToString("0.0", CultureInfo.InvariantCulture)}, 0, 0, 0, true, now());
@@ -50,7 +50,7 @@ public static class Seed
         sql.AppendLine("COMMIT;");
         File.WriteAllText(Path.Combine(outDir, "seed.sql"), sql.ToString());
         File.WriteAllText(Path.Combine(outDir, "tokens.csv"), csv.ToString());
-        File.WriteAllText(Path.Combine(outDir, "meta.json"), JsonSerializer.Serialize(new { eventId = eventId.ToString("D"), runners, lapM = course.LengthM }));
+        File.WriteAllText(Path.Combine(outDir, "meta.json"), JsonSerializer.Serialize(new { eventId = eventId.ToString("D"), runners, laps, lapM = course.LengthM }));
         Console.WriteLine($"Seeded {runners} runners for event {eventId:D} into {outDir}");
     }
 

@@ -3,13 +3,15 @@ using System.Text.Json;
 using LoadLab;
 
 // LoadLab — load and performance measurement of PositionTracker on the home server (see perf/README.md).
-//   seed <gpx> <runners> <outDir>
+//   seed <gpx> <runners> <outDir> [laps]   (laps default 10, the app's maximum; the first campaign used 400)
 //   run  <baseUrl> <seedDir> <apiKey> <gpx> <outDir> [timeScale] [onlyPhases]
-// timeScale shortens every phase (0.1 = a 10x shorter smoke run). onlyPhases is a comma list (E0,E1,...).
+// timeScale shortens every phase (0.1 = a 10x shorter smoke run). onlyPhases is a comma list (E0,E1,...), or CMP for the
+// before/after comparison plan (C0 noise, C1 stairs at a 5 s cadence, C2 step at a fixed load, C3 three mass starts).
 
 if (args.Length >= 4 && args[0] == "seed")
 {
-    Seed.Write(args[1], int.Parse(args[2], CultureInfo.InvariantCulture), args[3]);
+    Seed.Write(args[1], int.Parse(args[2], CultureInfo.InvariantCulture), args[3],
+        args.Length > 4 ? int.Parse(args[4], CultureInfo.InvariantCulture) : 10);
     return 0;
 }
 if (args.Length < 6 || args[0] != "run")
@@ -39,6 +41,40 @@ await using var engine = new Engine(baseUrl, eventId, apiKey, Path.Combine(seedD
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; engine.Abort("Ctrl+C"); };
 await engine.StartAsync();
 engine.Mark("START", $"event {eventId}, runners {runners}, scale {scale}");
+
+// CMP — the before/after comparison: the same plan against each app version, nothing adaptive except where the stairs stop
+if (only?.Contains("CMP") == true)
+{
+    await engine.PhaseAsync("C0 noise floor", S(120), _ => 0);
+
+    // C1 — stairs; up to the field every runner sends every ~5 s (the pool is 5 x rate), so the rate times 5 is a count of
+    // active phones; above field / 5 the same runners send more often (the load of more phones, not more registered ones)
+    double[] cmpSteps = [10, 20, 30, 40, 50, 60, 80, 100, 125, 150, 200, 250, 300, 400, 500, 650, 800, 1000, 1200];
+    foreach (var rps in cmpSteps.Where(s => s <= maxRate))
+    {
+        var st = await engine.PhaseAsync($"C1 step {rps:0}", S(90), _ => rps, F($"{rps:0} req/s = {5 * rps:0} phones every 5 s"));
+        if (st.Percentile(99) > 1500 || st.ErrorRate > 0.02 || st.AchievedRps < 0.9 * rps)
+        {
+            engine.Mark("C1 saturation", F($"at {rps:0} req/s: {st}"));
+            break;
+        }
+        if (engine.Aborted) break;
+    }
+    await engine.PhaseAsync("C1 cooldown", S(150), _ => 0);
+
+    // C2 — step to a load both versions carry (200 phones every 5 s): CPU, energy and latency at the same work
+    await engine.PhaseAsync("C2 pre-step", S(90), _ => 0);
+    await engine.PhaseAsync("C2 step up", S(300), _ => 40, "40 req/s (200 phones every 5 s)");
+    await engine.PhaseAsync("C2 step down", S(120), _ => 0);
+
+    // C3 — mass start: 1000 distinct phones within one second, three times
+    var cmpBurst = Math.Min(1000, field);
+    for (var i = 1; i <= 3; i++)
+        await engine.PhaseAsync($"C3 impulse {i}", S(180), t => t is >= 30 and < 31 ? cmpBurst : 0, $"{cmpBurst} requests in 1 s at t=30 s");
+
+    engine.Mark("END");
+    return 0;
+}
 
 // E0 — noise floor: an empty field, only the 10 probe runners (0.2 req/s each) and one organizer view
 if (Run("E0")) await engine.PhaseAsync("E0 noise floor", S(420), _ => 0);

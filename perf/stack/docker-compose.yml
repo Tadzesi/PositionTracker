@@ -22,7 +22,7 @@ services:
     networks: [internal]
 
   app:
-    image: positiontracker-app
+    image: ${APP_IMAGE:-positiontracker-app}   # the comparison runs pt-lt-app:before / :after
     container_name: pt-lt-app
     depends_on:
       db:
