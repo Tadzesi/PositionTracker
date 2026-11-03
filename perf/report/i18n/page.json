@@ -87,6 +87,10 @@
   "sk": "Metodika",
   "en": "Methodology"
  },
+ "navAuthor": {
+  "sk": "Poznámka autora",
+  "en": "Author's note"
+ },
  "language": {
   "sk": "Jazyk",
   "en": "Language"

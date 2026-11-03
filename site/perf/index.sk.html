@@ -203,6 +203,7 @@ footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);font-si
     <a href="#jitter"><span class="k">A3</span>Jitter a susedia</a>
     <a href="#gc"><span class="k">A4</span>Korelácie</a>
     <a href="#metodika"><span class="k">M</span>Metodika</a>
+    <a href="#autor"><span class="k">✎</span>Poznámka autora</a>
   </nav>
   <div class="meta" id="sidemeta"></div>
 </aside>
@@ -493,6 +494,16 @@ footer{margin-top:60px;padding-top:16px;border-top:1px solid var(--line);font-si
     <div><b>Prepnutia kontextu, prerušenia</b><span>počet</span></div><div><b>Run queue, load1, MemAvailable</b><span>–</span></div><div><b>cgroup app/db/nginx: CPU, pamäť, throttling</b><span>µs, B</span></div>
     <div><b>Oneskorenie vzorky samplera</b><span>µs</span></div><div><b>Jitter 1 kHz slučky (histogram/s)</b><span>µs</span></div><div><b>DNS RTT 2 Hz</b><span>µs</span></div>
   </div></div>
+</section>
+
+<section id="autor">
+  <div class="sh"><span class="no">✎</span><h2>Poznámka autora: prečo spektrá a Bodeho diagram</h2><span class="tag">Martin Horný</span></div>
+  <div class="card">
+    <p class="intro">Ak vám názvy v tomto reporte pripomínajú skôr diagnostiku strojov než webový server, nie je to náhoda. Synchrónne priemerovanie, order tracking, Campbellov diagram, chirp, Bodeho diagram, skoková a impulzná odozva: to je slovník merania vibrácií. Niekoľko rokov som vyvíjal softvér na meranie vibrácií a elektrických parametrov strojov.</p>
+    <p class="intro">Prešli mi rukami rôzne snímače: piezoelektrické akcelerometre, snímače rýchlosti kmitania, bezdotykové vírivoprúdové snímače polohy hriadeľa, laserové vibrometre a laserové snímače vzdialenosti, optické a magnetické snímače otáčok s fázovou značkou. Na elektrickej strane prúdové kliešte, meracie transformátory prúdu a napätia a napäťové sondy. Každý snímač mal svoju citlivosť, frekvenčný rozsah, šum a vlastné chyby a softvér ich musel poznať: kalibráciu, antialiasing, voľbu okna FFT, synchronizáciu kanálov, integráciu zrýchlenia na rýchlosť a výchylku aj korekciu fázy.</p>
+    <p class="intro">Bola to doba bez AI. Nebol žiadny asistent, ktorý by vysvetlil, prečo je v spektre čiara tam, kde nemá byť. Programátor musel rozumieť fyzike merania, spracovaniu signálov aj samotnému stroju. Inak napísal kód, ktorý veľmi presne počíta nesprávne veci. Učil som sa z noriem, z dokumentácie výrobcov snímačov a z vlastných chýb na skúšobni.</p>
+    <p class="intro" style="margin-bottom:4px">Tento test je návratom k tomu remeslu. Server som meral ako stroj: budil som ho skokom, impulzom a sínusovým sweepom, sledoval odozvu na synchronizovaných kanáloch a v spektre hľadal, čo tam nepatrí. Rozdiel je v tom, že nástroje mi dnes pomáhala písať AI. Rozhodnúť, čo merať, a vedieť, kedy výsledku neveriť, však zostalo na človeku.</p>
+  </div>
 </section>
 
 <footer>PositionTracker · lab463.com · Report vygenerovaný skriptmi <code>perf/analysis/analyze.py</code>, <code>compare.py</code>, <code>cold.py</code> a <code>perf/report/build.py</code> zo surových meraní. Všetky čísla pochádzajú z dátových súborov stránky. <a href="/tracker/">← späť na PositionTracker</a></footer>
