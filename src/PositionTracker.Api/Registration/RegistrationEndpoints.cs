@@ -37,6 +37,8 @@ public static class RegistrationEndpoints
         services.AddSingleton<InvitationLimiter>();
         services.AddScoped<DbTokenService>();
         services.AddSingleton<DeviceTokenCache>();
+        services.AddSingleton<DeviceTokenWarmer>();
+        services.AddHostedService(sp => sp.GetRequiredService<DeviceTokenWarmer>());
         services.AddScoped<ITokenService, DeviceTokens>();
         services.AddScoped<RegistrationService>();
         return services;

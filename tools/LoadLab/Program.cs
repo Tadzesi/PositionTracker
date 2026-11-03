@@ -45,12 +45,15 @@ engine.Mark("START", $"event {eventId}, runners {runners}, scale {scale}");
 // CMP — the before/after comparison: the same plan against each app version, nothing adaptive except where the stairs stop
 if (only?.Contains("CMP") == true)
 {
-    await engine.PhaseAsync("C0 noise floor", S(120), _ => 0);
+    // CMP alone runs C0..C3; CMP,C0,C3 (say) runs only the listed parts — C3 right after start is the coldest mass start
+    var parts = only.Where(p => p.Length == 2 && p[0] == 'C').ToHashSet();
+    bool Part(string p) => parts.Count == 0 || parts.Contains(p);
+    if (Part("C0")) await engine.PhaseAsync("C0 noise floor", S(120), _ => 0);
 
     // C1 — stairs; up to the field every runner sends every ~5 s (the pool is 5 x rate), so the rate times 5 is a count of
     // active phones; above field / 5 the same runners send more often (the load of more phones, not more registered ones)
     double[] cmpSteps = [10, 20, 30, 40, 50, 60, 80, 100, 125, 150, 200, 250, 300, 400, 500, 650, 800, 1000, 1200];
-    foreach (var rps in cmpSteps.Where(s => s <= maxRate))
+    foreach (var rps in cmpSteps.Where(s => s <= maxRate && Part("C1")))
     {
         var st = await engine.PhaseAsync($"C1 step {rps:0}", S(90), _ => rps, F($"{rps:0} req/s = {5 * rps:0} phones every 5 s"));
         if (st.Percentile(99) > 1500 || st.ErrorRate > 0.02 || st.AchievedRps < 0.9 * rps)
@@ -60,16 +63,19 @@ if (only?.Contains("CMP") == true)
         }
         if (engine.Aborted) break;
     }
-    await engine.PhaseAsync("C1 cooldown", S(150), _ => 0);
+    if (Part("C1")) await engine.PhaseAsync("C1 cooldown", S(150), _ => 0);
 
     // C2 — step to a load both versions carry (200 phones every 5 s): CPU, energy and latency at the same work
-    await engine.PhaseAsync("C2 pre-step", S(90), _ => 0);
-    await engine.PhaseAsync("C2 step up", S(300), _ => 40, "40 req/s (200 phones every 5 s)");
-    await engine.PhaseAsync("C2 step down", S(120), _ => 0);
+    if (Part("C2"))
+    {
+        await engine.PhaseAsync("C2 pre-step", S(90), _ => 0);
+        await engine.PhaseAsync("C2 step up", S(300), _ => 40, "40 req/s (200 phones every 5 s)");
+        await engine.PhaseAsync("C2 step down", S(120), _ => 0);
+    }
 
     // C3 — mass start: 1000 distinct phones within one second, three times
     var cmpBurst = Math.Min(1000, field);
-    for (var i = 1; i <= 3; i++)
+    for (var i = 1; i <= 3 && Part("C3"); i++)
         await engine.PhaseAsync($"C3 impulse {i}", S(180), t => t is >= 30 and < 31 ? cmpBurst : 0, $"{cmpBurst} requests in 1 s at t=30 s");
 
     engine.Mark("END");
