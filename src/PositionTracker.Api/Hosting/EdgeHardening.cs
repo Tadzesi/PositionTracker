@@ -11,15 +11,21 @@ namespace PositionTracker.Api.Hosting;
 /// is trusted and the real client address (and scheme) reach the per-IP limiters. Behind a reverse proxy this is required: otherwise
 /// every client shares the proxy's address and one attacker could use up the sign-up and sign-in budget of everyone.</item>
 /// <item><b>Security headers</b> on every response: <c>X-Content-Type-Options</c>, <c>Referrer-Policy</c>, <c>X-Frame-Options</c>,
-/// a CSP that allows only the app itself, OpenStreetMap tiles (the fonts are self-hosted), and (over HTTPS) HSTS.</item>
+/// a CSP that allows only the app itself, OpenStreetMap tiles (the fonts are self-hosted), and (over HTTPS) HSTS. The CSP carries
+/// a fresh script nonce per response: the app has no inline script, but Cloudflare's JavaScript detections inject one in front of
+/// the app and put the header's nonce on it (a meta-tag nonce is not read), so the page runs it instead of logging a violation.</item>
 /// </list>
 /// </summary>
 public static class EdgeHardening
 {
-    public const string ContentSecurityPolicy =
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    /// <summary>The CSP with the given script nonce (base64, from <see cref="NewNonce"/>); no 'unsafe-inline' for scripts.</summary>
+    public static string ContentSecurityPolicy(string nonce) =>
+        $"default-src 'self'; script-src 'self' 'nonce-{nonce}'; style-src 'self' 'unsafe-inline'; "
         + "font-src 'self'; img-src 'self' data: https://*.tile.openstreetmap.org https://tile.openstreetmap.org; "
         + "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+
+    /// <summary>128 random bits, base64: unguessable per response, as a CSP nonce must be.</summary>
+    public static string NewNonce() => Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
 
     public static IServiceCollection AddEdgeHardening(this IServiceCollection services, IConfiguration config)
     {
@@ -55,7 +61,7 @@ public static class EdgeHardening
                 h["X-Content-Type-Options"] = "nosniff";
                 h["X-Frame-Options"] = "DENY";
                 h["Referrer-Policy"] = h.ContainsKey("Referrer-Policy") ? h["Referrer-Policy"] : "strict-origin-when-cross-origin";
-                h["Content-Security-Policy"] = ContentSecurityPolicy;
+                h["Content-Security-Policy"] = ContentSecurityPolicy(NewNonce());
                 h["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()";
                 if (context.Request.IsHttps) h["Strict-Transport-Security"] = "max-age=15552000";
                 return Task.CompletedTask;
