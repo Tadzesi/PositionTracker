@@ -1,0 +1,90 @@
+# Throwaway load-test stack on the home server: ~/pt-loadtest/docker-compose.yml (see perf/README.md).
+# The same app image as production (positiontracker-app), its own database, no SMTP (emails are simulated), and an nginx that
+# logs the server-side timing of every request. Published on the LAN address only; removed with `docker compose down -v`.
+name: pt-loadtest
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: pt-lt-db
+    environment:
+      POSTGRES_DB: positiontracker
+      POSTGRES_USER: loadtest
+      POSTGRES_PASSWORD: loadtest
+    command: ["postgres", "-c", "track_io_timing=on", "-c", "log_checkpoints=on"]
+    volumes:
+      - pt-lt-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U loadtest -d positiontracker"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [internal]
+
+  app:
+    image: positiontracker-app
+    container_name: pt-lt-app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Default: "Host=db;Port=5432;Database=positiontracker;Username=loadtest;Password=loadtest"
+      Persistence__MigrateOnStartup: "true"
+      Organizer__ApiKey: ${API_KEY}
+      Accounts__RateLimitSalt: loadtest-salt
+      Accounts__DataProtectionKeysPath: /keys
+      Email__PublicBaseUrl: https://loadtest.lab463.invalid
+      Email__AllowSimulated: "true"
+      Email__From: loadtest@lab463.invalid
+      Email__FromName: Load test
+      Retention__FixDays: "1"
+    volumes:
+      - pt-lt-keys:/keys
+      - pt-lt-diag:/tmp            # the .NET diagnostics socket, shared with the counters sidecar
+    networks: [internal]
+
+  nginx:
+    image: nginx:alpine
+    container_name: pt-lt-nginx
+    depends_on: [app]
+    ports:
+      - "192.168.1.2:18080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./data/nginx:/var/log/pt
+    networks: [internal]
+
+  counters:
+    # dotnet-counters attached to the app over its diagnostics socket; 1 s resolution
+    image: mcr.microsoft.com/dotnet/sdk:10.0
+    container_name: pt-lt-counters
+    depends_on: [app]
+    pid: "service:app"
+    volumes:
+      - pt-lt-diag:/tmp
+      - ./data/counters:/data
+    entrypoint: ["sh", "-c", "dotnet tool install -g dotnet-counters >/dev/null 2>&1; sleep 15; exec /root/.dotnet/tools/dotnet-counters collect -p $$(pgrep -f PositionTracker.Api.dll | head -1) --refresh-interval 1 --format csv -o /data/counters.csv --counters System.Runtime,Microsoft.AspNetCore.Hosting,Microsoft.AspNetCore.Server.Kestrel,Microsoft.AspNetCore.Http.Connections,System.Net.Http,Npgsql"]
+    networks: [internal]
+
+  pgstat:
+    image: postgres:17-alpine
+    container_name: pt-lt-pgstat
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: loadtest
+    volumes:
+      - ./pgstat.sql:/pgstat.sql:ro
+      - ./data/pg:/data
+    entrypoint: ["sh", "-c", "sleep 20; psql -h db -U loadtest -d positiontracker -X -q -At -F, -f /pgstat.sql >> /data/pgstat.csv"]
+    networks: [internal]
+
+volumes:
+  pt-lt-db:
+  pt-lt-keys:
+  pt-lt-diag:
+
+networks:
+  internal:

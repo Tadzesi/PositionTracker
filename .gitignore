@@ -7,3 +7,6 @@ obj/
 wwwroot/
 web/node_modules/
 site/dist/
+
+# load-test raw data (tokens, CSVs) — never committed
+perf/data/

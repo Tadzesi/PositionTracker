@@ -1,0 +1,36 @@
+# Load and performance test on the home server
+
+A measurement campaign of PositionTracker on the Intel NUC (Celeron N4505), published as a static report at
+`https://www.lab463.com/tracker/perf/`.
+
+| Path | What |
+|---|---|
+| `tools/LoadLab/` | .NET load generator: seeding SQL, open-loop scheduler, SignalR organizer/spectators, probe phones, WiFi ping |
+| `perf/stack/` | throwaway stack for the server (`~/pt-loadtest`): app image, own Postgres, timing nginx, dotnet-counters and pg_stat sidecars, `reset.sh` |
+| `perf/sampler/` | host DAQ: `sampler.py` (10 Hz, RAPL, temps, PSI, cgroups, DNS kill switch), `jitter.py` (1 kHz wake-up latency) |
+| `perf/analysis/analyze.py` | raw CSVs → report JSON (clock alignment, Welch PSD, spectrogram, lock-in transfer functions, phase-resolved latency, fits) |
+| `perf/report/` | page template, chart library, renderer, `build.py` → `site/perf/index.html` |
+| `perf/data/` | raw data and tokens (git-ignored) |
+
+## Run
+
+```sh
+# 1. seed: confirmed runners with device tokens for a fresh database (published report: run 1 = 1500, run 2 = 400)
+dotnet run -c Release --project tools/LoadLab -- seed site/assets/example-trat.gpx 400 perf/data/seedB
+# 2. server: copy perf/stack/* perf/sampler/*.py perf/data/seedB/seed.sql to ~/pt-loadtest, write API_KEY=... to .env
+ssh tadzesi@192.168.1.2 '~/pt-loadtest/reset.sh'     # fresh DB, seeded live event, samplers started
+# 3. campaign (~2 h; timeScale 0.05 for a smoke run). Start it as a detached process: Claude Code reaps background shells
+#    when the PC runs low on memory.
+dotnet run -c Release --project tools/LoadLab -- run http://192.168.1.2:18080 perf/data/seedB <API_KEY> site/assets/example-trat.gpx perf/data/run2
+# 4. collect, analyse, build
+scp -r tadzesi@192.168.1.2:pt-loadtest/data/* perf/data/run2-server/
+python perf/analysis/analyze.py perf/data/run2 perf/data/run2-server perf/data/report_run2.json
+python perf/analysis/analyze.py perf/data/run1 perf/data/run1-server perf/data/report_run1.json
+python perf/report/build.py perf/data/report_run2.json site/perf/index.html perf/data/report_run1.json
+# deploy: copy site/perf/index.html to ~/server/stacks/web/site/tracker/perf/ (or deploy the whole site from site/dist)
+# 5. clean up the server
+ssh tadzesi@192.168.1.2 'cd ~/pt-loadtest && sudo pkill -f "^python3 sampler.py"; pkill -f "^python3 jitter.py"; docker compose down -v'
+```
+
+The sampler runs as root (RAPL energy counters are root-only) and stops `pt-lt-nginx` when the home DNS slows down
+(6 probes in a row over 250 ms) or the CPU passes 98 °C.

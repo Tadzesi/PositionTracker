@@ -251,6 +251,8 @@ def main():
     shutil.copytree(os.path.join(HERE, 'fonts'), os.path.join(DIST, 'fonts'))
     shutil.copytree(os.path.join(HERE, 'vendor'), os.path.join(DIST, 'vendor'))
     shutil.copytree(os.path.join(HERE, 'assets'), os.path.join(DIST, 'assets'))
+    if os.path.isdir(os.path.join(HERE, 'perf')):  # the load-test report (built by perf/report/build.py)
+        shutil.copytree(os.path.join(HERE, 'perf'), os.path.join(DIST, 'perf'))
     for lang, path in (('sk', 'index.html'), ('en', 'en/index.html')):
         open(os.path.join(DIST, path), 'w', encoding='utf-8').write(render(lang))
     seo = os.path.join(DIST, 'seo')
