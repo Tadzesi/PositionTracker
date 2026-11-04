@@ -205,6 +205,11 @@ footer .wrap{display:flex;gap:12px 20px;flex-wrap:wrap;justify-content:space-bet
 .steps p.badges a{display:inline-flex;line-height:0}
 .steps p.badges img{height:56px;width:auto;border:0;box-shadow:none}
 .steps p.badges img.play{height:80px;margin:-12px -6px}
+.steps p.badges a.apk{display:inline-flex;align-items:center;gap:9px;height:56px;box-sizing:border-box;padding:0 18px 0 13px;background:#000;color:#fff;border:1px solid #a6a6a6;border-radius:9px;text-decoration:none;font-weight:400;line-height:1.05}
+.steps p.badges a.apk:hover{background:#1c1c1c}
+.apk svg{width:30px;height:30px;fill:#3DDC84;flex:none}
+.apk small{display:block;font-size:.74rem;letter-spacing:.01em}
+.apk b{display:block;font-size:1.5rem;font-weight:600;letter-spacing:-.01em}
 
 /* facts as a definition list */
 .spec{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:0 48px;margin:32px 0 0}

@@ -218,6 +218,7 @@ def render(lang):
     h = TEMPLATE
     if lang == 'en':
         h = translate(h)
+        h = h.replace('assets/badges/apple-sk.svg', 'assets/badges/apple-en.svg')  # the English App Store badge
     # data-i attributes are build-time only
     h = re.sub(r'\sdata-i(?:-aria|-alt)?="[^"]*"', '', h)
     m = META[lang]
