@@ -42,6 +42,7 @@
       <a class="nl" href="#who" data-i="nav_who">Pre koho</a>
       <a class="nl" href="#screens" data-i="nav_screens">Ako to vyzerá</a>
       <a class="nm" href="#guides" data-i="nav_guides">Návody</a>
+      <a class="nl" href="#guide-participant" data-i="nav_par">Pre účastníkov</a>
       <a class="nl" href="#faq" data-i="nav_faq">Otázky</a>
       <a class="appnav" id="appnav" hidden href="#" data-i="nav_app">Otvoriť aplikáciu</a>
       <div class="seg" role="group" aria-label="Jazyk" data-i-aria="lang_g">
@@ -66,6 +67,7 @@
       <a class="btn" href="#demo"><span data-i="cta_demo">Spustiť živé demo</span></a>
       <a class="btn ghost small" href="#guides"><span data-i="cta_guides">Prečítať návody</span></a>
     </div>
+    <p class="forpar"><b data-i="hero_par">Účastník?</b> <a href="#guide-participant-android"><svg class="ico-and" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.6 9.48l1.84-3.18a.38.38 0 0 0-.66-.38l-1.86 3.22a11.5 11.5 0 0 0-9.84 0L5.22 5.92a.38.38 0 0 0-.66.38L6.4 9.48A10.8 10.8 0 0 0 1 18h22a10.8 10.8 0 0 0-5.4-8.52zM7 15.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5zm10 0a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5z"/></svg><span data-i="hero_par_and">Aplikácia pre Android</span></a> <a href="#guide-participant-iphone"><svg class="ico-phone" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="1.5" width="12" height="21" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 5h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span data-i="hero_par_ios">Návod pre iPhone</span></a></p>
     </div>
     </div>
 
@@ -176,6 +178,8 @@
         <figcaption><b data-i="sc4_h">Účastníci a pozvánky</b><span data-i="sc4_p">Kto potvrdil, kto ešte nie. Opätovné odoslanie, pripomienka a nový odkaz jedným klikom.</span></figcaption></figure>
       <figure class="big"><img src="assets/shots/org-setup.png" width="2720" height="1720" loading="lazy" alt="Nastavenie podujatia" data-i-alt="sc6_alt">
         <figcaption><b data-i="sc6_h">Vytvorenie podujatia</b><span data-i="sc6_p">Nahráte GPX, zvolíte okruh na kolá alebo trasu z bodu A do bodu B, nastavíte kontrolné body, kategórie a oneskorenie pre divákov.</span></figcaption></figure>
+      <figure class="tall phone"><img src="assets/shots/app-home.png" width="780" height="1733" loading="lazy" alt="Aplikácia PositionTracker pre Android so zapnutým sledovaním" data-i-alt="sc7_alt">
+        <figcaption><b data-i="sc7_h">Aplikácia pre Android</b><span data-i="sc7_p">Oficiálna aplikácia PositionTracker: sledovanie zapnete jedným ťuknutím, kontrola telefónu ukáže, čo treba povoliť, a po pretekoch sa vypne sama.</span></figcaption></figure>
       <figure class="tall phone"><img src="assets/shots/participant-setup.png" width="780" height="1688" loading="lazy" alt="Nastavenie telefónu s QR kódom" data-i-alt="sc5_alt">
         <figcaption><b data-i="sc5_h">Nastavenie telefónu</b><span data-i="sc5_p">Aplikácia pre Android sa nastaví z pozvánky sama. OwnTracks na iPhone nakonfigurujete jedným klepnutím alebo QR kódom. Adresy sa neprepisujú ručne.</span></figcaption></figure>
     </div>
@@ -223,18 +227,60 @@
     </div>
 
     <div class="panel" id="p-par" role="tabpanel" aria-labelledby="t-par" hidden>
+      <h3 class="pick" data-i="pick_h">Aký máte telefón?</h3>
+      <div class="plats">
+        <div class="plat ours" id="plat-and">
+          <p class="plat-os"><svg class="ico-and" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.6 9.48l1.84-3.18a.38.38 0 0 0-.66-.38l-1.86 3.22a11.5 11.5 0 0 0-9.84 0L5.22 5.92a.38.38 0 0 0-.66.38L6.4 9.48A10.8 10.8 0 0 0 1 18h22a10.8 10.8 0 0 0-5.4-8.52zM7 15.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5zm10 0a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5z"/></svg><span>Android</span><em class="mine" data-i="pc_mine">Váš telefón</em></p>
+          <div class="plat-app"><svg class="appicon" viewBox="0 0 108 108" aria-hidden="true"><rect width="108" height="108" rx="24" fill="#0C0D11"/><g transform="translate(54 54) scale(1.3) translate(-54 -54)"><path fill="#FF1E3C" d="M54,28c-11,0 -20,9 -20,20c0,15 20,32 20,32s20,-17 20,-32c0,-11 -9,-20 -20,-20z"/><circle cx="54" cy="48" r="8" fill="#0C0D11"/><circle cx="54" cy="48" r="4" fill="#25E07B"/></g></svg><div><b>PositionTracker</b><span class="tag off" data-i="pc_and_tag">Oficiálna aplikácia</span></div></div>
+          <p data-i="pc_and_p">Naša aplikácia pre účastníkov. Sledovanie zapnete jedným ťuknutím a po pretekoch sa vypne sama.</p>
+          <p class="plat-act"><a class="btn" href="/tracker/android/positiontracker.apk" download><span data-i="pc_and_btn">Stiahnuť PositionTracker</span></a></p>
+          <p class="small" data-i="pc_and_note">Súbor APK, menej ako 2 MB, priamo z lab463.com. Nie je v Google Play. <a href="/tracker/android/">O aplikácii a inštalácii</a></p>
+          <p class="plat-go"><button class="linkbtn" type="button" data-platform="android" data-i="pc_and_go">Postup pre Android ↓</button></p>
+        </div>
+        <div class="plat" id="plat-ios">
+          <p class="plat-os"><svg class="ico-phone" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="1.5" width="12" height="21" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 5h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>iPhone</span><em class="mine" data-i="pc_mine2">Váš telefón</em></p>
+          <div class="plat-app"><svg class="appicon other" viewBox="0 0 108 108" aria-hidden="true"><rect x="2" y="2" width="104" height="104" rx="24" fill="none" stroke="currentColor" stroke-width="4" stroke-dasharray="10 8"/><circle cx="54" cy="54" r="10" fill="currentColor"/></svg><div><b>OwnTracks</b><span class="tag third" data-i="pc_ios_tag">Aplikácia tretej strany</span></div></div>
+          <p data-i="pc_ios_p">PositionTracker pre iPhone zatiaľ nemá vlastnú aplikáciu. Polohu posiela bezplatná aplikácia OwnTracks.</p>
+          <p class="plat-act badges"><a href="https://apps.apple.com/us/app/owntracks/id692424691" target="_blank" rel="noopener" aria-label="OwnTracks: App Store (iPhone)" data-i-aria="p0_ios"><img data-badge="apple" src="assets/badges/apple-sk.svg" alt="Stiahnuť v App Store" data-i-alt="p0_ios_alt" width="120" height="40"></a></p>
+          <p class="small" data-i="pc_ios_note">Bezplatná, s otvoreným kódom. Nastaví sa z vašej pozvánky.</p>
+          <p class="plat-go"><button class="linkbtn" type="button" data-platform="ios" data-i="pc_ios_go">Postup pre iPhone ↓</button></p>
+        </div>
+      </div>
+
+      <div class="pswitch" id="pswitch" role="group" aria-label="Postup pre telefón" data-i-aria="ps_aria">
+        <span data-i="ps_label">Postup pre</span>
+        <button type="button" data-platform="android" aria-pressed="true">Android</button><button type="button" data-platform="ios" aria-pressed="false">iPhone</button>
+      </div>
+
+      <div class="pflow" id="pp-and">
       <ol class="steps">
-        <li><div><h3 data-i="p0_h">Nainštalujte si aplikáciu</h3>
-          <p data-i="p0_p"><b>Android:</b> aplikácia <b>PositionTracker</b>. Nie je v Google Play: stiahnete ju zo <a href="/tracker/android/">stránky aplikácie</a> (súbor APK, menej ako 2 MB) a prehliadaču raz povolíte inštaláciu. Polohu posiela na pozadí a po skončení pretekov sa vypne sama. <b>iPhone:</b> bezplatná aplikácia <b>OwnTracks</b> s otvoreným kódom z App Store. Telefón môžete počas preteku nechať zamknutý vo vrecku.</p>
-          <p class="badges"><a href="https://apps.apple.com/us/app/owntracks/id692424691" target="_blank" rel="noopener" aria-label="OwnTracks: App Store (iPhone)" data-i-aria="p0_ios"><img data-badge="apple" src="assets/badges/apple-sk.svg" alt="Stiahnuť v App Store" data-i-alt="p0_ios_alt" width="120" height="40"></a>
-          <a class="apk" href="/tracker/android/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.6 9.48l1.84-3.18a.38.38 0 0 0-.66-.38l-1.86 3.22a11.5 11.5 0 0 0-9.84 0L5.22 5.92a.38.38 0 0 0-.66.38L6.4 9.48A10.8 10.8 0 0 0 1 18h22a10.8 10.8 0 0 0-5.4-8.52zM7 15.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5zm10 0a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5z"/></svg><span><small data-i="p0_apk">Stiahnuť pre</small><b>Android</b></span></a></p>
-          <p class="tip" data-i="p0_tip">Aplikácia pre Android vám nefunguje alebo ju nechcete inštalovať z webu? Na Androide môžete použiť aj OwnTracks: <a href="https://play.google.com/store/apps/details?id=org.owntracks.android" target="_blank" rel="noopener">Google Play</a> alebo <a href="https://f-droid.org/packages/org.owntracks.android/" target="_blank" rel="noopener">F-Droid</a>. Pozor, hľadajte presne „OwnTracks“ (vývojár OwnTracks), nie podobne znejúce aplikácie. Pri prvom spustení OwnTracks nič nenastavujte: konfiguráciu dostanete z pozvánky v kroku 4.</p></div></li>
-        <li><div><h3 data-i="p1_h">Otvorte pozvánku</h3><p data-i="p1_p">V e-maile od organizátora kliknite na osobný odkaz. Ak máte aplikáciu pre Android, otvorí sa priamo v nej; inak v prehliadači vo vašom jazyku (na Androide potom ťuknite na „Otvoriť v aplikácii“). Ukáže podujatie, vaše meno a číslo. Potvrďte účasť (alebo odmietnite) a ak chcete, zvoľte prezývku (max. 30 znakov).</p></div><div class="phoneimg"><img src="assets/shots/participant-invite.png" width="780" height="1688" loading="lazy" alt="Pozvánka na telefóne" data-i-alt="p1_alt"></div></li>
-        <li><div><h3 data-i="p2_h">Dajte súhlas</h3><p data-i="p2_p">Povinný je súhlas so zdieľaním polohy počas pretekov. Organizátor vás vidí presne, diváci oneskorene. Voliteľne povolíte zobraziť svoje meno (inak vidia len číslo). Údaje sa po 30 dňoch zmažú.</p></div><div class="phoneimg"><img src="assets/shots/participant-consent.png" width="780" height="1688" loading="lazy" alt="Súhlas so sledovaním" data-i-alt="p2_alt"></div></li>
-        <li><div><h3 data-i="p3_h">Nastavte telefón</h3><p data-i="p3_p"><b>Aplikácia pre Android</b> sa po súhlase nastaví sama. <b>OwnTracks:</b> na telefóne, kde ho máte nainštalovaný, klepnite na „Nastaviť OwnTracks“, alebo naskenujte QR z iného zariadenia, a potvrďte import. Nič sa neprepisuje ručne.</p><p class="tip" data-i="p3_tip">Nastavenie obsahuje tajný kľúč vášho zariadenia. Nezdieľajte ho. Ak ste ho stratili, súhlas zopakujte: starý kľúč prestane fungovať.</p></div><div class="phoneimg"><img src="assets/shots/participant-setup.png" width="780" height="1688" loading="lazy" alt="Nastavenie OwnTracks" data-i-alt="sc5_alt"></div></li>
-        <li><div><h3 data-i="p4_h">Povoľte polohu a batériu</h3><p data-i="p4_p"><b>Aplikácia pre Android:</b> v časti „Kontrola telefónu“ ťuknite na „Povoliť“ pri každej položke (poloha, upozornenia, batéria bez obmedzení). Polohu „Povoliť vždy“ netreba. <b>OwnTracks na Androide:</b> Nastavenia → Aplikácie → OwnTracks → Batéria → Bez obmedzení; Poloha → Povoliť vždy. <b>iPhone:</b> Nastavenia → OwnTracks → Poloha → Vždy, presná poloha zapnutá, obnovovanie na pozadí zapnuté. V aplikácii nechajte režim „Move“.</p></div></li>
-        <li><div><h3 data-i="p5_h">Na štarte a počas preteku</h3><p data-i="p5_p">V aplikácii pre Android ťuknite na „Spustiť sledovanie“, najlepšie v štartovom priestore; do 10 minút pred vaším štartom šetrí batériu. Pred štartom skontrolujte, že aplikácia po odoslaní polohy nehlási chybu. Nevypínajte telefón ani nezapínajte úsporu batérie. SOS nie je tlačidlo v aplikácii: zavolajte organizátorovi. Odstúpenie označí organizátor. Po skončení pretekov sa aplikácia pre Android vypne sama; OwnTracks prepnite do režimu „Quiet“.</p></div></li>
+        <li><div><h3 data-i="pa1_h">Stiahnite a nainštalujte PositionTracker</h3>
+          <p data-i="pa1_p">Ťuknite na „Stiahnuť PositionTracker“ a otvorte stiahnutý súbor. Ak telefón inštaláciu zablokuje, povoľte ju pre prehliadač: Nastavenia → Inštalovať neznáme aplikácie → Chrome → Povoliť.</p>
+          <p class="act"><a class="btn small" href="/tracker/android/positiontracker.apk" download><span data-i="pa1_btn">Stiahnuť PositionTracker</span></a></p>
+          <p class="tip" data-i="pa1_tip">Aplikácia nie je v Google Play, preto môže Google Play Protect upozorniť na neznámeho vývojára. Zvoľte „Ďalšie podrobnosti → Napriek tomu inštalovať“. Aplikáciu vydáva lab463.com, prevádzkovateľ PositionTracker.</p></div></li>
+        <li><div><h3 data-i="pa2_h">Otvorte pozvánku z e-mailu</h3><p data-i="pa2_p">Na telefóne ťuknite na osobný odkaz v e-maile od organizátora. Otvorí sa priamo v aplikácii PositionTracker. Ak sa otvorí prehliadač, ťuknite na stránke na „Otvoriť v aplikácii“.</p></div></li>
+        <li><div><h3 data-i="pa3_h">Potvrďte účasť a súhlas</h3><p data-i="pa3_p">Aplikácia ukáže podujatie, vaše meno a číslo. Potvrďte účasť a súhlas so zdieľaním polohy počas pretekov: organizátor vás vidí presne, diváci oneskorene. Voliteľne zvolíte prezývku a povolíte divákom zobraziť meno (inak vidia len číslo). Údaje sa po 30 dňoch zmažú.</p></div><div class="phoneimg"><img src="assets/shots/app-pair.png" width="780" height="1733" loading="lazy" alt="Aplikácia PositionTracker: potvrdenie účasti a súhlas" data-i-alt="pa3_alt"></div></li>
+        <li><div><h3 data-i="pa4_h">Na štarte: „Spustiť sledovanie“</h3><p data-i="pa4_p">Ťuknite na „Spustiť sledovanie“, najlepšie v štartovom priestore; do 10 minút pred vaším štartom aplikácia šetrí batériu. V „Kontrole telefónu“ ťuknite na „Povoliť“ pri všetkom, čo nesvieti na zeleno. Potom môže byť telefón zamknutý vo vrecku. Po skončení pretekov sa aplikácia vypne sama a zmaže z telefónu údaje preteku.</p><p class="tip" data-i="pa4_tip">Nevypínajte telefón ani nezapínajte úsporu batérie. SOS nie je tlačidlo v aplikácii: zavolajte organizátorovi alebo 112. Odstúpenie označí organizátor.</p></div><div class="phoneimg"><img src="assets/shots/app-home.png" width="780" height="1733" loading="lazy" alt="Aplikácia PositionTracker: sledovanie zapnuté" data-i-alt="pa4_alt"></div></li>
       </ol>
+      <details class="fallback"><summary data-i="pf_s">Aplikácia vám nefunguje? Záložný postup cez OwnTracks</summary>
+        <p data-i="pf_p">Na Androide môžete použiť aj bezplatnú aplikáciu OwnTracks z <a href="https://play.google.com/store/apps/details?id=org.owntracks.android" target="_blank" rel="noopener">Google Play</a> alebo <a href="https://f-droid.org/packages/org.owntracks.android/" target="_blank" rel="noopener">F-Droid</a> (hľadajte presne „OwnTracks“, vývojár OwnTracks) a postupovať podľa návodu pre iPhone od kroku 2. Batéria a poloha na Androide: Nastavenia → Aplikácie → OwnTracks → Batéria → Bez obmedzení; Poloha → Povoliť vždy.</p>
+        <p><button class="linkbtn" type="button" data-platform="ios" data-i="pf_go">Zobraziť postup s OwnTracks</button></p>
+      </details>
+      </div>
+
+      <div class="pflow" id="pp-ios">
+      <ol class="steps">
+        <li><div><h3 data-i="p0_h">Stiahnite si OwnTracks z App Store</h3>
+          <p data-i="p0_p">PositionTracker pre iPhone zatiaľ nemá vlastnú aplikáciu. Polohu počas preteku posiela <b>OwnTracks</b>, bezplatná aplikácia s otvoreným kódom, ktorú si nainštalujete jednorazovo. Beží na pozadí, takže telefón môžete nechať zamknutý vo vrecku.</p>
+          <p class="badges"><a href="https://apps.apple.com/us/app/owntracks/id692424691" target="_blank" rel="noopener" aria-label="OwnTracks: App Store (iPhone)" data-i-aria="p0_ios"><img data-badge="apple" src="assets/badges/apple-sk.svg" alt="Stiahnuť v App Store" data-i-alt="p0_ios_alt" width="120" height="40"></a></p>
+          <p class="tip" data-i="p0_tip">Hľadajte presne „OwnTracks“ (vývojár OwnTracks), nie podobne znejúce aplikácie. Pri prvom spustení nič nenastavujte: konfiguráciu dostanete z pozvánky v kroku 4.</p></div></li>
+        <li><div><h3 data-i="p1_h">Otvorte pozvánku</h3><p data-i="p1_p">V e-maile od organizátora kliknete na osobný odkaz. Stránka sa zobrazí vo vašom jazyku. Ukáže podujatie, vaše meno a číslo. Potvrďte účasť (alebo odmietnite) a ak chcete, zvoľte prezývku (max. 30 znakov).</p></div><div class="phoneimg"><img src="assets/shots/participant-invite.png" width="780" height="1688" loading="lazy" alt="Pozvánka na telefóne" data-i-alt="p1_alt"></div></li>
+        <li><div><h3 data-i="p2_h">Dajte súhlas</h3><p data-i="p2_p">Povinný je súhlas so zdieľaním polohy počas pretekov. Organizátor vás vidí presne, diváci oneskorene. Voliteľne povolíte zobraziť svoje meno (inak vidia len číslo). Údaje sa po 30 dňoch zmažú.</p></div><div class="phoneimg"><img src="assets/shots/participant-consent.png" width="780" height="1688" loading="lazy" alt="Súhlas so sledovaním" data-i-alt="p2_alt"></div></li>
+        <li><div><h3 data-i="p3_h">Nastavte OwnTracks</h3><p data-i="p3_p">Na telefóne, kde máte OwnTracks nainštalovaný, klepnite na „Nastaviť OwnTracks“, alebo naskenujte QR z iného zariadenia, a potvrďte import. Nič sa neprepisuje ručne.</p><p class="tip" data-i="p3_tip">Nastavenie obsahuje tajný kľúč vášho zariadenia. Nezdieľajte ho. Ak ste ho stratili, súhlas zopakujte: starý kľúč prestane fungovať.</p></div><div class="phoneimg"><img src="assets/shots/participant-setup.png" width="780" height="1688" loading="lazy" alt="Nastavenie OwnTracks" data-i-alt="sc5_alt"></div></li>
+        <li><div><h3 data-i="p4_h">Povoľte polohu a batériu</h3><p data-i="p4_p">Nastavenia → OwnTracks → Poloha → Vždy, presná poloha zapnutá, obnovovanie na pozadí zapnuté. V aplikácii nechajte režim „Move“.</p></div></li>
+        <li><div><h3 data-i="p5_h">Na štarte a počas preteku</h3><p data-i="p5_p">Pred štartom skontrolujte, že aplikácia po odoslaní polohy nehlási chybu. Nevypínajte telefón ani nezapínajte úsporu batérie. SOS nie je tlačidlo v aplikácii: zavolajte organizátorovi. Odstúpenie označí organizátor. Po pretekoch prepnite OwnTracks do režimu „Quiet“.</p></div></li>
+      </ol>
+      </div>
     </div>
 
     <div class="panel" id="p-spe" role="tabpanel" aria-labelledby="t-spe" hidden>
@@ -276,7 +322,7 @@
 <section id="faq" aria-labelledby="faq-h">
   <div class="wrap doc">
     <div class="sechead"><h2 class="display" id="faq-h" data-i="faq_h">Časté otázky</h2></div>
-    <details><summary data-i="q1">Potrebujem vlastný GPS trackér?</summary><p data-i="a1">Nie. Stačí telefón v dresovom vrecku, batohu alebo na ruke. Aplikácia PositionTracker (Android) alebo OwnTracks (iPhone) posiela polohu na pozadí, ak jej povolíte polohu a batériu (návod pre účastníka, krok 5).</p></details>
+    <details><summary data-i="q1">Potrebujem vlastný GPS trackér?</summary><p data-i="a1">Nie. Stačí telefón v dresovom vrecku, batohu alebo na ruke. Aplikácia PositionTracker (Android) alebo OwnTracks (iPhone) posiela polohu na pozadí, ak jej povolíte polohu a batériu (pozri návod pre účastníka).</p></details>
     <details><summary data-i="q2">Čo ak vypadne signál?</summary><p data-i="a2">Aplikácia (PositionTracker aj OwnTracks) odošle neodoslané polohy po obnovení pripojenia. Po 2 minútach bez novej polohy sa jazdec označí ako „offline“ a vidia to organizátor aj diváci. Presné správanie pri veľkých výpadkoch sa overuje v teréne.</p></details>
     <details><summary data-i="q3">Môžu diváci vidieť moju polohu presne?</summary><p data-i="a3">Nie. Diváci vidia polohu oneskorene o 5 až 300 sekúnd podľa nastavenia organizátora. Bez oneskorenia vás vidí organizátor.</p></details>
     <details><summary data-i="q4">Funguje to pre beh aj bicykel?</summary><p data-i="a4">Áno. Pri behu sa ukazuje tempo v min/km, pri bicykli km/h. Aplikácia sa nastaví podľa športu sama: poloha sa odosiela každých 5 s pri bicykli a 10 s pri behu.</p></details>

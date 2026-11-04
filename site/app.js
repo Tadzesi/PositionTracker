@@ -44,12 +44,32 @@
     });
   });
   function fromHash() {
-    const m = /^#guide-(organizer|participant|spectator)$/.exec(location.hash);
+    const m = /^#guide-(organizer|participant|spectator)(?:-(android|iphone))?$/.exec(location.hash);
     if (!m) return;
     show(tabs[slugs.indexOf(m[1])]);
+    if (m[2]) setPlatform(m[2] === 'iphone' ? 'ios' : 'android');
     loadImages(document.getElementById(tabs[slugs.indexOf(m[1])].getAttribute('aria-controls')), 'high');
     scrollToGuides();
   }
+
+  // ----- participant guide: the steps for one phone (html[data-platform], first set by theme.js) -----
+  const pswitch = document.getElementById('pswitch');
+  function setPlatform(p) {
+    root.setAttribute('data-platform', p);
+    pswitch.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.platform === p)));
+  }
+  setPlatform(root.getAttribute('data-platform') === 'ios' ? 'ios' : 'android');
+  document.querySelectorAll('button[data-platform]').forEach((b) => b.addEventListener('click', () => {
+    setPlatform(b.dataset.platform);
+    history.replaceState(null, '', '#guide-participant-' + (b.dataset.platform === 'ios' ? 'iphone' : 'android'));
+    if (!pswitch.contains(b)) pswitch.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }));
+  // a link to a guide that is already in the address bar fires no hashchange: handle the click itself
+  document.querySelectorAll('a[href^="#guide-"]').forEach((a) => a.addEventListener('click', (e) => {
+    if (a.getAttribute('href') !== location.hash) return;
+    e.preventDefault();
+    fromHash();
+  }));
   function scrollToGuides() {
     const g = document.getElementById('guides');
     if (g) g.scrollIntoView({ behavior: 'instant' });

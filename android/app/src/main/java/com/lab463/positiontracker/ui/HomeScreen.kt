@@ -32,6 +32,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -102,7 +103,10 @@ fun HomeScreen(app: PositionTrackerApp, pairing: Pairing, onChanged: () -> Unit)
             delay(1000)
         }
     }
-    // the device session: event state, own start and the server's light (the service polls it too while it runs)
+    // the device session: event state, own start and the server's light (the service polls it too while it runs).
+    // While the service runs it alone ends the race (stops, clears the queue and the pairing); the effect outlives
+    // recompositions, so it reads the current value of `running`, not the one of its first composition.
+    val runningNow by rememberUpdatedState(running)
     LaunchedEffect(pairing.deviceToken) {
         val api = app.api(pairing.baseUrl)
         while (true) {
@@ -110,13 +114,13 @@ fun HomeScreen(app: PositionTrackerApp, pairing: Pairing, onChanged: () -> Unit)
                 is ApiResult.Ok -> {
                     session = r.value
                     app.store.lastSession = r.value
-                    if (r.value.event.state == "finished" && !running) {
+                    if (r.value.event.state == "finished" && !runningNow) {
                         withContext(Dispatchers.IO) { app.queue.clear() }
                         app.store.clear(Ended(pairing.eventName, EndReason.Finished))
                         onChanged(); return@LaunchedEffect
                     }
                 }
-                is ApiResult.Http -> if (r.status == 401 && !running) {
+                is ApiResult.Http -> if (r.status == 401 && !runningNow) {
                     app.store.clear(Ended(pairing.eventName, EndReason.Revoked))
                     onChanged(); return@LaunchedEffect
                 }

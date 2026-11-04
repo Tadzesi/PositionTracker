@@ -102,18 +102,21 @@ def jsonld(h, lang):
     faq = [{'@type': 'Question', 'name': text_of(q), 'acceptedAnswer': {'@type': 'Answer', 'text': text_of(a)}}
            for q, a in re.findall(r'<details>\s*<summary[^>]*>(.*?)</summary>\s*<p[^>]*>(.*?)</p>\s*</details>', h, flags=re.S)]
     howtos = []
-    for pid, name_sk, name_en in (('p-org', 'Ako zorganizovať sledovanie pretekov', 'How to set up live tracking for a race'),
-                                  ('p-par', 'Ako sa zapojiť do sledovaného preteku', 'How to take part in a tracked race'),
-                                  ('p-spe', 'Ako sledovať preteky ako divák', 'How to follow a race as a spectator')):
-        i = h.index('id="%s"' % pid)
-        j = h.find('class="panel"', i + 10)
-        if j < 0:
-            j = h.index('</section>', i)
-        panel = h[i:j]
+    for anchor, slug, name_sk, name_en in (
+            ('id="p-org"', 'organizer', 'Ako zorganizovať sledovanie pretekov', 'How to set up live tracking for a race'),
+            ('id="pp-and"', 'participant-android', 'Ako sa zapojiť do sledovaného preteku s Androidom (aplikácia PositionTracker)',
+             'How to take part in a tracked race with Android (the PositionTracker app)'),
+            ('id="pp-ios"', 'participant-iphone', 'Ako sa zapojiť do sledovaného preteku s iPhonom (aplikácia OwnTracks)',
+             'How to take part in a tracked race with an iPhone (the OwnTracks app)'),
+            ('id="p-spe"', 'spectator', 'Ako sledovať preteky ako divák', 'How to follow a race as a spectator')):
+        i = h.index(anchor)
+        start = h.index('>', i) + 1
+        block = h[start:find_close(h, start, 'div')]
         steps = []
-        for n, (title, para) in enumerate(re.findall(r'<li>\s*<div>\s*<h3[^>]*>(.*?)</h3>\s*<p[^>]*>(.*?)</p>', panel, flags=re.S), 1):
+        for n, (title, para) in enumerate(re.findall(r'<li>\s*<div>\s*<h3[^>]*>(.*?)</h3>\s*<p[^>]*>(.*?)</p>', block, flags=re.S), 1):
             steps.append({'@type': 'HowToStep', 'position': n, 'name': text_of(title), 'text': text_of(para),
-                          'url': URL[lang] + '#guide-' + {'p-org': 'organizer', 'p-par': 'participant', 'p-spe': 'spectator'}[pid]})
+                          'url': URL[lang] + '#guide-' + slug})
+        assert steps, slug
         howtos.append({'@type': 'HowTo', 'name': name_sk if lang == 'sk' else name_en, 'inLanguage': lang, 'step': steps})
     graph = [
         {'@type': 'WebSite', '@id': BASE + '#website', 'name': 'PositionTracker', 'url': URL[lang], 'inLanguage': lang,
@@ -214,29 +217,89 @@ def hyphenate(h, lang):
     return h[:head_end] + ''.join(parts)
 
 
-def render(lang):
-    h = TEMPLATE
+ANDROID_TEMPLATE = open(os.path.join(HERE, 'android', 'index.html'), encoding='utf-8').read()
+ANDROID_URL = {'sk': BASE + 'android/', 'en': BASE + 'android/en/'}
+ANDROID_META = {
+    'sk': {'title': 'PositionTracker pre Android – oficiálna aplikácia pre účastníkov pretekov',
+           'desc': 'Oficiálna aplikácia PositionTracker pre Android: polohu pretekára posiela organizátorovi, zapne sa jedným ťuknutím a po pretekoch sa vypne sama. Inštalácia priamo z lab463.com.'},
+    'en': {'title': 'PositionTracker for Android – the official app for race participants',
+           'desc': "The official PositionTracker app for Android: sends the participant's position to the race organizer, starts with one tap and switches itself off after the race. Installed straight from lab463.com."},
+}
+APK_DIST = os.path.join(HERE, '..', 'android', 'dist')
+
+
+def apk_info():
+    """Version, size, certificate and content hash of the published APK (android/publish.py); None without one."""
+    apk = os.path.join(APK_DIST, 'positiontracker.apk')
+    if not os.path.isfile(apk):
+        return None
+    data = open(apk, 'rb').read()
+    latest = json.load(open(os.path.join(APK_DIST, 'latest.json'), encoding='utf-8'))
+    return {'hash': hashlib.sha256(data).hexdigest()[:8], 'version': latest['versionName'], 'cert': latest.get('certSha256', ''),
+            'mb': len(data) / 1e6}
+
+
+APK = apk_info()
+
+
+def apk_links(h):
+    """The APK download links carry the APK's hash, so the CDN never answers a new release with a cached old one."""
+    if APK is None:
+        return h
+    return h.replace('href="/tracker/android/positiontracker.apk"', 'href="/tracker/android/positiontracker.apk?v=%s"' % APK['hash'])
+
+
+def finish(h, lang, prefix, url, extra):
+    """What both pages share: English texts, asset hashes and path prefix, APK links, the placeholders."""
     if lang == 'en':
         h = translate(h)
         h = h.replace('assets/badges/apple-sk.svg', 'assets/badges/apple-en.svg')  # the English App Store badge
     # data-i attributes are build-time only
     h = re.sub(r'\sdata-i(?:-aria|-alt)?="[^"]*"', '', h)
-    m = META[lang]
-    prefix = '' if lang == 'sk' else '../'
     h = pictureize(h, prefix)
     h = version_assets(h)
     h = prefix_paths(h, prefix)
+    h = apk_links(h)
     alt = ('<link rel="alternate" hreflang="sk" href="%s">\n  <link rel="alternate" hreflang="en" href="%s">\n'
-           '  <link rel="alternate" hreflang="x-default" href="%s">') % (URL['sk'], URL['en'], URL['sk'])
+           '  <link rel="alternate" hreflang="x-default" href="%s">') % (url['sk'], url['en'], url['sk'])
     repl = {
-        '[[lang]]': lang, '[[title]]': html.escape(m['title']), '[[desc]]': html.escape(m['desc'], quote=True), '[[url]]': URL[lang],
-        '[[altlinks]]': alt, '[[locale]]': m['locale'], '[[locale_alt]]': m['locale_alt'], '[[og_alt]]': html.escape(m['og_alt'], quote=True),
+        '[[lang]]': lang, '[[url]]': url[lang], '[[altlinks]]': alt,
         '[[sk_href]]': './' if lang == 'sk' else '../', '[[en_href]]': 'en/' if lang == 'sk' else './',
         '[[sk_cur]]': 'aria-current="true"' if lang == 'sk' else '', '[[en_cur]]': 'aria-current="true"' if lang == 'en' else '',
     }
+    repl.update(extra)
     for k, v in repl.items():
         h = h.replace(k, v)
+    return h
+
+
+def render(lang):
+    m = META[lang]
+    h = finish(TEMPLATE, lang, '' if lang == 'sk' else '../', URL, {
+        '[[title]]': html.escape(m['title']), '[[desc]]': html.escape(m['desc'], quote=True), '[[locale]]': m['locale'],
+        '[[locale_alt]]': m['locale_alt'], '[[og_alt]]': html.escape(m['og_alt'], quote=True)})
     h = h.replace('[[jsonld]]', jsonld(h, lang))
+    h = hyphenate(h, lang)
+    assert '[[' not in h, re.findall(r'\[\[\w+\]\]', h)
+    return h
+
+
+def render_android(lang):
+    """/tracker/android/ (Slovak) and /tracker/android/en/: the download page of the app, in the look of the main page."""
+    m = ANDROID_META[lang]
+    info = APK or {'version': '?', 'mb': 0, 'cert': ''}
+    mb = ('%.1f' % info['mb']).replace('.', ',' if lang == 'sk' else '.')
+    h = finish(ANDROID_TEMPLATE, lang, '../' if lang == 'sk' else '../../', ANDROID_URL, {
+        '[[title]]': html.escape(m['title']), '[[desc]]': html.escape(m['desc'], quote=True),
+        '[[home]]': URL[lang].replace('https://www.lab463.com', ''), '[[apkver]]': info['version'], '[[apksize]]': mb,
+        '[[apkcert]]': info['cert']})
+    data = {'@context': 'https://schema.org', '@type': 'MobileApplication', 'name': 'PositionTracker', 'url': ANDROID_URL[lang],
+            'description': m['desc'], 'operatingSystem': 'Android 8.0+', 'applicationCategory': 'SportsApplication',
+            'softwareVersion': info['version'], 'inLanguage': ['sk', 'en'], 'isAccessibleForFree': True,
+            'offers': {'@type': 'Offer', 'price': '0', 'priceCurrency': 'EUR'},
+            'downloadUrl': 'https://www.lab463.com/tracker/android/positiontracker.apk',
+            'publisher': {'@type': 'Person', 'name': 'Martin Horný', 'url': 'https://www.lab463.com/'}}
+    h = h.replace('[[jsonld]]', '<script type="application/ld+json">\n' + json.dumps(data, ensure_ascii=False, indent=1).replace('</', '<\\/') + '\n  </script>')
     h = hyphenate(h, lang)
     assert '[[' not in h, re.findall(r'\[\[\w+\]\]', h)
     return h
@@ -254,21 +317,16 @@ def main():
     shutil.copytree(os.path.join(HERE, 'assets'), os.path.join(DIST, 'assets'))
     if os.path.isdir(os.path.join(HERE, 'perf')):  # the load-test report (built by perf/report/build.py)
         shutil.copytree(os.path.join(HERE, 'perf'), os.path.join(DIST, 'perf'))
-    # the Android app download page (/tracker/android/) and the signed APK + latest.json made by android/publish.py
-    shutil.copytree(os.path.join(HERE, 'android'), os.path.join(DIST, 'android'))
-    apk_dist = os.path.join(HERE, '..', 'android', 'dist')
-    if os.path.isfile(os.path.join(apk_dist, 'positiontracker.apk')):
-        for f in os.listdir(apk_dist):
-            shutil.copy(os.path.join(apk_dist, f), os.path.join(DIST, 'android'))
-        # the download link carries the APK's hash, so the CDN never answers a new release with a cached old one
-        apk_hash = hashlib.sha256(open(os.path.join(apk_dist, 'positiontracker.apk'), 'rb').read()).hexdigest()[:8]
-        page = os.path.join(DIST, 'android', 'index.html')
-        html = open(page, encoding='utf-8').read()
-        assert 'href="positiontracker.apk"' in html
-        open(page, 'w', encoding='utf-8').write(html.replace('href="positiontracker.apk"', 'href="positiontracker.apk?v=%s"' % apk_hash))
+    # the Android app: download page (/tracker/android/, /tracker/android/en/) and the signed APK + latest.json of android/publish.py
+    os.makedirs(os.path.join(DIST, 'android', 'en'))
+    if APK is not None:
+        for f in os.listdir(APK_DIST):
+            shutil.copy(os.path.join(APK_DIST, f), os.path.join(DIST, 'android'))
     else:
         print('WARNING: android/dist/positiontracker.apk is missing (run android/publish.py); the download page has no APK',
               file=sys.stderr)
+    for lang, path in (('sk', 'android/index.html'), ('en', 'android/en/index.html')):
+        open(os.path.join(DIST, path), 'w', encoding='utf-8').write(render_android(lang))
     for lang, path in (('sk', 'index.html'), ('en', 'en/index.html')):
         open(os.path.join(DIST, path), 'w', encoding='utf-8').write(render(lang))
     seo = os.path.join(DIST, 'seo')

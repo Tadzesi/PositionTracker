@@ -55,7 +55,8 @@ tar -C site/dist -cf - --exclude=seo . | ssh tadzesi@192.168.1.2 'tar -x -C ~/se
 
 No nginx reload is needed. Asset URLs carry a content hash, so Cloudflare serves new files at once; the HTML is never cached.
 
-The site also carries the **Android app** (`/tracker/android/`: download page, `positiontracker.apk`, `latest.json` for the
+The site also carries the **Android app** (`/tracker/android/` and `/tracker/android/en/`: download page rendered by `build.py` from
+`site/android/index.html` with the version, size and certificate of `android/dist`, `positiontracker.apk`, `latest.json` for the
 app's update check). Build the release first (`android/README.md`: `gradlew assembleRelease`, `python android/publish.py`),
 otherwise `build.py` warns and the page has no APK. The download link carries the APK's hash (`positiontracker.apk?v=…`) so
 Cloudflare never serves an old release; nginx sends `.apk` as `application/vnd.android.package-archive` (nested location in

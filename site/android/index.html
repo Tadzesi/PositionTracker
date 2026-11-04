@@ -1,92 +1,98 @@
 <!doctype html>
-<html lang="sk">
+<html lang="[[lang]]">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PositionTracker pre Android / for Android</title>
-<meta name="description" content="Aplikácia PositionTracker pre Android: sledovanie polohy pretekára jedným ťuknutím, po preteku sa vypne sama.">
-<meta name="robots" content="noindex">
-<style>
-  :root { color-scheme: dark; --bg:#0C0D11; --panel:#15171E; --line:#2A2E3A; --text:#F4F5F8; --mute:#8D93A6; --red:#FF1E3C; --green:#25E07B; --on:#03170B; }
-  @media (prefers-color-scheme: light) { :root { color-scheme: light; --bg:#EAEDF2; --panel:#FFFFFF; --line:#D3D8E1; --text:#12141A; --mute:#5B6275; --red:#E10B2D; --green:#16B364; --on:#FFFFFF; } }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
-  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
-  h1 { font-size: 28px; margin: 8px 0 4px; }
-  h2 { font-size: 19px; margin: 0 0 8px; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin: 14px 0; }
-  .mute { color: var(--mute); }
-  .btn { display: inline-block; background: var(--green); color: var(--on); font-weight: 700; text-decoration: none; padding: 14px 22px; border-radius: 10px; font-size: 18px; }
-  .lang { float: right; color: var(--mute); }
-  .lang a { color: inherit; }
-  ol { padding-left: 22px; } li { margin: 6px 0; }
-  code { font-size: 12px; word-break: break-all; }
-  [data-lang] { display: none; } body.sk [data-lang="sk"], body.en [data-lang="en"] { display: block; }
-  .pin { width: 44px; height: 44px; vertical-align: middle; margin-right: 6px; }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>[[title]]</title>
+  <meta name="description" content="[[desc]]">
+  <meta name="robots" content="index,follow">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#0A1F44">
+  <link rel="canonical" href="[[url]]">
+  [[altlinks]]
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="PositionTracker">
+  <meta property="og:title" content="[[title]]">
+  <meta property="og:description" content="[[desc]]">
+  <meta property="og:url" content="[[url]]">
+  <meta property="og:image" content="https://www.lab463.com/tracker/assets/og-image.jpg">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230A1F44'/%3E%3Cpath d='M9 24V8h8a5 5 0 010 10h-4v6z' fill='%23FF4B2B'/%3E%3C/svg%3E">
+  <link rel="preload" href="fonts/archivo-italic.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/archivo-roman.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles.css">
+  <script src="theme.js"></script>
+  [[jsonld]]
 </head>
-<body class="sk">
-<main>
-  <div class="lang"><a href="#" data-set="sk">SK</a> · <a href="#" data-set="en">EN</a></div>
-  <h1><svg class="pin" viewBox="34 26 40 56" aria-hidden="true"><path fill="#FF1E3C" d="M54,28c-11,0 -20,9 -20,20c0,15 20,32 20,32s20,-17 20,-32c0,-11 -9,-20 -20,-20z"/><circle cx="54" cy="48" r="8" fill="#0C0D11"/><circle cx="54" cy="48" r="4" fill="#25E07B"/></svg>PositionTracker</h1>
+<body>
+<a class="skip" href="#main" data-i="skip">Preskočiť na obsah</a>
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="[[home]]">Position<b>Tracker</b></a>
+    <nav aria-label="Hlavná navigácia" data-i-aria="nav">
+      <a class="nl" href="[[home]]" data-i="ad_nav_home">Úvod</a>
+      <a class="nm" href="[[home]]#guide-participant-android" data-i="ad_nav_guide">Návod pre účastníka</a>
+      <div class="seg" role="group" aria-label="Jazyk" data-i-aria="lang_g">
+        <a href="[[sk_href]]" hreflang="sk" lang="sk" [[sk_cur]]>SK</a><a href="[[en_href]]" hreflang="en" lang="en" [[en_cur]]>EN</a>
+      </div>
+      <div class="seg" id="themeseg" role="group" aria-label="Vzhľad stránky" data-i-aria="theme_g">
+        <button type="button" data-theme="light" aria-pressed="false" aria-label="Svetlý režim" data-i-aria="theme_l_a"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.3 5.3l1.7 1.7M17 17l1.7 1.7M5.3 18.7L7 17M17 7l1.7-1.7"/></g></svg><span data-i="theme_l">Svetlý</span></button>
+        <button type="button" data-theme="dark" aria-pressed="false" aria-label="Tmavý režim" data-i-aria="theme_d_a"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M20.5 14.2A8.6 8.6 0 019.8 3.5a8.6 8.6 0 108.7 10.7z" fill="currentColor"/></svg><span data-i="theme_d">Tmavý</span></button>
+      </div>
+    </nav>
+  </div>
+</header>
 
-  <section data-lang="sk">
-    <p class="mute">Aplikácia pre Android, ktorá posiela vašu polohu organizátorovi preteku. Zapnete ju jedným ťuknutím a po skončení preteku sa vypne sama.</p>
-    <div class="card">
-      <p><a class="btn" href="positiontracker.apk" download>Stiahnuť aplikáciu (APK)</a></p>
-      <p class="mute version"></p>
+<main id="main">
+<section class="hero apphero" aria-labelledby="h1">
+  <div class="wrap">
+    <p class="crumb"><a href="[[home]]">PositionTracker</a> <span aria-hidden="true">›</span> <span data-i="ad_crumb">Aplikácia pre Android</span></p>
+    <div class="apphead">
+      <svg class="appicon big" viewBox="0 0 108 108" aria-hidden="true"><rect width="108" height="108" rx="24" fill="#0C0D11"/><g transform="translate(54 54) scale(1.3) translate(-54 -54)"><path fill="#FF1E3C" d="M54,28c-11,0 -20,9 -20,20c0,15 20,32 20,32s20,-17 20,-32c0,-11 -9,-20 -20,-20z"/><circle cx="54" cy="48" r="8" fill="#0C0D11"/><circle cx="54" cy="48" r="4" fill="#25E07B"/></g></svg>
+      <div>
+        <h1 class="display" id="h1">PositionTracker <em data-i="ad_h1">pre Android</em></h1>
+        <p class="lead" data-i="ad_lead">Oficiálna aplikácia služby PositionTracker od lab463.com. Posiela vašu polohu organizátorovi pretekov: sledovanie zapnete jedným ťuknutím a po pretekoch sa vypne samo.</p>
+        <div class="cta"><a class="btn" href="/tracker/android/positiontracker.apk" download><span data-i="ad_dl">Stiahnuť aplikáciu</span></a></div>
+        <p class="appmeta" data-i="ad_meta">Verzia [[apkver]] · [[apksize]] MB · Android 8 a novší · nie je v Google Play, sťahuje sa priamo z lab463.com</p>
+      </div>
     </div>
-    <div class="card">
-      <h2>Inštalácia</h2>
-      <ol>
-        <li>Ťuknite na <b>Stiahnuť aplikáciu</b> a otvorte stiahnutý súbor <i>positiontracker.apk</i>.</li>
-        <li>Ak telefón inštaláciu zablokuje, povoľte ju: <b>Nastavenia → Inštalovať neznáme aplikácie → Chrome</b> (alebo váš prehliadač) → Povoliť.</li>
-        <li>Ťuknite na <b>Inštalovať</b>. Ak Google Play Protect upozorní na neznámeho vývojára, zvoľte <b>Ďalšie podrobnosti → Napriek tomu inštalovať</b>. Aplikácia nie je v Google Play, preto ju Google nepozná.</li>
-        <li>Otvorte na telefóne <b>odkaz z e-mailovej pozvánky</b> (alebo na stránke pozvánky ťuknite na <b>Otvoriť v aplikácii</b>). Aplikácia ukáže váš pretek a súhlas.</li>
-        <li>Pred štartom ťuknite na <b>Spustiť sledovanie</b> a v kontrole telefónu povoľte všetko, čo svieti na červeno.</li>
-      </ol>
-    </div>
-    <div class="card">
-      <h2>iPhone</h2>
-      <p class="mute">Na iPhone použite bezplatnú aplikáciu OwnTracks podľa návodu na stránke vašej pozvánky.</p>
-    </div>
-    <p class="mute">Aktualizácie: keď vyjde nová verzia, aplikácia vám ponúkne jej stiahnutie. Odtlačok podpisového certifikátu (SHA-256): <code class="cert"></code></p>
-  </section>
+  </div>
+</section>
 
-  <section data-lang="en">
-    <p class="mute">An Android app that sends your position to the race organizer. One tap switches it on, and it switches itself off when the race is over.</p>
-    <div class="card">
-      <p><a class="btn" href="positiontracker.apk" download>Download the app (APK)</a></p>
-      <p class="mute version"></p>
-    </div>
-    <div class="card">
-      <h2>Installation</h2>
-      <ol>
-        <li>Tap <b>Download the app</b> and open the downloaded file <i>positiontracker.apk</i>.</li>
-        <li>If the phone blocks the installation, allow it: <b>Settings → Install unknown apps → Chrome</b> (or your browser) → Allow.</li>
-        <li>Tap <b>Install</b>. If Google Play Protect warns about an unknown developer, choose <b>More details → Install anyway</b>. The app is not on Google Play, so Google does not know it.</li>
-        <li>On the phone open the <b>link of the invitation email</b> (or tap <b>Open in the app</b> on the invitation page). The app shows your race and the consent.</li>
-        <li>Before your start tap <b>Start tracking</b> and allow everything that is red in the phone check.</li>
-      </ol>
-    </div>
-    <div class="card">
-      <h2>iPhone</h2>
-      <p class="mute">On an iPhone use the free OwnTracks app as described on your invitation page.</p>
-    </div>
-    <p class="mute">Updates: when a new version is out, the app offers to download it. Signing certificate fingerprint (SHA-256): <code class="cert"></code></p>
-  </section>
+<section aria-labelledby="inst-h">
+  <div class="wrap doc">
+    <h2 class="display" id="inst-h" data-i="ad_how_h">Inštalácia</h2>
+    <ol class="steps">
+      <li><div><h3 data-i="ad1_h">Stiahnite a otvorte súbor</h3><p data-i="ad1_p">Ťuknite na „Stiahnuť aplikáciu“. Keď sa súbor <i>positiontracker.apk</i> stiahne, ťuknite v upozornení prehliadača na „Otvoriť“ (alebo ho nájdite v Stiahnutých súboroch).</p></div></li>
+      <li><div><h3 data-i="ad2_h">Povoľte inštaláciu</h3><p data-i="ad2_p">Ak telefón inštaláciu zablokuje, ťuknite na „Nastavenia“ a zapnite „Povoliť z tohto zdroja“ pre Chrome (alebo váš prehliadač). Vráťte sa späť a ťuknite na „Inštalovať“.</p><p class="tip" data-i="ad2_tip">Aplikácia nie je v Google Play, preto môže Google Play Protect upozorniť na neznámeho vývojára. Zvoľte „Ďalšie podrobnosti → Napriek tomu inštalovať“.</p></div></li>
+      <li><div><h3 data-i="ad3_h">Otvorte pozvánku a spustite sledovanie</h3><p data-i="ad3_p">Na telefóne ťuknite na osobný odkaz v e-mailovej pozvánke: otvorí sa v aplikácii. Potvrďte účasť a súhlas a pred štartom ťuknite na „Spustiť sledovanie“. Po skončení pretekov sa aplikácia vypne sama a zmaže z telefónu údaje preteku. <a href="[[home]]#guide-participant-android">Celý návod pre účastníka</a></p></div><div class="phoneimg"><img src="assets/shots/app-home.png" width="780" height="1733" loading="lazy" alt="Aplikácia PositionTracker: sledovanie zapnuté" data-i-alt="pa4_alt"></div></li>
+    </ol>
+    <p class="tip ios" data-i="ad_ios"><b>Máte iPhone?</b> Pre iPhone zatiaľ nemáme vlastnú aplikáciu. Použite bezplatnú aplikáciu OwnTracks: <a href="[[home]]#guide-participant-iphone">návod pre iPhone</a>.</p>
+    <details class="adv"><summary data-i="ad_adv">Pre pokročilých: aktualizácie a overenie aplikácie</summary>
+      <p data-i="ad_adv_p">Keď vyjde nová verzia, aplikácia vám ponúkne jej stiahnutie z tejto stránky; nová verzia sa nainštaluje cez starú a spárovanie zostane. Názov balíka: <code>com.lab463.positiontracker</code>. Odtlačok podpisového certifikátu (SHA-256):</p>
+      <p><code class="cert">[[apkcert]]</code></p>
+    </details>
+  </div>
+</section>
 </main>
+<footer><div class="wrap"><span>PositionTracker · lab463.com</span><span class="foot-privacy"><a href="/tracker/app/privacy" data-i="foot_privacy">Ochrana osobných údajov a cookies</a></span></div></footer>
 <script>
-  (function () {
-    var set = function (l) { document.body.className = l; document.documentElement.lang = l; };
-    set(/^sk|^cs/i.test(navigator.language) ? 'sk' : 'en');
-    document.querySelectorAll('[data-set]').forEach(function (a) { a.addEventListener('click', function (e) { e.preventDefault(); set(a.getAttribute('data-set')); }); });
-    fetch('latest.json', { cache: 'no-cache' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
-      if (!j) return;
-      document.querySelectorAll('.version').forEach(function (p) { p.textContent = (document.body.className === 'sk' ? 'Verzia ' : 'Version ') + j.versionName; });
-      document.querySelectorAll('.cert').forEach(function (c) { c.textContent = j.certSha256 || ''; });
-    }).catch(function () {});
-  })();
+/* theme and language controls of this page (the main page has them in app.js) */
+(function () {
+  var root = document.documentElement, seg = document.getElementById('themeseg');
+  var media = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  var eff = function () { return root.getAttribute('data-theme') || (media && media.matches ? 'dark' : 'light'); };
+  var sync = function () { seg.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.theme === eff())); }); };
+  seg.querySelectorAll('button').forEach(function (b) { b.addEventListener('click', function () {
+    root.setAttribute('data-theme', b.dataset.theme);
+    try { localStorage.setItem('pt-site-theme', b.dataset.theme); } catch (e) { /* storage blocked */ }
+    sync();
+  }); });
+  if (media && media.addEventListener) media.addEventListener('change', sync);
+  sync();
+  document.querySelectorAll('.seg a[hreflang]').forEach(function (a) { a.addEventListener('click', function () {
+    try { localStorage.setItem('pt-lang', a.hreflang); } catch (e) { /* storage blocked */ }
+  }); });
+})();
 </script>
 </body>
 </html>

@@ -271,7 +271,7 @@ function AndroidApp({ token }: { token: string }) {
   );
   return (
     <div className="card stack">
-      <h2>{t('Aplikácia PositionTracker (odporúčané)', 'PositionTracker app (recommended)')}</h2>
+      <h2>{t('Aplikácia PositionTracker pre Android (oficiálna, odporúčané)', 'The PositionTracker app for Android (official, recommended)')}</h2>
       <ol>
         <li>{t('Nainštalujte aplikáciu (ak ju ešte nemáte):', 'Install the app (if you do not have it yet):')}
           <div className="row" style={{ margin: '10px 0' }}>
@@ -305,7 +305,7 @@ function Step3({ token, deviceToken }: { token: string; deviceToken: string }) {
       {!setup.data ? <Loading /> : (
         <>
           <ol>
-            <li>{t('Nainštalujte zadarmo aplikáciu OwnTracks (ak ju ešte nemáte):', 'Install the free OwnTracks app (if you do not have it yet):')}
+            <li>{t('Nainštalujte zadarmo aplikáciu OwnTracks, aplikáciu tretej strany (ak ju ešte nemáte):', 'Install the free OwnTracks app, a third-party app (if you do not have it yet):')}
               <div className="row" style={{ margin: '10px 0', alignItems: 'center', gap: 16 }}>
                 <a href="https://apps.apple.com/us/app/owntracks/id692424691" target="_blank" rel="noopener noreferrer" aria-label={t('OwnTracks v App Store (iPhone)', 'OwnTracks on the App Store (iPhone)')}>
                   <img src={`${BASE}/badges/apple-${lang}.svg`} alt={t('Stiahnuť v App Store', 'Download on the App Store')} height={44} style={{ height: 44, width: 'auto', display: 'block' }} />

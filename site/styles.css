@@ -205,11 +205,6 @@ footer .wrap{display:flex;gap:12px 20px;flex-wrap:wrap;justify-content:space-bet
 .steps p.badges a{display:inline-flex;line-height:0}
 .steps p.badges img{height:56px;width:auto;border:0;box-shadow:none}
 .steps p.badges img.play{height:80px;margin:-12px -6px}
-.steps p.badges a.apk{display:inline-flex;align-items:center;gap:9px;height:56px;box-sizing:border-box;padding:0 18px 0 13px;background:#000;color:#fff;border:1px solid #a6a6a6;border-radius:9px;text-decoration:none;font-weight:400;line-height:1.05}
-.steps p.badges a.apk:hover{background:#1c1c1c}
-.apk svg{width:30px;height:30px;fill:#3DDC84;flex:none}
-.apk small{display:block;font-size:.74rem;letter-spacing:.01em}
-.apk b{display:block;font-size:1.5rem;font-weight:600;letter-spacing:-.01em}
 
 /* facts as a definition list */
 .spec{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:0 48px;margin:32px 0 0}
@@ -287,3 +282,69 @@ figcaption b{text-align:start;-webkit-hyphens:none;hyphens:none}
 .who p,.who li{text-align:start}
 /* on a phone the short spec lines (one or two lines, few words) would get wide gaps when justified */
 @media (max-width:640px){.spec dd{text-align:start}}
+
+/* participant guide: which phone, then the steps for that phone (theme.js sets html[data-platform] before the first paint; without
+   JavaScript both flows are shown). The Android card is ours (brand colours, app icon), the iPhone card a third-party app. */
+.pick{margin:0 0 18px}
+.plats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;margin:0 0 44px}
+@media (max-width:760px){.plats{grid-template-columns:1fr}}
+.plat{display:flex;flex-direction:column;border:2px solid var(--line);background:var(--bg);padding:22px 24px 16px}
+.plat.ours{border-color:var(--coral-btn);box-shadow:8px 8px 0 var(--ink)}
+:root[data-theme="dark"] .plat.ours{box-shadow:8px 8px 0 #000}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .plat.ours{box-shadow:8px 8px 0 #000}}
+.plat p{margin:0 0 14px}
+.plat-os{display:flex;align-items:center;gap:10px;font-stretch:62%;font-weight:900;font-style:italic;text-transform:uppercase;font-size:2.2rem;line-height:1}
+.plat-os svg{width:34px;height:34px;flex:none}
+.ico-and{fill:#3DDC84}
+.ico-phone{color:var(--text)}
+.plat .mine{display:none;margin-left:auto;font:inherit;font-stretch:100%;font-style:normal;font-weight:800;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;background:var(--yellow);color:#0A1F44;padding:4px 9px}
+html[data-mine="android"] #plat-and .mine,html[data-mine="ios"] #plat-ios .mine{display:inline-block}
+html[data-mine="ios"] #plat-ios{order:-1}
+.plat-app{display:flex;align-items:center;gap:14px;margin:0 0 14px}
+.plat-app b{display:block;font-size:1.3rem;line-height:1.2}
+.appicon{width:56px;height:56px;flex:none;border-radius:13px}
+.appicon.other{color:var(--mute)}
+.tag{display:inline-block;margin-top:4px;font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:3px 8px}
+.tag.off{background:var(--coral-btn);color:#fff}
+.tag.third{border:1px solid var(--mute);color:var(--mute)}
+.plat-act{margin:4px 0 10px!important}
+.plat-act .btn{color:#fff}
+.plat .badges{display:flex;line-height:0}
+.plat .badges img{height:56px;width:auto}
+.plat .small{margin-bottom:10px}
+.plat .small a{color:var(--link);font-weight:700;text-underline-offset:3px}
+.plat-go{margin:auto 0 0!important;padding-top:6px}
+.pswitch{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 36px;scroll-margin-top:84px}
+.pswitch>span{font-weight:800}
+.pswitch button{font:inherit;font-stretch:75%;font-weight:900;font-style:italic;text-transform:uppercase;font-size:1.35rem;min-height:48px;padding:6px 22px;background:transparent;color:var(--mute);border:2px solid var(--text);cursor:pointer}
+.pswitch button+button{margin-left:-16px}
+.pswitch button[aria-pressed="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+:root[data-theme="dark"] .pswitch button[aria-pressed="true"]{background:#fff;color:var(--ink);border-color:#fff}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .pswitch button[aria-pressed="true"]{background:#fff;color:var(--ink);border-color:#fff}}
+html[data-platform="android"] #pp-ios,html[data-platform="ios"] #pp-and{display:none}
+.steps p.act{margin:16px 0}
+.steps p.act a.btn{color:#fff;font-weight:800;text-decoration:none}
+details.fallback{margin-top:44px}
+/* hero: shortcuts for participants */
+.forpar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin:26px 0 0;max-width:none;color:#C7D5F2}
+.forpar a{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border:1px solid #ffffff66;border-radius:99px;color:#fff;font-weight:700;text-decoration:none}
+.forpar a:hover{background:#ffffff1a}
+.forpar svg{width:20px;height:20px;flex:none}
+.forpar .ico-phone{color:#fff}
+
+/* the Android app page (/tracker/android/) */
+.crumb{margin:0 0 26px;color:#C7D5F2;font-size:.95rem;max-width:none}
+.crumb a{color:#fff;font-weight:700}
+.apphead{display:grid;grid-template-columns:auto minmax(0,1fr);gap:20px 36px;align-items:start}
+@media (max-width:700px){.apphead{grid-template-columns:1fr}}
+.appicon.big{width:132px;height:132px;border-radius:30px;box-shadow:0 0 0 2px #ffffff33}
+@media (max-width:700px){.appicon.big{width:88px;height:88px;border-radius:20px}}
+.apphero h1{font-size:clamp(2.8rem,7vw,6rem);max-width:none;margin:0 0 18px}
+.apphero h1 em{font-style:inherit;color:var(--coral)}
+.apphero .lead{margin:0 0 26px}
+.appmeta{margin:20px 0 0;color:#C7D5F2;font-size:.95rem;max-width:none}
+.tip.ios{margin-top:48px}
+.tip.ios a,details.adv a{color:var(--link);font-weight:700}
+details.adv{margin-top:36px}
+details.adv code{font-size:.85rem;word-break:break-all}
+#inst-h{margin:0 0 44px}
