@@ -259,6 +259,12 @@ def main():
     if os.path.isfile(os.path.join(apk_dist, 'positiontracker.apk')):
         for f in os.listdir(apk_dist):
             shutil.copy(os.path.join(apk_dist, f), os.path.join(DIST, 'android'))
+        # the download link carries the APK's hash, so the CDN never answers a new release with a cached old one
+        apk_hash = hashlib.sha256(open(os.path.join(apk_dist, 'positiontracker.apk'), 'rb').read()).hexdigest()[:8]
+        page = os.path.join(DIST, 'android', 'index.html')
+        html = open(page, encoding='utf-8').read()
+        assert 'href="positiontracker.apk"' in html
+        open(page, 'w', encoding='utf-8').write(html.replace('href="positiontracker.apk"', 'href="positiontracker.apk?v=%s"' % apk_hash))
     else:
         print('WARNING: android/dist/positiontracker.apk is missing (run android/publish.py); the download page has no APK',
               file=sys.stderr)

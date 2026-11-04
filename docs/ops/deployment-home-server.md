@@ -57,7 +57,9 @@ No nginx reload is needed. Asset URLs carry a content hash, so Cloudflare serves
 
 The site also carries the **Android app** (`/tracker/android/`: download page, `positiontracker.apk`, `latest.json` for the
 app's update check). Build the release first (`android/README.md`: `gradlew assembleRelease`, `python android/publish.py`),
-otherwise `build.py` warns and the page has no APK. **Android App Links** (the email link opens the app) need
+otherwise `build.py` warns and the page has no APK. The download link carries the APK's hash (`positiontracker.apk?v=…`) so
+Cloudflare never serves an old release; nginx sends `.apk` as `application/vnd.android.package-archive` (nested location in
+`^~ /tracker/`, added 2026-11-04; the stock `mime.types` has no `.apk`). **Android App Links** (the email link opens the app) need
 `https://www.lab463.com/.well-known/assetlinks.json`; the portal root is served statically from `~/server/stacks/web/site/`,
 so copy the file there (only again when the signing key changes):
 
