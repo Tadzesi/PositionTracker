@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PositionTracker pre Android / for Android</title>
+<meta name="description" content="Aplikácia PositionTracker pre Android: sledovanie polohy pretekára jedným ťuknutím, po preteku sa vypne sama.">
+<meta name="robots" content="noindex">
+<style>
+  :root { color-scheme: dark; --bg:#0C0D11; --panel:#15171E; --line:#2A2E3A; --text:#F4F5F8; --mute:#8D93A6; --red:#FF1E3C; --green:#25E07B; --on:#03170B; }
+  @media (prefers-color-scheme: light) { :root { color-scheme: light; --bg:#EAEDF2; --panel:#FFFFFF; --line:#D3D8E1; --text:#12141A; --mute:#5B6275; --red:#E10B2D; --green:#16B364; --on:#FFFFFF; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 28px; margin: 8px 0 4px; }
+  h2 { font-size: 19px; margin: 0 0 8px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin: 14px 0; }
+  .mute { color: var(--mute); }
+  .btn { display: inline-block; background: var(--green); color: var(--on); font-weight: 700; text-decoration: none; padding: 14px 22px; border-radius: 10px; font-size: 18px; }
+  .lang { float: right; color: var(--mute); }
+  .lang a { color: inherit; }
+  ol { padding-left: 22px; } li { margin: 6px 0; }
+  code { font-size: 12px; word-break: break-all; }
+  [data-lang] { display: none; } body.sk [data-lang="sk"], body.en [data-lang="en"] { display: block; }
+  .pin { width: 44px; height: 44px; vertical-align: middle; margin-right: 6px; }
+</style>
+</head>
+<body class="sk">
+<main>
+  <div class="lang"><a href="#" data-set="sk">SK</a> · <a href="#" data-set="en">EN</a></div>
+  <h1><svg class="pin" viewBox="34 26 40 56" aria-hidden="true"><path fill="#FF1E3C" d="M54,28c-11,0 -20,9 -20,20c0,15 20,32 20,32s20,-17 20,-32c0,-11 -9,-20 -20,-20z"/><circle cx="54" cy="48" r="8" fill="#0C0D11"/><circle cx="54" cy="48" r="4" fill="#25E07B"/></svg>PositionTracker</h1>
+
+  <section data-lang="sk">
+    <p class="mute">Aplikácia pre Android, ktorá posiela vašu polohu organizátorovi preteku. Zapnete ju jedným ťuknutím a po skončení preteku sa vypne sama.</p>
+    <div class="card">
+      <p><a class="btn" href="positiontracker.apk" download>Stiahnuť aplikáciu (APK)</a></p>
+      <p class="mute version"></p>
+    </div>
+    <div class="card">
+      <h2>Inštalácia</h2>
+      <ol>
+        <li>Ťuknite na <b>Stiahnuť aplikáciu</b> a otvorte stiahnutý súbor <i>positiontracker.apk</i>.</li>
+        <li>Ak telefón inštaláciu zablokuje, povoľte ju: <b>Nastavenia → Inštalovať neznáme aplikácie → Chrome</b> (alebo váš prehliadač) → Povoliť.</li>
+        <li>Ťuknite na <b>Inštalovať</b>. Ak Google Play Protect upozorní na neznámeho vývojára, zvoľte <b>Ďalšie podrobnosti → Napriek tomu inštalovať</b>. Aplikácia nie je v Google Play, preto ju Google nepozná.</li>
+        <li>Otvorte na telefóne <b>odkaz z e-mailovej pozvánky</b> (alebo na stránke pozvánky ťuknite na <b>Otvoriť v aplikácii</b>). Aplikácia ukáže váš pretek a súhlas.</li>
+        <li>Pred štartom ťuknite na <b>Spustiť sledovanie</b> a v kontrole telefónu povoľte všetko, čo svieti na červeno.</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h2>iPhone</h2>
+      <p class="mute">Na iPhone použite bezplatnú aplikáciu OwnTracks podľa návodu na stránke vašej pozvánky.</p>
+    </div>
+    <p class="mute">Aktualizácie: keď vyjde nová verzia, aplikácia vám ponúkne jej stiahnutie. Odtlačok podpisového certifikátu (SHA-256): <code class="cert"></code></p>
+  </section>
+
+  <section data-lang="en">
+    <p class="mute">An Android app that sends your position to the race organizer. One tap switches it on, and it switches itself off when the race is over.</p>
+    <div class="card">
+      <p><a class="btn" href="positiontracker.apk" download>Download the app (APK)</a></p>
+      <p class="mute version"></p>
+    </div>
+    <div class="card">
+      <h2>Installation</h2>
+      <ol>
+        <li>Tap <b>Download the app</b> and open the downloaded file <i>positiontracker.apk</i>.</li>
+        <li>If the phone blocks the installation, allow it: <b>Settings → Install unknown apps → Chrome</b> (or your browser) → Allow.</li>
+        <li>Tap <b>Install</b>. If Google Play Protect warns about an unknown developer, choose <b>More details → Install anyway</b>. The app is not on Google Play, so Google does not know it.</li>
+        <li>On the phone open the <b>link of the invitation email</b> (or tap <b>Open in the app</b> on the invitation page). The app shows your race and the consent.</li>
+        <li>Before your start tap <b>Start tracking</b> and allow everything that is red in the phone check.</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h2>iPhone</h2>
+      <p class="mute">On an iPhone use the free OwnTracks app as described on your invitation page.</p>
+    </div>
+    <p class="mute">Updates: when a new version is out, the app offers to download it. Signing certificate fingerprint (SHA-256): <code class="cert"></code></p>
+  </section>
+</main>
+<script>
+  (function () {
+    var set = function (l) { document.body.className = l; document.documentElement.lang = l; };
+    set(/^sk|^cs/i.test(navigator.language) ? 'sk' : 'en');
+    document.querySelectorAll('[data-set]').forEach(function (a) { a.addEventListener('click', function (e) { e.preventDefault(); set(a.getAttribute('data-set')); }); });
+    fetch('latest.json', { cache: 'no-cache' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+      if (!j) return;
+      document.querySelectorAll('.version').forEach(function (p) { p.textContent = (document.body.className === 'sk' ? 'Verzia ' : 'Version ') + j.versionName; });
+      document.querySelectorAll('.cert').forEach(function (c) { c.textContent = j.certSha256 || ''; });
+    }).catch(function () {});
+  })();
+</script>
+</body>
+</html>

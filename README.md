@@ -14,6 +14,7 @@ PostgreSQL persistence:
 | `src/PositionTracker.Api` | ASP.NET Core host: device ingest, organizer/spectator views, SignalR hub, demo simulator, persistence of the position history and rebuild of live events at startup. |
 | `src/PositionTracker.Data` | EF Core model (`AppDbContext`, entities) and migrations for PostgreSQL. |
 | `src/PositionTracker.Email` | Email messages, SK/EN templates, sanitising, `IEmailSender` with the MailKit `SmtpEmailSender` and the `LoggingEmailSender`. The only project that references MailKit. |
+| `android/` | The native Android tracker of participants (Kotlin, Compose; self-install APK), see `android/README.md`. |
 | `tools/SendTestMail` | Console tool for the deliverability check (`docs/ops/email-deliverability.md`). |
 | `tests/*` | xunit tests. |
 
@@ -124,7 +125,9 @@ event and participant (in Plan 1 only the demo simulator issues them).
   second, or beyond 20 000 stored fixes are counted as rejected, not errors.
 - `400` malformed body (the client must drop that batch, it will never succeed), `401` missing/unknown/revoked
   token (with `WWW-Authenticate: Bearer`), `403` token of another event, `404` unknown event or participant,
-  `409 {"code":"event_finished",...}` the event has finished (the client stops sending; nothing is stored),
+  `409 {"code":"event_finished",...}` the event has finished (the client stops sending; nothing is stored; also once the
+  runtime left the memory), `409 {"code":"event_not_live",...}` a database event that the organizer has not started yet
+  (nothing is stored; the client drops the batch and waits),
   `413` body over 256 KB or more than 500 fixes, `429` over 60 requests per minute and token (with
   `Retry-After`), `503` the position store cannot take the batch now (with `Retry-After: 1`; nothing of the batch
   was applied, the client resends it; also for actions).
@@ -143,6 +146,12 @@ event and participant (in Plan 1 only the demo simulator issues them).
 
 `POST /api/events/{eventId}/actions` with `{"action": "sos" | "sosCleared" | "pause" | "resume" | "dnf"}`:
 `204`, same authentication and status codes.
+
+`GET /api/device/session` (same bearer token and request budget): what a phone needs with only its token —
+`{eventId, event:{name,location,sport,state,startTime}, me:{name,bib,nickname,startTime}, tuning:{intervalSeconds,displacementM,ignoreInaccurateM}, link, serverTime}`;
+`state` is `draft|ready|live|finished`, `me.startTime` the own wave start (else the event start), `link` the data-link light
+(null once finished or without a runtime). `401` for a missing/unknown/revoked token, `404` for a simulated event, `503` +
+`Retry-After: 1` on a database failure. The Android app polls it every minute.
 
 ## Configuration
 
@@ -381,7 +390,8 @@ re-issues it) and fetch the OwnTracks setup (`POST /owntracks-config {deviceToke
 `link_invalid` 404, `link_superseded` 410, `link_expired` 400, `gender_locked`, `decline_locked`, `not_confirmed`, `event_finished` 409.
 The host does not log request paths (the link token is in the path); a reverse proxy in front must not either.
 
-The primary device client is **OwnTracks** in HTTP mode: `POST /api/ingest/owntracks` with Basic auth (user name = bib, password = device
+On Android the device client is the **PositionTracker app** (`android/`, bearer endpoints above); the participant page offers it
+("Open in the app" = `intent://p?token=…#Intent;scheme=positiontracker;…`). On iPhones and as the fallback it is **OwnTracks** in HTTP mode: `POST /api/ingest/owntracks` with Basic auth (user name = bib, password = device
 token), see `docs/ops/owntracks-setup.md` (verified protocol facts, UNVERIFIED items, phone setup SK/EN, open field gate). The bearer
 endpoints under `/api/events/{id}/positions|actions` remain for other clients and now accept database tokens.
 

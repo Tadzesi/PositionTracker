@@ -54,6 +54,17 @@ tar -C site/dist -cf - --exclude=seo . | ssh tadzesi@192.168.1.2 'tar -x -C ~/se
 ```
 
 No nginx reload is needed. Asset URLs carry a content hash, so Cloudflare serves new files at once; the HTML is never cached.
+
+The site also carries the **Android app** (`/tracker/android/`: download page, `positiontracker.apk`, `latest.json` for the
+app's update check). Build the release first (`android/README.md`: `gradlew assembleRelease`, `python android/publish.py`),
+otherwise `build.py` warns and the page has no APK. **Android App Links** (the email link opens the app) need
+`https://www.lab463.com/.well-known/assetlinks.json`; the portal root is served statically from `~/server/stacks/web/site/`,
+so copy the file there (only again when the signing key changes):
+
+```bash
+ssh tadzesi@192.168.1.2 'mkdir -p ~/server/stacks/web/site/.well-known'
+scp android/dist/assetlinks.json tadzesi@192.168.1.2:server/stacks/web/site/.well-known/assetlinks.json
+```
 SEO files shared with the whole portal (`sitemap.xml`, `robots.txt`, `llms.txt`, `llms-full.txt`) were extended on 2026-10-31 with the tracker
 pages (backups: `~/backups/lab463-<file>.bak.*`).
 

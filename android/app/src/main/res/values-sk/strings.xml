@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="channel_tracking">Sledovanie</string>
+    <string name="channel_events">Správy o preteku</string>
+
+    <string name="ok">OK</string>
+    <string name="back">Späť</string>
+    <string name="cancel">Zrušiť</string>
+    <string name="loading">Načítavam…</string>
+    <string name="ago">pred %1$s</string>
+    <string name="error_network">Server je nedostupný. Skontrolujte internet a skúste znova.</string>
+    <string name="error_http">Server odpovedal chybou (%1$d).</string>
+
+    <string name="welcome_how">Ako začať</string>
+    <string name="welcome_step1">1. Na tomto telefóne otvorte e-mailovú pozvánku od organizátora.</string>
+    <string name="welcome_step2">2. Ťuknite na odkaz v nej; otvorí sa táto aplikácia s vaším pretekom.</string>
+    <string name="welcome_step3">3. Súhlaste so sledovaním a pred štartom ťuknite na „Spustiť sledovanie“.</string>
+    <string name="welcome_paste">Ak sa odkaz otvorí v prehliadači, skopírujte ho a vložte sem:</string>
+    <string name="welcome_invalid">Toto nie je platný odkaz pozvánky.</string>
+    <string name="welcome_continue">Pokračovať</string>
+    <string name="welcome_iphone">Na iPhone použite aplikáciu OwnTracks podľa návodu na stránke pozvánky.</string>
+
+    <string name="pair_title">Váš pretek</string>
+    <string name="pair_link_problem">Odkaz nefunguje</string>
+    <string name="pair_renew">Pošlite mi nový odkaz e-mailom</string>
+    <string name="pair_renewed">Nový odkaz sme poslali na váš e-mail.</string>
+    <string name="pair_event_finished">Podujatie už skončilo; nie je čo sledovať.</string>
+    <string name="pair_replaces">Telefón je nastavený pre „%1$s“. Pokračovaním toto nastavenie nahradíte.</string>
+    <string name="pair_phone_set_up">Telefón už bol nastavený (napr. v OwnTracks). Po pokračovaní predchádzajúce nastavenie prestane fungovať a sledovanie pobeží v tejto aplikácii.</string>
+    <string name="pair_nickname">Prezývka pre divákov (nepovinné, max. 30 znakov)</string>
+
+    <string name="consent_title">Súhlas so sledovaním</string>
+    <string name="consent_organizer">Organizátor vidí vašu polohu presne a hneď.</string>
+    <string name="consent_spectators">Diváci ju vidia oneskorene a len počas pretekov.</string>
+    <string name="consent_retention">Polohy sa uchovávajú 30 dní po skončení podujatia, potom sa zmažú. Vymazanie môžete kedykoľvek požiadať u organizátora.</string>
+    <string name="consent_app_stops">Aplikácia posiela polohu len keď je sledovanie zapnuté a po skončení preteku sa vypne sama.</string>
+    <string name="consent_privacy">Zásady ochrany osobných údajov</string>
+    <string name="consent_location">Súhlasím so zdieľaním mojej polohy počas pretekov.</string>
+    <string name="consent_show_name">Diváci môžu vidieť moje meno (inak len štartové číslo).</string>
+    <string name="consent_agree">Súhlasím a pokračovať</string>
+
+    <string name="home_own_start">Váš štart: %1$s</string>
+    <string name="home_in">o %1$s</string>
+    <string name="home_start">Spustiť sledovanie</string>
+    <string name="home_start_hint">Zapnite ho pred štartom, najlepšie keď prídete do štartového priestoru. Do 10 minút pred štartom telefón šetrí batériu.</string>
+    <string name="home_stop">Ukončiť sledovanie</string>
+    <string name="home_auto_stop">Sledovanie sa vypne samo, keď organizátor ukončí pretek.</string>
+    <string name="home_stop_confirm_title">Ukončiť sledovanie?</string>
+    <string name="home_stop_confirm_text">Organizátor ani diváci už neuvidia, kde ste. Ukončite ho len ak ste dorazili do cieľa alebo ste z preteku odstúpili.</string>
+    <string name="home_unpair">Odstrániť pretek z telefónu</string>
+    <string name="home_unpair_text">Aplikácia zabudne tento pretek a vypne sledovanie. Na opätovné sledovanie budete potrebovať odkaz z pozvánky.</string>
+    <string name="home_safety">V núdzi volajte organizátora alebo 112. Aplikácia pomáha organizátorovi, nie je to bezpečnostný systém. Majte nabitý telefón a počas preteku nezapínajte šetrič batérie.</string>
+
+    <string name="checks_title">Kontrola telefónu</string>
+    <string name="check_location">Presná poloha povolená</string>
+    <string name="check_location_on">Poloha zapnutá</string>
+    <string name="check_notifications">Upozornenia povolené</string>
+    <string name="check_battery">Batéria: bez obmedzení pre túto aplikáciu</string>
+    <string name="check_allow">Povoliť</string>
+    <string name="check_turn_on">Zapnúť</string>
+    <string name="vendor_xiaomi">Xiaomi: aj Nastavenia → Aplikácie → PositionTracker → Automatické spustenie zapnuté, Šetrič batérie → Bez obmedzení.</string>
+    <string name="vendor_huawei">Huawei/Honor: aj Nastavenia → Batéria → Spúšťanie aplikácií → PositionTracker → Spravovať ručne, všetky prepínače zapnuté.</string>
+    <string name="vendor_samsung">Samsung: aj Nastavenia → Batéria → Limity používania na pozadí: PositionTracker nesmie byť medzi „Uspatými aplikáciami“.</string>
+    <string name="vendor_oppo">V nastaveniach batérie povoľte pre PositionTracker aj aktivitu na pozadí / automatické spúšťanie.</string>
+
+    <string name="status_off">Sledovanie je vypnuté</string>
+    <string name="status_starting">Hľadám vašu polohu…</string>
+    <string name="status_live">Vaša poloha sa odosiela</string>
+    <string name="status_waiting_event">Sledovanie beží; organizátor ešte nespustil podujatie</string>
+    <string name="status_no_location">Poloha nie je dostupná</string>
+    <string name="status_interrupted">Sledovanie bolo prerušené – spustite ho znova</string>
+    <string name="status_overdue">Sledovanie sa vypnulo samo 12 hodín po vašom štarte</string>
+    <string name="status_event_not_started">Organizátor ešte nespustil podujatie; polohy sa začnú prijímať, keď bude naživo.</string>
+    <string name="status_warmup">Pred štartom: poloha raz za %1$d s kvôli batérii.</string>
+    <string name="kv_last_fix">Posledná poloha</string>
+    <string name="kv_last_sent">Posledné odoslanie</string>
+    <string name="kv_queued">Čaká na odoslanie</string>
+    <string name="problem_not_found">Server vás v tomto podujatí už nepozná. Obráťte sa na organizátora.</string>
+    <string name="problem_rejected">Server niektoré polohy odmietol.</string>
+
+    <string name="light_good">Organizátor dostáva vašu polohu</string>
+    <string name="light_warning">Organizátor dostáva polohu s problémami</string>
+    <string name="light_silent">Organizátor už chvíľu nedostal vašu polohu</string>
+    <string name="light_waiting">Organizátor zatiaľ nedostal žiadnu polohu</string>
+    <string name="hint_clock">Hodiny telefónu nesedia; zapnite automatický dátum a čas.</string>
+    <string name="hint_accuracy">Poloha je nepresná; choďte von pod otvorené nebo.</string>
+    <string name="hint_battery">Batéria je slabá; nabite telefón.</string>
+    <string name="hint_rejected">Server niektoré polohy odmietol.</string>
+    <string name="hint_early">Skúška pred štartom je v poriadku: polohy prichádzajú, zaznamenávať sa začnú od štartu.</string>
+
+    <string name="ended_finished_title">Pretek skončil</string>
+    <string name="ended_finished_text">„%1$s“ skončil. Sledovanie je vypnuté a údaje preteku boli z telefónu zmazané. Ďakujeme!</string>
+    <string name="ended_revoked_title">Sledovanie bolo vypnuté</string>
+    <string name="ended_revoked_text">Tento telefón už nie je nastavený pre pretek: nastavili ste iný telefón, alebo ho odstránil organizátor. Ak chcete sledovať týmto telefónom, otvorte znova odkaz z pozvánky.</string>
+
+    <string name="notif_title">Sledovanie: %1$s</string>
+    <string name="notif_starting">Hľadám vašu polohu…</string>
+    <string name="notif_live">Poloha odoslaná pred %1$s</string>
+    <string name="notif_waiting">Čaká sa, kým organizátor spustí podujatie</string>
+    <string name="notif_no_location">Poloha nie je dostupná</string>
+    <string name="notif_finished_title">Pretek skončil, sledovanie je vypnuté</string>
+    <string name="notif_finished_text">„%1$s“ skončil. PositionTracker už nepoužíva vašu polohu.</string>
+    <string name="notif_revoked_title">Sledovanie bolo vypnuté</string>
+    <string name="notif_revoked_text">Tento telefón už nie je nastavený pre pretek.</string>
+    <string name="notif_interrupted_title">Sledovanie bolo prerušené</string>
+    <string name="notif_interrupted_text">Otvorte PositionTracker a ťuknite na „Spustiť sledovanie“.</string>
+
+    <string name="update_available">Je dostupná nová verzia %1$s.</string>
+    <string name="update_download">Stiahnuť</string>
+    <plurals name="status_offline">
+        <item quantity="one">Bez spojenia; čaká %1$d poloha</item>
+        <item quantity="few">Bez spojenia; čakajú %1$d polohy</item>
+        <item quantity="many">Bez spojenia; čaká %1$d polôh</item>
+        <item quantity="other">Bez spojenia; čaká %1$d polôh</item>
+    </plurals>
+    <plurals name="notif_offline">
+        <item quantity="one">Bez spojenia, čaká %1$d poloha</item>
+        <item quantity="few">Bez spojenia, čakajú %1$d polohy</item>
+        <item quantity="many">Bez spojenia, čaká %1$d polôh</item>
+        <item quantity="other">Bez spojenia, čaká %1$d polôh</item>
+    </plurals>
+</resources>

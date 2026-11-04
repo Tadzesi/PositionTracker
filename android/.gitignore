@@ -1,0 +1,12 @@
+.gradle/
+.kotlin/
+build/
+local.properties
+.idea/
+*.iml
+captures/
+# release signing: the keystore and its passwords live outside the repository (see README.md)
+*.jks
+*.keystore
+signing.properties
+dist/

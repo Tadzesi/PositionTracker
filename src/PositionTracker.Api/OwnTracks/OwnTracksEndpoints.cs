@@ -68,7 +68,7 @@ public static class OwnTracksEndpoints
         if (context.Request.ContentLength > MaxBodyBytes) return TooLarge();
         try
         {
-            if (await IsFinishedAsync(context, registry, caller.EventId))
+            if (await IngestEndpoints.IsFinishedAsync(context, registry, caller.EventId))
             {
                 await NoteAfterFinishAsync(context, caller.EventId, caller.ParticipantId);
                 return Stop();
@@ -99,21 +99,6 @@ public static class OwnTracksEndpoints
             return await IngestEndpoints.ApplyAsync(context, caller.EventId, runtime, caller.ParticipantId, TokenService.Hash(password!),
                 batch, fixLimiter, history, _ => Ignored());
         }
-    }
-
-    /// <summary>
-    /// Whether the event is finished: the registry flag, or, when the runtime already left the memory, the stored event state.
-    /// An event that is not live yet is not finished (its phones must keep sending test positions). The stored state is
-    /// cached (<see cref="EventFinishedCache"/>).
-    /// </summary>
-    private static async Task<bool> IsFinishedAsync(HttpContext context, EventRegistry registry, string eventId)
-    {
-        if (registry.IsFinished(eventId)) return true;
-        if (registry.Get(eventId) is not null || !Guid.TryParse(eventId, out var id)) return false;
-        var services = context.RequestServices;
-        if (!services.GetRequiredService<IOptions<PersistenceOptions>>().Value.Enabled) return false;
-        return await services.GetRequiredService<EventFinishedCache>().GetAsync(eventId, () => services.GetRequiredService<AppDbContext>()
-            .Events.AsNoTracking().AnyAsync(e => e.Id == id && e.State == EventState.Finished, context.RequestAborted));
     }
 
     /// <summary>

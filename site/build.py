@@ -253,6 +253,15 @@ def main():
     shutil.copytree(os.path.join(HERE, 'assets'), os.path.join(DIST, 'assets'))
     if os.path.isdir(os.path.join(HERE, 'perf')):  # the load-test report (built by perf/report/build.py)
         shutil.copytree(os.path.join(HERE, 'perf'), os.path.join(DIST, 'perf'))
+    # the Android app download page (/tracker/android/) and the signed APK + latest.json made by android/publish.py
+    shutil.copytree(os.path.join(HERE, 'android'), os.path.join(DIST, 'android'))
+    apk_dist = os.path.join(HERE, '..', 'android', 'dist')
+    if os.path.isfile(os.path.join(apk_dist, 'positiontracker.apk')):
+        for f in os.listdir(apk_dist):
+            shutil.copy(os.path.join(apk_dist, f), os.path.join(DIST, 'android'))
+    else:
+        print('WARNING: android/dist/positiontracker.apk is missing (run android/publish.py); the download page has no APK',
+              file=sys.stderr)
     for lang, path in (('sk', 'index.html'), ('en', 'en/index.html')):
         open(os.path.join(DIST, path), 'w', encoding='utf-8').write(render(lang))
     seo = os.path.join(DIST, 'seo')

@@ -104,6 +104,7 @@ app.MapParticipantLinkEndpoints();
 app.MapOperationsEndpoints();
 app.MapIngestEndpoints();
 app.MapOwnTracksEndpoints();
+app.MapDeviceSessionEndpoints();
 app.MapLiveEndpoints();
 app.MapDemoEndpoints();
 app.MapOpsEndpoints();

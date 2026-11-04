@@ -74,6 +74,7 @@ function Flow({ token, view, reload }: { token: string; view: LinkView; reload: 
           <StopTrackingPanel />
         </>) : (
         <>
+          <AndroidApp token={token} />
           <Step1 token={token} view={view} reload={reload} />
           {me.status === 'Confirmed' && <ConnectionCard token={token} initial={view.link ?? null} />}
           {phoneIsSetUp && (
@@ -161,7 +162,7 @@ function ConnectionCard({ token, initial }: { token: string; initial: LinkView['
           {health.accuracyM != null && ` · ${t('presnosť', 'accuracy')} ${Math.round(health.accuracyM)} m`}
         </p>)}
       {poll.error != null && <p className="mute">{t('Stránka sa nevie spojiť so serverom – skontrolujte internet.', 'This page cannot reach the server – check your internet connection.')}</p>}
-      <p className="mute">{t('Skúška pred štartom: v OwnTracks pošlite polohu a do 10 sekúnd by sa tu mal objaviť zelený stav.', 'Test before the start: send a position in OwnTracks and a green state should appear here within 10 seconds.')}</p>
+      <p className="mute">{t('Skúška pred štartom: spustite sledovanie v aplikácii (alebo v OwnTracks pošlite polohu) a do 10 sekúnd by sa tu mal objaviť zelený stav.', 'Test before the start: start tracking in the app (or send a position in OwnTracks) and a green state should appear here within 10 seconds.')}</p>
     </div>
   );
 }
@@ -239,6 +240,57 @@ function Step2({ token, onToken, replaces = false }: { token: string; onToken: (
   );
 }
 
+/** The production app root; the Android app accepts invitations only for it (a debug build also for other servers). */
+const PRODUCTION_APP = 'https://www.lab463.com/tracker/app';
+/** The download page of the Android app (static, next to the product page). */
+const ANDROID_PAGE = 'https://www.lab463.com/tracker/android/';
+
+/**
+ * Android: the PositionTracker app is the recommended tracker (one tap to start, switches itself off after the race).
+ * "Open in the app" hands this invitation to the app (an intent link; without the app Chrome opens the download page).
+ * The app confirms and consents itself, so this works before or instead of the steps below. On a computer: a hint to
+ * open the invitation on the phone. Nothing on an iPhone (OwnTracks below).
+ */
+function AndroidApp({ token }: { token: string }) {
+  const { t } = useI18n();
+  const ua = navigator.userAgent;
+  const android = /Android/i.test(ua);
+  const ios = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  if (ios) return null;
+  const root = `${location.origin}${BASE}`;
+  const base = root === PRODUCTION_APP ? '' : `&base=${encodeURIComponent(root)}`;
+  const intent = `intent://p?token=${encodeURIComponent(token)}${base}#Intent;scheme=positiontracker;package=com.lab463.positiontracker;`
+    + `S.browser_fallback_url=${encodeURIComponent(ANDROID_PAGE)};end`;
+  if (!android) return (
+    <div className="card stack">
+      <h2>{t('Telefón s Androidom?', 'An Android phone?')}</h2>
+      <p className="mute">{t('Otvorte túto pozvánku na telefóne (e-mail alebo QR kód nižšie) a použite aplikáciu PositionTracker – sledovanie zapnete jedným ťuknutím a po preteku sa vypne samo.',
+        'Open this invitation on the phone (the email or the QR code below) and use the PositionTracker app – one tap starts tracking and it switches itself off after the race.')}</p>
+      <div className="row"><a className="btn small ghost" href={ANDROID_PAGE} target="_blank" rel="noopener noreferrer"><span>{t('O aplikácii pre Android', 'About the Android app')}</span></a></div>
+    </div>
+  );
+  return (
+    <div className="card stack">
+      <h2>{t('Aplikácia PositionTracker (odporúčané)', 'PositionTracker app (recommended)')}</h2>
+      <ol>
+        <li>{t('Nainštalujte aplikáciu (ak ju ešte nemáte):', 'Install the app (if you do not have it yet):')}
+          <div className="row" style={{ margin: '10px 0' }}>
+            <a className="btn" href={ANDROID_PAGE}><span>{t('Stiahnuť aplikáciu', 'Download the app')}</span></a>
+          </div>
+        </li>
+        <li>{t('Otvorte v nej túto pozvánku – potvrdenie účasti a súhlas urobíte priamo v aplikácii:', 'Open this invitation in it – you confirm and consent right in the app:')}
+          <div className="row" style={{ margin: '10px 0' }}>
+            <a className="btn primary" href={intent}><span>{t('Otvoriť v aplikácii', 'Open in the app')}</span></a>
+          </div>
+        </li>
+        <li>{t('Pred štartom ťuknite v aplikácii na „Spustiť sledovanie“. Po skončení preteku sa vypne sama.', 'Before your start tap "Start tracking" in the app. It switches itself off when the race is over.')}</li>
+      </ol>
+      <p className="mute">{t('Aplikácia nie je v Google Play; inštaluje sa zo stránky lab463.com. Ak s ňou máte problém, použite nižšie aplikáciu OwnTracks.',
+        'The app is not on Google Play; it is installed from lab463.com. If it does not work for you, use the OwnTracks app below.')}</p>
+    </div>
+  );
+}
+
 function Step3({ token, deviceToken }: { token: string; deviceToken: string }) {
   const { t, lang } = useI18n();
   const setup = useLoad(() => post<Setup>(`/api/p/${encodeURIComponent(token)}/owntracks-config`, { deviceToken }), [token, deviceToken]);
@@ -248,7 +300,7 @@ function Step3({ token, deviceToken }: { token: string; deviceToken: string }) {
   }, [setup.data]);
   return (
     <div className="card stack">
-      <h2>3 · {t('Nastavenie telefónu (OwnTracks)', 'Phone setup (OwnTracks)')}</h2>
+      <h2>3 · {t('Nastavenie telefónu (OwnTracks – iPhone, alebo Android bez aplikácie PositionTracker)', 'Phone setup (OwnTracks – iPhone, or Android without the PositionTracker app)')}</h2>
       <ErrorBanner error={setup.error} />
       {!setup.data ? <Loading /> : (
         <>

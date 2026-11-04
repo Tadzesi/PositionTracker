@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">PositionTracker</string>
+    <string name="channel_tracking">Tracking</string>
+    <string name="channel_events">Race messages</string>
+
+    <string name="ok">OK</string>
+    <string name="back">Back</string>
+    <string name="cancel">Cancel</string>
+    <string name="loading">Loading…</string>
+    <string name="ago">%1$s ago</string>
+    <string name="error_network">The server cannot be reached. Check your internet connection and try again.</string>
+    <string name="error_http">The server answered with an error (%1$d).</string>
+
+    <string name="welcome_how">How to start</string>
+    <string name="welcome_step1">1. Open the invitation email from the organizer on this phone.</string>
+    <string name="welcome_step2">2. Tap the link in it; this app opens and shows your race.</string>
+    <string name="welcome_step3">3. Agree to the tracking and tap “Start tracking” before your start.</string>
+    <string name="welcome_paste">If the link opens in the browser instead, copy it and paste it here:</string>
+    <string name="welcome_invalid">This is not a valid invitation link.</string>
+    <string name="welcome_continue">Continue</string>
+    <string name="welcome_iphone">On an iPhone use the OwnTracks app as described on the invitation page.</string>
+
+    <string name="pair_title">Your race</string>
+    <string name="pair_link_problem">This link does not work</string>
+    <string name="pair_renew">Email me a new link</string>
+    <string name="pair_renewed">We have sent a new link to your email address.</string>
+    <string name="pair_event_finished">This event has already finished; nothing to track.</string>
+    <string name="pair_replaces">This phone is set up for “%1$s”. Continuing replaces that setup.</string>
+    <string name="pair_phone_set_up">Your phone has already been set up (for example in OwnTracks). After you continue, the previous setup stops working; tracking runs in this app.</string>
+    <string name="pair_nickname">Nickname for spectators (optional, max. 30 characters)</string>
+
+    <string name="consent_title">Consent to tracking</string>
+    <string name="consent_organizer">The organizer sees your position exactly and immediately.</string>
+    <string name="consent_spectators">Spectators see it delayed, and only during the race.</string>
+    <string name="consent_retention">Positions are kept for 30 days after the event, then deleted. You can ask the organizer to delete them at any time.</string>
+    <string name="consent_app_stops">The app sends your position only while tracking is on, and switches itself off when the race is over.</string>
+    <string name="consent_privacy">Privacy notice</string>
+    <string name="consent_location">I agree to share my location during the race.</string>
+    <string name="consent_show_name">Spectators may see my name (otherwise only my bib).</string>
+    <string name="consent_agree">Agree and continue</string>
+
+    <string name="home_own_start">Your start: %1$s</string>
+    <string name="home_in">in %1$s</string>
+    <string name="home_start">Start tracking</string>
+    <string name="home_start_hint">Switch it on before your start, best when you arrive at the start area. Until 10 minutes before the start the phone saves battery.</string>
+    <string name="home_stop">Stop tracking</string>
+    <string name="home_auto_stop">Tracking switches itself off when the organizer finishes the race.</string>
+    <string name="home_stop_confirm_title">Stop tracking?</string>
+    <string name="home_stop_confirm_text">The organizer and the spectators will no longer see where you are. Stop only if you have finished or left the race.</string>
+    <string name="home_unpair">Remove this race from the phone</string>
+    <string name="home_unpair_text">The app forgets this race and stops tracking. To track again you need the invitation link.</string>
+    <string name="home_safety">In an emergency call the organizer or 112. This app helps the organizer, it is not a safety system. Keep the phone charged and do not switch on battery saver during the race.</string>
+
+    <string name="checks_title">Phone check</string>
+    <string name="check_location">Precise location allowed</string>
+    <string name="check_location_on">Location switched on</string>
+    <string name="check_notifications">Notifications allowed</string>
+    <string name="check_battery">Battery: unrestricted for this app</string>
+    <string name="check_allow">Allow</string>
+    <string name="check_turn_on">Turn on</string>
+    <string name="vendor_xiaomi">Xiaomi: also Settings → Apps → PositionTracker → Autostart on, Battery saver → No restrictions.</string>
+    <string name="vendor_huawei">Huawei/Honor: also Settings → Battery → App launch → PositionTracker → Manage manually, all switches on.</string>
+    <string name="vendor_samsung">Samsung: also Settings → Battery → Background usage limits: PositionTracker must not be in “Sleeping apps”.</string>
+    <string name="vendor_oppo">Also allow background activity / auto launch for PositionTracker in the battery settings.</string>
+
+    <string name="status_off">Tracking is off</string>
+    <string name="status_starting">Looking for your position…</string>
+    <string name="status_live">Your position is being sent</string>
+    <string name="status_waiting_event">Tracking is on; the organizer has not started the event yet</string>
+    <string name="status_no_location">Location is not available</string>
+    <string name="status_interrupted">Tracking was interrupted – start it again</string>
+    <string name="status_overdue">Tracking switched itself off 12 hours after your start</string>
+    <string name="status_event_not_started">The organizer has not started the event yet; positions are accepted once it is live.</string>
+    <string name="status_warmup">Before the start: one position every %1$d s to save battery.</string>
+    <string name="kv_last_fix">Last position</string>
+    <string name="kv_last_sent">Last sent</string>
+    <string name="kv_queued">Waiting to be sent</string>
+    <string name="problem_not_found">The server does not know you in this event any more. Ask the organizer.</string>
+    <string name="problem_rejected">The server refused some positions.</string>
+
+    <string name="light_good">The organizer receives your position</string>
+    <string name="light_warning">The organizer receives your position with problems</string>
+    <string name="light_silent">The organizer has not received your position for a while</string>
+    <string name="light_waiting">The organizer has not received any position yet</string>
+    <string name="hint_clock">The phone clock is wrong; switch on automatic date and time.</string>
+    <string name="hint_accuracy">The position is inaccurate; go outside under the open sky.</string>
+    <string name="hint_battery">The battery is low; charge the phone.</string>
+    <string name="hint_rejected">Some positions were refused by the server.</string>
+    <string name="hint_early">Test before the start is OK: positions arrive, they are recorded from the start.</string>
+
+    <string name="ended_finished_title">The race is over</string>
+    <string name="ended_finished_text">“%1$s” has finished. Tracking is off and the race data were deleted from this phone. Thank you!</string>
+    <string name="ended_revoked_title">Tracking was switched off</string>
+    <string name="ended_revoked_text">This phone is no longer set up for the race: it was set up again on another phone, or the organizer removed it. Open the invitation link again if you want to track with this phone.</string>
+
+    <string name="notif_title">Tracking: %1$s</string>
+    <string name="notif_starting">Looking for your position…</string>
+    <string name="notif_live">Position sent %1$s ago</string>
+    <string name="notif_waiting">Waiting for the organizer to start the event</string>
+    <string name="notif_no_location">Location is not available</string>
+    <string name="notif_finished_title">The race is over, tracking is off</string>
+    <string name="notif_finished_text">“%1$s” has finished. PositionTracker no longer uses your location.</string>
+    <string name="notif_revoked_title">Tracking was switched off</string>
+    <string name="notif_revoked_text">This phone is no longer set up for the race.</string>
+    <string name="notif_interrupted_title">Tracking was interrupted</string>
+    <string name="notif_interrupted_text">Open PositionTracker and tap “Start tracking”.</string>
+
+    <string name="update_available">A new version %1$s is available.</string>
+    <string name="update_download">Download</string>
+    <plurals name="status_offline">
+        <item quantity="one">No connection; %1$d position is waiting</item>
+        <item quantity="other">No connection; %1$d positions are waiting</item>
+    </plurals>
+    <plurals name="notif_offline">
+        <item quantity="one">No connection, %1$d position waiting</item>
+        <item quantity="other">No connection, %1$d positions waiting</item>
+    </plurals>
+</resources>

@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using System.Globalization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Http.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using PositionTracker.Api.Auth;
 using PositionTracker.Api.Events;
@@ -16,7 +17,8 @@ namespace PositionTracker.Api.Endpoints;
 /// Device endpoints authenticated by a participant bearer token:
 /// <c>POST /api/events/{eventId}/positions</c> (202 with accepted/rejected counts) and
 /// <c>POST /api/events/{eventId}/actions</c> (204). A missing, unknown or revoked token is 401, a token of
-/// another event 403, an unknown event or participant 404, a finished event 409 <c>event_finished</c>, a malformed body 400, more than
+/// another event 403, an unknown event or participant 404, a finished event 409 <c>event_finished</c>, a database event that is not
+/// live yet 409 <c>event_not_live</c> (nothing is applied; the device waits), a malformed body 400, more than
 /// <see cref="MaxFixesPerBatch"/> fixes or a body over <see cref="MaxBodyBytes"/> 413. Fixes with invalid coordinates or poor accuracy are not errors;
 /// they are counted as rejected. Each token may make <see cref="RequestsPerMinute"/> requests per fixed
 /// one-minute window (429 with <c>Retry-After</c> beyond); unauthenticated requests share a window per remote IP.
@@ -39,7 +41,7 @@ public static class IngestEndpoints
 
     private static readonly TimeSpan RateLimitWindow = TimeSpan.FromMinutes(1);
 
-    private const string RateLimitPolicy = "device";
+    internal const string RateLimitPolicy = "device";
     private static readonly object CallerKey = new();
 
     /// <summary>Registers the per-token rate limiter used by <see cref="MapIngestEndpoints"/>.</summary>
@@ -79,7 +81,8 @@ public static class IngestEndpoints
         string eventId, HttpContext context, EventRegistry registry, FixRateLimiter fixLimiter, PersistenceQueue history,
         IOptions<JsonOptions> json)
     {
-        if (Authorize(context, eventId, registry, out var caller, out var runtime) is { } denied) return denied;
+        var (denied, caller, runtime) = await AuthorizeAsync(context, eventId, registry);
+        if (denied is not null) return denied;
 
         var (request, tooLarge) = await JsonBody.ReadAsync<IngestRequest>(context, json.Value.SerializerOptions, MaxBodyBytes);
         if (tooLarge is not null) return tooLarge;
@@ -165,7 +168,8 @@ public static class IngestEndpoints
     private static async Task<IResult> PostAction(
         string eventId, HttpContext context, EventRegistry registry, PersistenceQueue history, IOptions<JsonOptions> json)
     {
-        if (Authorize(context, eventId, registry, out var caller, out var runtime) is { } denied) return denied;
+        var (denied, caller, runtime) = await AuthorizeAsync(context, eventId, registry);
+        if (denied is not null) return denied;
 
         var (request, tooLarge) = await JsonBody.ReadAsync<ActionRequest>(context, json.Value.SerializerOptions, MaxBodyBytes);
         if (tooLarge is not null) return tooLarge;
@@ -191,26 +195,58 @@ public static class IngestEndpoints
     }
 
     /// <summary>
-    /// Returns the error result, or <c>null</c> with the caller and its event when access is allowed. An unknown
-    /// event or a participant missing from it is 404.
+    /// Returns the error result, or <c>null</c> with the caller and its event when access is allowed. A database event
+    /// without a runtime is 409 <c>event_finished</c> once it is finished (also after the runtime left the memory) and
+    /// 409 <c>event_not_live</c> before it goes live, so a device can tell "wait" from "stop". An unknown event or a
+    /// participant missing from it is 404.
     /// </summary>
-    private static IResult? Authorize(HttpContext context, string eventId, EventRegistry registry,
-        out Caller caller, out EventRuntime runtime)
+    private static async Task<(IResult? Denied, Caller Caller, EventRuntime Runtime)> AuthorizeAsync(
+        HttpContext context, string eventId, EventRegistry registry)
     {
-        caller = null!;
-        runtime = null!;
         if (Authenticate(context) is not { } c)
         {
             context.Response.Headers.WWWAuthenticate = "Bearer";
-            return Results.Unauthorized();
+            return (Results.Unauthorized(), null!, null!);
         }
-        if (!string.Equals(c.EventId, eventId, StringComparison.Ordinal)) return Results.StatusCode(StatusCodes.Status403Forbidden);
-        if (registry.Get(eventId) is not { } r || !r.HasParticipant(c.ParticipantId)) return Results.NotFound();
-        if (registry.IsFinished(eventId)) return EventErrors.Result(EventErrors.EventFinished);
-        caller = c;
-        runtime = r;
-        return null;
+        if (!string.Equals(c.EventId, eventId, StringComparison.Ordinal))
+            return (Results.StatusCode(StatusCodes.Status403Forbidden), null!, null!);
+        if (registry.Get(eventId) is not { } r)
+        {
+            if (!Guid.TryParse(eventId, out _)) return (Results.NotFound(), null!, null!);
+            try
+            {
+                var finished = await IsFinishedAsync(context, registry, eventId);
+                return (EventErrors.Result(finished ? EventErrors.EventFinished : EventErrors.EventNotLive), null!, null!);
+            }
+            catch (Exception ex) when (EventService.IsDatabaseFailure(ex) && !context.RequestAborted.IsCancellationRequested)
+            {
+                context.Response.Headers.RetryAfter = "1";
+                return (EventErrors.Result(EventErrors.Unavailable), null!, null!);
+            }
+        }
+        if (!r.HasParticipant(c.ParticipantId)) return (Results.NotFound(), null!, null!);
+        if (registry.IsFinished(eventId)) return (EventErrors.Result(EventErrors.EventFinished), null!, null!);
+        return (null, c, r);
     }
+
+    /// <summary>
+    /// Whether the event is finished: the registry flag, or, when the runtime already left the memory, the stored event state.
+    /// An event that is not live yet is not finished. The stored state is cached (<see cref="EventFinishedCache"/>).
+    /// Shared by the bearer endpoints, the device session and the OwnTracks adapter.
+    /// </summary>
+    internal static async Task<bool> IsFinishedAsync(HttpContext context, EventRegistry registry, string eventId)
+    {
+        if (registry.IsFinished(eventId)) return true;
+        if (registry.Get(eventId) is not null || !Guid.TryParse(eventId, out var id)) return false;
+        var services = context.RequestServices;
+        if (!services.GetRequiredService<IOptions<PersistenceOptions>>().Value.Enabled) return false;
+        return await services.GetRequiredService<OwnTracks.EventFinishedCache>().GetAsync(eventId, () => services.GetRequiredService<Data.AppDbContext>()
+            .Events.AsNoTracking().AnyAsync(e => e.Id == id && e.State == Data.Entities.EventState.Finished, context.RequestAborted));
+    }
+
+    /// <summary>The authenticated device of the request (event and participant id), or null; see <see cref="UseDeviceAuthentication"/>.</summary>
+    internal static (string EventId, string ParticipantId)? DeviceCaller(HttpContext context) =>
+        Authenticate(context) is { } c ? (c.EventId, c.ParticipantId) : null;
 
     /// <summary>
     /// The caller resolved by <see cref="UseDeviceAuthentication"/> (null when there was no valid bearer token). The
@@ -220,14 +256,15 @@ public static class IngestEndpoints
         context.Items.TryGetValue(CallerKey, out var cached) ? (Caller?)cached : null;
 
     /// <summary>
-    /// Resolves the bearer token of the device routes (<c>/api/events/{id}/positions|actions</c>) before the rate
+    /// Resolves the bearer token of the device routes (<c>/api/events/{id}/positions|actions</c>, <c>GET /api/device/session</c>) before the rate
     /// limiter: simulated events from memory, real events from the database (<see cref="ITokenService"/>), so a token
     /// revoked or re-issued is refused at once and database tokens survive a restart. A database failure is 503.
     /// </summary>
     public static IApplicationBuilder UseDeviceAuthentication(this IApplicationBuilder app) =>
         app.Use(async (context, next) =>
         {
-            if (HttpMethods.IsPost(context.Request.Method) && IsDeviceRoute(context.Request.Path)
+            if (((HttpMethods.IsPost(context.Request.Method) && IsDeviceRoute(context.Request.Path))
+                    || (HttpMethods.IsGet(context.Request.Method) && IsDeviceSessionRoute(context.Request.Path)))
                 && BearerToken(context.Request) is { } raw)
             {
                 try
@@ -278,6 +315,11 @@ public static class IngestEndpoints
         const string scheme = "Bearer ";
         return header.StartsWith(scheme, StringComparison.OrdinalIgnoreCase) ? header[scheme.Length..].Trim() : null;
     }
+
+    /// <summary>The device session of the Android app (<c>GET /api/device/session</c>, see <see cref="DeviceSessionEndpoints"/>).</summary>
+    private static bool IsDeviceSessionRoute(PathString path) =>
+        path.Equals(DeviceSessionEndpoints.SessionPath, StringComparison.OrdinalIgnoreCase)
+        || path.Equals(DeviceSessionEndpoints.SessionPath + "/", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsDeviceRoute(PathString path)
     {

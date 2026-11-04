@@ -54,6 +54,10 @@ public static class EventErrors
         "Podujatie už skončilo; polohy a akcie sa už neprijímajú.",
         "The event has finished; positions and actions are no longer accepted.");
 
+    public static readonly EventError EventNotLive = new(StatusCodes.Status409Conflict, "event_not_live",
+        "Podujatie ešte nebeží; polohy sa začnú prijímať, keď ho organizátor spustí.",
+        "The event is not live yet; positions are accepted once the organizer starts it.");
+
     public static readonly EventError GpxInvalid = new(StatusCodes.Status400BadRequest, "gpx_invalid",
         "Súbor GPX je neplatný (očakáva sa base64 dokumentu GPX s aspoň dvoma bodmi trasy).",
         "The GPX file is invalid (expected the base64 of a GPX document with at least two track points).", "gpxBase64");
