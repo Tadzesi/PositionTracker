@@ -12,7 +12,7 @@ Writes android/dist/ (ignored by git):
 
 site/build.py copies the folder to site/dist/android/ (deployed with the product page).
 """
-import glob, json, os, re, shutil, subprocess, sys
+import hashlib, glob, json, os, re, shutil, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APK = os.path.join(HERE, 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk')
@@ -49,7 +49,10 @@ def main():
     os.makedirs(DIST)
     shutil.copy(APK, os.path.join(DIST, 'positiontracker.apk'))
     shutil.copy(APK, os.path.join(DIST, 'positiontracker-%s.apk' % name))
-    json.dump({'versionCode': code, 'versionName': name, 'url': PUBLIC, 'certSha256': cert},
+    apk_hash = hashlib.sha256(open(APK, 'rb').read()).hexdigest()[:8]
+    # url: the download page (read by 1.0.0-1.0.1); apk: the file itself, with its hash so the CDN never serves an old one
+    json.dump({'versionCode': code, 'versionName': name, 'url': PUBLIC, 'apk': PUBLIC + 'positiontracker.apk?v=' + apk_hash,
+               'certSha256': cert},
               open(os.path.join(DIST, 'latest.json'), 'w', encoding='utf-8'), indent=2)
     json.dump([{'relation': ['delegate_permission/common.handle_all_urls'],
                 'target': {'namespace': 'android_app', 'package_name': PACKAGE, 'sha256_cert_fingerprints': [cert]}}],

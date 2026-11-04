@@ -96,6 +96,6 @@ data class StatusDto(val battery: Double?, val charging: Boolean?, val queue: In
 @Serializable
 data class IngestResult(val accepted: Int = 0, val rejected: Int = 0)
 
-/** Self-install update manifest next to the APK. */
+/** Self-install update manifest next to the APK: [url] is the download page, [apk] the APK itself (since 1.0.2). */
 @Serializable
-data class UpdateInfo(val versionCode: Int, val versionName: String, val url: String)
+data class UpdateInfo(val versionCode: Int, val versionName: String, val url: String, val apk: String? = null)

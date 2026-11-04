@@ -4,8 +4,12 @@ The native tracker of a race participant (Kotlin, Jetpack Compose, minSdk 26 / A
 the invitation link opens the app, the participant agrees once and taps **Start tracking**; tracking **switches itself off**
 when the organizer finishes the race. OwnTracks stays for iPhones and as the fallback.
 
-Distribution: **self-install APK** from <https://www.lab463.com/tracker/android/> (no Google Play). The app checks
-`/tracker/android/latest.json` and offers newer versions.
+Distribution: **self-install APK** from <https://www.lab463.com/tracker/android/> (no Google Play). The app reads
+`/tracker/android/latest.json` whenever it comes to the front (at most once an hour; a failed read is retried at the next
+resume) and shows a banner for a newer version; "Download" opens the APK itself (`apk`, with its hash) in the browser, the
+user opens the file and taps Update (Android does not let a self-installed app update itself silently). Versions up to 1.0.1
+checked only at a cold start and opened the download page (`url`). Test the check with a local manifest:
+`gradlew assembleDebug -PptUpdateUrl=http://10.0.2.2:8766/latest.json`.
 
 ## How it works
 

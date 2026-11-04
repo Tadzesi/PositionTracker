@@ -87,4 +87,18 @@ class ApiClientTest {
         server.shutdown()
         assertTrue(api.session("t") is ApiResult.Network)
     }
+
+    @Test
+    fun `the update manifest is read with and without the direct APK link`() = runTest {
+        server.enqueue(MockResponse().setBody(
+            """{"versionCode":3,"versionName":"1.0.2","url":"https://x/android/","apk":"https://x/android/positiontracker.apk?v=ab12cd34","certSha256":"AA"}"""))
+        server.enqueue(MockResponse().setBody("""{"versionCode":2,"versionName":"1.0.1","url":"https://x/android/","certSha256":"AA"}"""))
+        server.enqueue(MockResponse().setResponseCode(503))
+        val url = server.url("/tracker/android/latest.json").toString()
+
+        assertEquals(UpdateInfo(3, "1.0.2", "https://x/android/", "https://x/android/positiontracker.apk?v=ab12cd34"), ApiClient.updateInfo(url))
+        assertEquals(UpdateInfo(2, "1.0.1", "https://x/android/", null), ApiClient.updateInfo(url))
+        assertNull(ApiClient.updateInfo(url))
+        assertEquals("no-cache", server.takeRequest().getHeader("Cache-Control"))
+    }
 }

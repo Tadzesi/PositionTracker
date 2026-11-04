@@ -107,6 +107,7 @@
 
     <string name="update_available">Je dostupná nová verzia %1$s.</string>
     <string name="update_download">Stiahnuť</string>
+    <string name="update_hint">Ťuknite na Stiahnuť, otvorte stiahnutý súbor a ťuknite na Aktualizovať. Váš pretek aj nastavenia zostanú.</string>
     <plurals name="status_offline">
         <item quantity="one">Bez spojenia; čaká %1$d poloha</item>
         <item quantity="few">Bez spojenia; čakajú %1$d polohy</item>

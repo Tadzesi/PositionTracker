@@ -193,6 +193,8 @@ fun UpdateBanner(info: UpdateInfo) {
     val context = LocalContext.current
     Panel {
         Text(stringResource(R.string.update_available, info.versionName), fontWeight = FontWeight.SemiBold)
-        OutlinedButton(onClick = { openUrl(context, info.url) }) { Text(stringResource(R.string.update_download)) }
+        Text(stringResource(R.string.update_hint), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // the APK itself: the browser downloads it at once (older manifests have only the download page)
+        OutlinedButton(onClick = { openUrl(context, info.apk ?: info.url) }) { Text(stringResource(R.string.update_download)) }
     }
 }

@@ -2,6 +2,7 @@ package com.lab463.positiontracker.ui
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -15,20 +16,23 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.lab463.positiontracker.BuildConfig
 import com.lab463.positiontracker.PositionTrackerApp
 import com.lab463.positiontracker.core.PairingLink
 import com.lab463.positiontracker.net.ApiClient
 import com.lab463.positiontracker.net.UpdateInfo
+import kotlinx.coroutines.launch
 
 /**
  * The only activity. Routes: an opened invitation (email link or `positiontracker://p?token=…`) → pairing; a pairing
@@ -38,6 +42,8 @@ class MainActivity : ComponentActivity() {
     private val app get() = application as PositionTrackerApp
     private var pending by mutableStateOf<PairingLink?>(null)
     private var invalidLink by mutableStateOf(false)
+    /** When the update manifest was last read (elapsed time); 0 = not yet or the last read failed. */
+    private var lastUpdateCheck = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,8 +75,19 @@ class MainActivity : ComponentActivity() {
         var version by remember { mutableIntStateOf(0) }
         val refresh: () -> Unit = { version++ }
         var update by remember { mutableStateOf<UpdateInfo?>(null) }
-        LaunchedEffect(Unit) {
-            update = ApiClient.updateInfo(BuildConfig.UPDATE_URL)?.takeIf { it.versionCode > BuildConfig.VERSION_CODE }
+        val scope = rememberCoroutineScope()
+        // every time the app comes to the front (also from the background, without a cold start), at most once an hour;
+        // a failed read is retried at the next resume
+        LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+            val now = SystemClock.elapsedRealtime()
+            if (lastUpdateCheck == 0L || now - lastUpdateCheck >= UPDATE_CHECK_MS) {
+                lastUpdateCheck = now
+                scope.launch {
+                    val info = ApiClient.updateInfo(BuildConfig.UPDATE_URL)
+                    if (info == null) lastUpdateCheck = 0L
+                    else update = info.takeIf { it.versionCode > BuildConfig.VERSION_CODE }
+                }
+            }
         }
         val store = app.store
         val link = pending
@@ -91,5 +108,9 @@ class MainActivity : ComponentActivity() {
             }
             }
         }
+    }
+
+    private companion object {
+        const val UPDATE_CHECK_MS = 60 * 60 * 1000L
     }
 }

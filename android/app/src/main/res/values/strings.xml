@@ -108,6 +108,7 @@
 
     <string name="update_available">A new version %1$s is available.</string>
     <string name="update_download">Download</string>
+    <string name="update_hint">Tap Download, open the downloaded file and tap Update. Your race and settings stay.</string>
     <plurals name="status_offline">
         <item quantity="one">No connection; %1$d position is waiting</item>
         <item quantity="other">No connection; %1$d positions are waiting</item>

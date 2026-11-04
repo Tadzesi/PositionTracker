@@ -23,8 +23,8 @@ android {
         applicationId = "com.lab463.positiontracker"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.0.2"
         // The server the app pairs with; pairing links must point here (debug builds accept any server).
         buildConfigField("String", "DEFAULT_BASE_URL", "\"https://www.lab463.com/tracker/app\"")
         // Self-install updates: {"versionCode":2,"versionName":"1.0.1","url":"https://…/positiontracker.apk"}
@@ -43,6 +43,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            // tests of the update check: -PptUpdateUrl=http://10.0.2.2:8766/latest.json (a local manifest; release builds ignore it)
+            (findProperty("ptUpdateUrl") as String?)?.let { buildConfigField("String", "UPDATE_URL", "\"$it\"") }
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
