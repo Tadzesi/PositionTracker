@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using PositionTracker.Api.Auth;
 using PositionTracker.Api.Persistence;
 using PositionTracker.Data.Entities;
@@ -27,7 +28,7 @@ public sealed class DeviceTokenWarmerTests(PostgresFixture postgres) : IClassFix
         var cache = host.Services.GetRequiredService<DeviceTokenCache>();
         Assert.Null(cache.Get(TokenService.Hash(keep.Token)));
 
-        await host.Services.GetRequiredService<DeviceTokenWarmer>().RunOnceAsync(default); // (the hosted loop may have run already)
+        await host.Services.GetRequiredService<DeviceTokenWarmer>().RunOnceAsync(default);
 
         Assert.Equal((ev.ToString("D"), keep.Participant.ToString("D")), cache.Get(TokenService.Hash(keep.Token)));
         Assert.Null(cache.Get(TokenService.Hash(drop.Token)));
@@ -73,7 +74,9 @@ public sealed class DeviceTokenWarmerTests(PostgresFixture postgres) : IClassFix
 
     private ApiFactory Host()
     {
-        var factory = new ApiFactory { SeedTestEvent = false };
+        // Without the hosted loop: advancing the fake clock past its 30 s tick would run a warm-up concurrently with the
+        // assertions. The tests call RunOnceAsync themselves.
+        var factory = new ApiFactory { SeedTestEvent = false, ConfigureServices = WithoutHostedWarmer };
         factory.Settings["ConnectionStrings:Default"] = postgres.NewDatabase();
         factory.Settings["Persistence:MigrateOnStartup"] = "true";
         factory.Settings["Live:IntervalMs"] = "3600000";
@@ -81,5 +84,21 @@ public sealed class DeviceTokenWarmerTests(PostgresFixture postgres) : IClassFix
         factory.Settings["Email:Outbox:PollIntervalSeconds"] = "3888000";
         factory.Settings["Accounts:MinResponseMilliseconds"] = "0";
         return factory;
+    }
+
+    private static void WithoutHostedWarmer(IServiceCollection services)
+    {
+        for (var i = 0; i < services.Count; i++)
+        {
+            if (services[i].ServiceType != typeof(IHostedService) || services[i].ImplementationFactory is not { } create) continue;
+            services[i] = ServiceDescriptor.Singleton<IHostedService>(sp =>
+                create(sp) is var hosted && hosted is DeviceTokenWarmer ? new NoLoop() : (IHostedService)hosted);
+        }
+    }
+
+    private sealed class NoLoop : IHostedService
+    {
+        public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }

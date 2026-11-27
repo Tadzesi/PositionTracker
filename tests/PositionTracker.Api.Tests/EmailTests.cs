@@ -964,7 +964,10 @@ public sealed class EmailTests(PostgresFixture postgres) : IClassFixture<Postgre
     private static string Render(MimeMessage message)
     {
         using var stream = new MemoryStream();
-        message.WriteTo(FormatOptions.Default.Clone(), stream);
+        // CRLF as on the wire: FormatOptions.Default uses the platform newline (LF on Linux)
+        var options = FormatOptions.Default.Clone();
+        options.NewLineFormat = NewLineFormat.Dos;
+        message.WriteTo(options, stream);
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 

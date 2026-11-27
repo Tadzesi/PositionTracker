@@ -64,5 +64,6 @@ export default defineConfig({
       },
     },
   },
-  test: { environment: 'jsdom', globals: true, setupFiles: ['./src/test-setup.ts'] },
+  // The UI formats times in the local time zone; the expectations are written for Slovakia, so pin it (CI runs in UTC).
+  test: { environment: 'jsdom', globals: true, setupFiles: ['./src/test-setup.ts'], env: { TZ: 'Europe/Bratislava' } },
 });
