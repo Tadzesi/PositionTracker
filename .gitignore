@@ -10,3 +10,12 @@ site/dist/
 
 # load-test raw data (tokens, CSVs) — never committed
 perf/data/
+
+# local noise (added during workspace reorganization 2026-11-27)
+.claude/worktrees/
+.claude/settings.local.json
+.claude-backup/
+__pycache__/
+node_modules/
+publish/
+publish-linux/

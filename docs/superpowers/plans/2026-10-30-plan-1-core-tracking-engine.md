@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Platform: .NET 10 (SDK 10.0.x installed), `Nullable` enabled, `TreatWarningsAsErrors` true. Project root is `C:\Projects\development\lab463.com\PossitionTracker`; it is not yet a git repository (Task 1 runs `git init`).
+- Platform: .NET 10 (SDK 10.0.x installed), `Nullable` enabled, `TreatWarningsAsErrors` true. Project root is `C:\Projects\production\PossitionTracker`; it is not yet a git repository (Task 1 runs `git init`).
 - All code, comments, commit messages in English. Commit messages are conventional (`feat:`, `test:`, `chore:`).
 - Progress is **total distance** = laps completed × lap length + progress in the lap, and is monotonic. Rank, gaps, ETA, finish use total distance. One lap count per event. A course with `laps > 1` must be closed (end within 100 m of start).
 - **Elevation comes from the course profile at the matched position, never from GPS altitude.** Ascent/descent are counted with a 3 m hysteresis on a smoothed profile.
