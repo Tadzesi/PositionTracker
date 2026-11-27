@@ -1,5 +1,9 @@
 # PositionTracker
 
+[![CI](https://github.com/Tadzesi/PositionTracker/actions/workflows/ci.yml/badge.svg)](https://github.com/Tadzesi/PositionTracker/actions/workflows/ci.yml)
+
+Live demo and guides: <https://www.lab463.com/tracker/>
+
 Live position tracking for cycling and running events. Participants' phones send GPS fixes; the back end
 matches them onto the course (laps, checkpoints, shared roads), computes distance, speed, ranking, time gaps,
 segment colours, ETA and organizer alarms (SOS, stopped, off course, offline, low battery, laps inferred), and broadcasts an
